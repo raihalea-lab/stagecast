@@ -120,8 +120,10 @@ export class ControlPlaneStack extends Stack {
     });
 
     // --- 制御 API: API Gateway (HTTP API) + Lambda (DESIGN.md 3.1, ADR D-5) ---
-    // フェーズ2で control-api の実ハンドラ資産に差し替える。ここでは synth を通す
-    // ためのプレースホルダを置く。リクエスト課金のため非配信時はほぼ無料 (N-1)。
+    // 実ハンドラは @stagecast/control-api の `handler` (index.ts) に実装済み。
+    // デプロイ時は aws_lambda_nodejs.NodejsFunction でバンドルして差し替える想定。
+    // synth を build 手順から独立させるため、ここでは同等の応答を返す軽量プレースホルダを
+    // 資産として置く。リクエスト課金のため非配信時はほぼ無料 (N-1)。
     const controlApiFn = new lambda.Function(this, 'ControlApiFunction', {
       runtime: lambda.Runtime.NODEJS_22_X,
       handler: 'index.handler',
