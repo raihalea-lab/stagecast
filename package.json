@@ -11,7 +11,7 @@
     "build": "pnpm -r --if-present build",
     "test": "pnpm -r --if-present test",
     "typecheck": "pnpm -r --if-present typecheck",
-    "lint": "eslint .",
+    "lint": "eslint . --ext .ts,.tsx,.cjs",
     "format": "prettier --write .",
     "format:check": "prettier --check ."
   },

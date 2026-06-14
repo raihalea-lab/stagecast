@@ -50,7 +50,19 @@ StreamYard 型の YouTube ライブ配信プラットフォーム。配信管理
 DESIGN.md           # 設計の正
 ```
 
-現在の実装状況: **フェーズ 0 (足場 + `packages/shared` の中核型) 完了**。詳細は `docs/PLAN.md`。
+現在の実装状況: **フェーズ 0〜6 すべて実装済み**（`pnpm build` / `typecheck` / `lint` / `test` 全通過、66 tests）。
+外部依存（AWS SDK・LiveKit・YouTube 等）は差し替え可能なインターフェース + フェイクで実装し、
+テストは外部接続なしで完結する。実 AWS への結線・デプロイは残作業。詳細は `docs/PLAN.md`。
+
+| パッケージ                    | 役割                                                                   | フェーズ |
+| ----------------------------- | ---------------------------------------------------------------------- | -------- |
+| `packages/shared`             | 中核型（字幕イベント・ロール・招待・発表状態・設定・パイプライン I/F） | 0        |
+| `infra`                       | 制御層 CDK スタック（常時稼働・低コスト）                              | 1        |
+| `services/control-api`        | イベント CRUD・発表者制御・招待トークン・認証                          | 2        |
+| `services/media-orchestrator` | イベント単位の起動/破棄・最大3並列・共有状態                           | 3        |
+| `services/media-composer`     | LiveKit トークン・レイアウト合成・Egress/RTMP・録画                    | 4        |
+| `services/caption-pipeline`   | 字幕バス・差し替え可能エンジン/Sink・SRT/VTT 保存                      | 5        |
+| `apps/admin-web`              | 管理 SPA（イベント設定・素材・招待・配信制御）                         | 6        |
 
 ## ローカル起動手順
 
