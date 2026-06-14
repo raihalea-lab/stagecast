@@ -21,15 +21,15 @@
 > 詳細・決定背景は [ADR 0005](./decisions/0005-media-layer-rollout.md) を参照。
 > 5 Stage に分けて段階的にロールアウト。各 Stage 完了まで次に進まない。
 
-| ID     | Stage | スコープ                                                           | 想定 PR                          | 完了基準                                           |
-| ------ | ----- | ------------------------------------------------------------------ | -------------------------------- | -------------------------------------------------- |
-| **R1** | S3    | LiveKit Server の config.yaml + Valkey 接続 + UDP ポート公開 (NLB) | `claude/livekit-server-config`   | stage-web から実 LiveKit に接続できる              |
-| **R2** | S3    | LiveKit Egress の Chrome ヘッドレス設定 + Egress テンプレ URL      | `claude/livekit-egress-config`   | RoomComposite Egress で合成映像が RTMP に出る      |
-| **R3** | S3    | stage-web → 実 LiveKit E2E (Playwright)                            | `claude/stage-web-livekit-e2e`   | 招待 URL → publish → subscribe が通る              |
-| **R4** | S4    | 字幕ワーカー Docker 化 + ECR Repository + GHA build/push           | `claude/caption-worker-docker`   | 1 イベントで字幕が CaptionConnectionHub から流れる |
-| **R5** | S5    | reconcile Lambda IAM 最小化 (CFN Service Role + PassRole)          | `claude/reconcile-iam-min`       | Lambda IAM が `iam:PassRole` 1 個に絞られる        |
-| **R6** | S5    | Cognito 管理者 Custom Resource + CloudFront カスタムドメイン + ACM | `claude/cognito-admin-bootstrap` | 初期管理者 1 名が IaC でデプロイされる             |
-| **R7** | S5    | 統合テスト CI workflow + YouTube ingestion URL 自動取得            | `claude/integration-ci-youtube`  | 1 イベントを実 YouTube Live に配信、SLO 観測       |
+| ID     | Stage | スコープ                                                           | 想定 PR                          | 完了基準                                            |
+| ------ | ----- | ------------------------------------------------------------------ | -------------------------------- | --------------------------------------------------- |
+| **R1** | S3    | LiveKit Server の config.yaml + Valkey 接続 + UDP ポート公開 (NLB) | `claude/livekit-stage3` (IaC 完) | stage-web から実 LiveKit に接続できる (deploy は別) |
+| **R2** | S3    | LiveKit Egress の Chrome ヘッドレス設定 + Egress テンプレ URL      | `claude/livekit-stage3` (IaC 完) | RoomComposite Egress で合成映像が RTMP に出る       |
+| **R3** | S3    | stage-web → 実 LiveKit E2E (Playwright)                            | `claude/stage-web-livekit-e2e`   | 雛形 (`describe.skip`) のみ。Playwright 実装は別 PR |
+| **R4** | S4    | 字幕ワーカー Docker 化 + ECR Repository + GHA build/push           | `claude/caption-worker-docker`   | 1 イベントで字幕が CaptionConnectionHub から流れる  |
+| **R5** | S5    | reconcile Lambda IAM 最小化 (CFN Service Role + PassRole)          | `claude/reconcile-iam-min`       | Lambda IAM が `iam:PassRole` 1 個に絞られる         |
+| **R6** | S5    | Cognito 管理者 Custom Resource + CloudFront カスタムドメイン + ACM | `claude/cognito-admin-bootstrap` | 初期管理者 1 名が IaC でデプロイされる              |
+| **R7** | S5    | 統合テスト CI workflow + YouTube ingestion URL 自動取得            | `claude/integration-ci-youtube`  | 1 イベントを実 YouTube Live に配信、SLO 観測        |
 
 ---
 
@@ -114,14 +114,14 @@ aws-cdk-lib 全体をバンドルしてしまう。Lambda 上限 (250 MB) は越
 PR #9 マージ時に実行ビットが付いたままコミットされた。tsx 実行時に付与されたものと推測。
 影響は無いが、`chmod 644` で戻して別 commit で plumb する。
 
-### D3. LiveKit SDK 側の API 検証が未実施
+### D3. LiveKit SDK 側の API 検証 ✅ (`claude/livekit-stage3` で対応)
 
-- `LiveKitEgressClient.startRoomCompositeEgress` のレイアウト名 (`speaker` / `grid` /
-  `single-speaker`) が **LiveKit Egress の現行プリセット名と一致するか** 未検証
-- `LiveKitAudioSource` の `@livekit/rtc-node` 想定 API (Room / trackSubscribed / frame
-  イベント) が **実 SDK と一致するか** 未検証 (string indirection で型回避中)
-
-R1 / R3 着手時に実 SDK と突き合わせて修正する。
+- ~~`LiveKitEgressClient.startRoomCompositeEgress` のレイアウト名 (`speaker` / `grid` /
+  `single-speaker`)~~ → LiveKit RoomComposite の組み込みプリセットと一致を確認 (ADR 0006 D-5)。
+  実 `EgressClient` への `createLiveKitEgressApi` アダプタを追加し型整合。
+- ~~`LiveKitAudioSource` の `@livekit/rtc-node` 想定 API~~ → 実 SDK の `RoomEvent.TrackSubscribed`
+  - `AudioStream`(ReadableStream) に整合。string indirection を撤廃し `import type` へ (ADR 0006 D-7)。
+- 実 SDK 経路の疎通確認は R3 (Playwright) で行う。
 
 ### D4. Cognito Hosted UI ドメインの衝突リスク
 
@@ -129,11 +129,11 @@ R1 / R3 着手時に実 SDK と突き合わせて修正する。
 他者が同じ account suffix を使った場合に衝突 (実際にはほぼ無い)。**ACM カスタムドメイン
 に切替えれば回避** (R6 でやる)。
 
-### D5. `EventMediaStack` の Valkey serverlessCacheName が 40 文字上限
+### D5. `EventMediaStack` の Valkey serverlessCacheName が 40 文字上限 ✅ (`claude/livekit-stage3` で対応)
 
-`stagecast-${eventId}`.toLowerCase().slice(0, 40)` でクリップしているが、eventId が
-極端に長い + 似ている場合に衝突する可能性。**eventId に short hash を付与** する方が
-安全。R1 と同じ PR で直しても良い。
+~~`stagecast-${eventId}`.toLowerCase().slice(0, 40)` でクリップ~~ → `serverlessCacheName()`
+ヘルパで eventId の sha256 short hash を末尾に付与し、40 文字に収めつつ衝突を回避
+(クリップ後に prefix が衝突しても全体は一意)。単体テスト追加済み。
 
 ### D6. `pnpm-lock.yaml` に AWS SDK 子パッケージ追加で diff が出やすい
 
