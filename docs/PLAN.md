@@ -122,17 +122,27 @@
 - 受け入れ基準: 各アダプタを注入クライアント/フェイクで単体テスト ✅
   （caption-pipeline 30 / control-api 26 / media-orchestrator 8）
 
+### フェーズ 11: ランタイム結線（実トランスポート・組み立て・プロビジョナ）
+
+- [x] 独自字幕配信 API の WebSocket トランスポート（`WebSocketCaptionServer`/`attachConnection`、
+      クエリの token/lang 解釈、ハブへの橋渡し）（6.3.2, 9.1）
+- [x] 字幕ランタイム結線：イベント設定→エンジン/Sink 選択（`selectEngine`/`selectSinks`/
+      `assembleCaptionPipeline`）（F-8, 6 章）
+- [x] `CaptionWorker`：音声→エンジン→バス→Sink→ハブ→WebSocket を一気通貫で接続
+- [x] `CloudFormationMediaStackProvisioner`：EventMediaStack を CFN 作成/削除・完了待ち
+      （注入 CloudFormationLike でテスト）（7.1）
+- 受け入れ基準: ws 橋渡し・選択・worker E2E・CFN 作成/待機/失敗/削除 をテスト ✅
+
 ---
 
 ## 現在のステータス
 
-- 完了: **フェーズ 0〜10 すべて** ✅（build / typecheck / lint / test / format 全通過、計 110 tests）
-- パッケージ別テスト: shared 9 / infra 12 / control-api 26 / media-orchestrator 8 /
-  media-composer 12 / caption-pipeline 30 / admin-web 4 / stage-web 9
-- 実アダプタは注入クライアントで単体テスト済み。実 AWS 接続を伴うストリーミング/署名検証の
-  E2E は本番結線時の統合テストで担保（ロジックは純粋関数として検証済み）。
-- 残（別 ADR + デプロイ運用が妥当な事項, `DESIGN.md` 9.1）:
-  - 字幕バスの**分散**メッセージング基盤（現状はプロセス内実装 InProcessCaptionBus）
-  - EventMediaStack を実デプロイする `media-orchestrator` のプロビジョナ（CFN/CDK 実行）
-  - WebSocket/SSE サーバ本体（`CaptionConnectionHub` を載せるトランスポート）
+- 完了: **フェーズ 0〜11 すべて** ✅（build / typecheck / lint / test / format 全通過、計 123 tests）
+- パッケージ別テスト: shared 9 / infra 12 / control-api 26 / media-orchestrator 12 /
+  media-composer 12 / caption-pipeline 39 / admin-web 4 / stage-web 9
+- 実アダプタ・トランスポート・プロビジョナは注入クライアント/フェイクで単体テスト済み。
+- 残（実 AWS 環境での E2E・運用が本体の事項, `DESIGN.md` 9.1）:
+  - 字幕バスの**分散**実装（現状はプロセス内 InProcessCaptionBus。I/F 互換で差し替え可能）
+  - 実 `cdk synth` テンプレートを `CloudFormationMediaStackProvisioner.renderTemplate` へ供給する配線
+  - WebSocket サーバの実ポート起動・スケール運用（橋渡しロジックは実装・テスト済み）
   - 障害時フェイルオーバーと配信途中のリソース再起動方針
