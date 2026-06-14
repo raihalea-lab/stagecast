@@ -2,6 +2,7 @@ export * from './bus.js';
 export * from './valkey-bus.js';
 export * from './pipeline.js';
 export * from './runtime.js';
+export * from './bootstrap.js';
 export * from './engines/types.js';
 export * from './engines/transcribe-engine.js';
 export * from './engines/llm-engine.js';
