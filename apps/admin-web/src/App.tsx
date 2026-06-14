@@ -6,24 +6,26 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { EventDefinition } from '@stagecast/shared';
 import type { CreateEventInput } from '@stagecast/control-api';
 import { HttpControlApiClient } from './api/http-client.js';
-import { InMemoryAssetService } from './api/asset-service.js';
+import { HttpAssetService } from './api/http-asset-service.js';
 import type { ControlApiClient, AssetService } from './api/types.js';
 import { EventForm } from './components/EventForm.js';
 import { EventDetail } from './components/EventDetail.js';
 
+const apiBaseUrl = (): string => import.meta.env.VITE_CONTROL_API_URL ?? '';
+// Cognito で取得した JWT を sessionStorage 等から取り出す想定 (F-12)。
+const idToken = (): string | undefined => sessionStorage.getItem('stagecast.idToken') ?? undefined;
+
 /** ブラウザ既定は HTTP クライアント。ローカル/テストは LocalControlApiClient を注入する。 */
 function defaultClient(): ControlApiClient {
-  const baseUrl = import.meta.env.VITE_CONTROL_API_URL ?? '';
-  // Cognito で取得した JWT を sessionStorage 等から取り出す想定 (F-12)。
-  return new HttpControlApiClient(
-    baseUrl,
-    () => sessionStorage.getItem('stagecast.idToken') ?? undefined,
-  );
+  return new HttpControlApiClient(apiBaseUrl(), idToken);
 }
 
 export function App(props: { client?: ControlApiClient; assets?: AssetService }) {
   const client = useMemo(() => props.client ?? defaultClient(), [props.client]);
-  const assets = useMemo(() => props.assets ?? new InMemoryAssetService(), [props.assets]);
+  const assets = useMemo(
+    () => props.assets ?? new HttpAssetService(apiBaseUrl(), idToken),
+    [props.assets],
+  );
 
   const [events, setEvents] = useState<EventDefinition[]>([]);
   const [selectedId, setSelectedId] = useState<string | undefined>();

@@ -12,6 +12,10 @@
     "clean": "rm -rf dist *.tsbuildinfo"
   },
   "dependencies": {
+    "@aws-sdk/client-bedrock-runtime": "^3.717.0",
+    "@aws-sdk/client-s3": "^3.717.0",
+    "@aws-sdk/client-transcribe-streaming": "^3.717.0",
+    "@aws-sdk/client-translate": "^3.717.0",
     "@stagecast/shared": "workspace:*"
   },
   "devDependencies": {

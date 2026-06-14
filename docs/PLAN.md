@@ -107,17 +107,32 @@
 - [x] factory が `METADATA_TABLE_NAME` 環境変数で Dynamo↔インメモリを自動選択
 - 受け入れ基準: マッパー往復・キー設計のテスト 4件（SDK 層は統合時に検証）✅
 
+### フェーズ 10: 実アダプタ群（外部サービス結線・差し替え可能実装）
+
+- [x] 字幕エンジン実アダプタ（注入クライアントで単体テスト）
+  - [x] `AmazonTranslateTranslator`（Translate）・`BedrockLlmAdapter`（Bedrock 翻訳）
+  - [x] `TranscribeStreamingAsrAdapter`（push↔pull 橋渡し、結果マッパーは純粋関数でテスト）
+- [x] 字幕保存 `S3ObjectStorage`（S3 Put/Get）
+- [x] YouTube 送出 `HttpYouTubeCaptionPublisher`（タイムスタンプ整形・seq・注入 fetch）
+- [x] 独自字幕配信 API プロトコル `CaptionConnectionHub`（welcome/subscribe/ping/pong/error・
+      言語別配信・再接続バックログ追いつき・認証）+ `HubCaptionBroadcaster`（9.1 プロトコル詳細）
+- [x] 共有状態 `ValkeySharedStateStore`（Valkey/Redis 互換、名前空間破棄）
+- [x] 認証 `CognitoJwtAdminAuthVerifier`（aws-jwt-verify、検証関数を注入可能に）
+- [x] 素材アップロード S3 署名 URL（`/events/{id}/assets/upload-url` + admin-web `HttpAssetService`）
+- 受け入れ基準: 各アダプタを注入クライアント/フェイクで単体テスト ✅
+  （caption-pipeline 30 / control-api 26 / media-orchestrator 8）
+
 ---
 
 ## 現在のステータス
 
-- 完了: **フェーズ 0〜9 すべて** ✅（build / typecheck / lint / test / format 全通過）
-- パッケージ別テスト: shared 9 / infra 12 / control-api 18 / media-orchestrator 6 /
-  media-composer 12 / caption-pipeline 14 / admin-web 4 / stage-web 9（計 84）
-- なお実 AWS SDK 層（DynamoDB/Transcribe/Translate/Bedrock/LiveKit/YouTube の各 Sink/Adapter）の
-  一部は本番結線時に統合テストする方針（ロジックは純粋関数として単体テスト済み）。
-- 残（別 ADR 化が妥当な設計事項, `DESIGN.md` 9.1）:
-  - 字幕バスの分散メッセージング基盤（現状はプロセス内実装）
-  - 独自字幕配信 API のプロトコル詳細（再接続・認証）
-  - YouTube Live API 連携の詳細（配信開始・字幕送出の実アダプタ）
+- 完了: **フェーズ 0〜10 すべて** ✅（build / typecheck / lint / test / format 全通過、計 110 tests）
+- パッケージ別テスト: shared 9 / infra 12 / control-api 26 / media-orchestrator 8 /
+  media-composer 12 / caption-pipeline 30 / admin-web 4 / stage-web 9
+- 実アダプタは注入クライアントで単体テスト済み。実 AWS 接続を伴うストリーミング/署名検証の
+  E2E は本番結線時の統合テストで担保（ロジックは純粋関数として検証済み）。
+- 残（別 ADR + デプロイ運用が妥当な事項, `DESIGN.md` 9.1）:
+  - 字幕バスの**分散**メッセージング基盤（現状はプロセス内実装 InProcessCaptionBus）
+  - EventMediaStack を実デプロイする `media-orchestrator` のプロビジョナ（CFN/CDK 実行）
+  - WebSocket/SSE サーバ本体（`CaptionConnectionHub` を載せるトランスポート）
   - 障害時フェイルオーバーと配信途中のリソース再起動方針

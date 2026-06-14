@@ -17,6 +17,7 @@ import {
 import type { createInviteService } from '../usecases/invites.js';
 import type { createPresentationService } from '../usecases/presentation.js';
 import { ServiceUnavailableError, type createJoinService } from '../usecases/join.js';
+import type { createAssetUploadService } from '../assets/asset-upload.js';
 
 export interface HttpRequest {
   method: string;
@@ -33,6 +34,7 @@ export interface HttpResponse {
 type InviteService = ReturnType<typeof createInviteService>;
 type PresentationService = ReturnType<typeof createPresentationService>;
 type JoinService = ReturnType<typeof createJoinService>;
+type AssetUploadService = ReturnType<typeof createAssetUploadService>;
 
 export interface AppDeps {
   auth: AdminAuthVerifier;
@@ -40,12 +42,14 @@ export interface AppDeps {
   invites: InviteService;
   presentation: PresentationService;
   join: JoinService;
+  /** 素材アップロード署名サービス (S3 未設定なら省略され 503)。 */
+  assets?: AssetUploadService;
 }
 
 const json = (status: number, body: unknown): HttpResponse => ({ status, body });
 
 export function createApp(deps: AppDeps) {
-  const { auth, events, invites, presentation, join } = deps;
+  const { auth, events, invites, presentation, join, assets } = deps;
 
   async function requireAdmin(req: HttpRequest): Promise<void> {
     await auth.verify(req.headers['authorization'] ?? req.headers['Authorization']);
@@ -122,6 +126,20 @@ export function createApp(deps: AppDeps) {
             role: body.role as InvitedRole,
             ttlSec: Number(body.ttlSec ?? 60 * 60 * 12),
           }),
+        );
+      } else if (
+        segments[2] === 'assets' &&
+        segments[3] === 'upload-url' &&
+        req.method === 'POST'
+      ) {
+        if (!assets) throw new ServiceUnavailableError('asset storage not configured');
+        return json(
+          201,
+          await assets.createUploadUrl(
+            eventId,
+            String(body.filename ?? 'asset'),
+            String(body.contentType ?? 'application/octet-stream'),
+          ),
         );
       }
     }
