@@ -59,17 +59,17 @@
 
 ## フェーズ 5: 字幕パイプライン（差し替え可能設計）
 
-- [ ] 字幕バス（共通形式 6.1 を流す）
-- [ ] エンジン層の共通インターフェース（F-8, 6.2）
-  - [ ] `TranscribeStreamingEngine` + `AmazonTranslate`
-  - [ ] `LLMEngine`
-  - [ ] 自前 ASR は I/F のみ
-- [ ] 出力先 Sink の共通インターフェース（6.3）
-  - [ ] `YouTubeCaptionSink`（1言語・確定）
-  - [ ] `CustomCaptionApiSink`（WS/SSE・多言語・プロトコルのみ・任意起動）
-- [ ] ja/en サポート（F-7）、遅延3秒以内を意識（N-2）
-- [ ] 確定字幕を S3 保存・SRT/VTT 出力（6.4）
-- 受け入れ基準: 音声→ja/en字幕→2種Sink配信、エンジン/Sink差し替えを単体テストで実証
+- [x] 字幕バス InProcessCaptionBus（共通形式 6.1, フェイルソフト配信）
+- [x] エンジン層の共通インターフェース（F-8, 6.2, shared の CaptionEngine）
+  - [x] `TranscribeStreamingEngine` + `Translator`（AsrAdapter/Translator 抽象+フェイク）
+  - [x] `LLMEngine`（asr+translate / translate-only 両モード）
+  - [x] `SelfHostedAsrEngine` は I/F + 拡張ポイントのみ（未実装で throw）
+- [x] 出力先 Sink の共通インターフェース（6.3）
+  - [x] `YouTubeCaptionSink`（確定・1言語のみ送出）
+  - [x] `CustomCaptionApiSink`（多言語・確定/暫定・プロトコル CaptionStreamMessage のみ）
+- [x] ja/en サポート（F-7）。エンジン/Sink 注入で経路別構成可（N-2 配慮）
+- [x] 確定字幕を S3 保存・SRT/VTT 出力（CaptionStore, 6.4, N-4）
+- 受け入れ基準: 音声→ja/en字幕→2種Sink配信、エンジン/Sink差し替えをテスト 14件 ✅
 
 ## フェーズ 6: イベント設定 UI と素材管理
 
