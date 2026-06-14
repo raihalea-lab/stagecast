@@ -67,12 +67,22 @@ export class WebSocketCaptionServer {
     private readonly options: { port: number },
   ) {}
 
-  start(): void {
-    this.wss = new WebSocketServer({ port: this.options.port });
-    this.wss.on('connection', (socket, req: IncomingMessage) => {
-      const { token, languages } = parseConnectionQuery(req.url);
-      attachConnection(this.hub, socket as unknown as WebSocketLike, { token, languages });
+  /** サーバを起動し、listen 開始で解決する (port:0 でエフェメラルポート)。 */
+  start(): Promise<void> {
+    return new Promise((resolve) => {
+      this.wss = new WebSocketServer({ port: this.options.port });
+      this.wss.on('connection', (socket, req: IncomingMessage) => {
+        const { token, languages } = parseConnectionQuery(req.url);
+        attachConnection(this.hub, socket as unknown as WebSocketLike, { token, languages });
+      });
+      this.wss.on('listening', () => resolve());
     });
+  }
+
+  /** 実際に listen しているポート番号 (未起動なら undefined)。 */
+  get port(): number | undefined {
+    const addr = this.wss?.address();
+    return typeof addr === 'object' && addr !== null ? addr.port : undefined;
   }
 
   async stop(): Promise<void> {

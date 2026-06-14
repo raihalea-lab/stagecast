@@ -12,6 +12,7 @@
     "clean": "rm -rf dist *.tsbuildinfo"
   },
   "dependencies": {
+    "@aws-sdk/client-cloudformation": "^3.717.0",
     "@stagecast/shared": "workspace:*"
   },
   "devDependencies": {

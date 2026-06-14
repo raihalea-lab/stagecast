@@ -133,18 +133,28 @@
       （注入 CloudFormationLike でテスト）（7.1）
 - 受け入れ基準: ws 橋渡し・選択・worker E2E・CFN 作成/待機/失敗/削除 をテスト ✅
 
+### フェーズ 12: 障害時方針・実テンプレート供給・実ポート起動
+
+- [x] **ADR 0003 障害時フェイルオーバー**（調整ループ・RTMP 再接続・Valkey Streams 追いつき・
+      状態外部化）（`DESIGN.md` 9.1）
+- [x] 実テンプレート供給：infra `renderEventMediaTemplate`（CDK を synth してテンプレート JSON 生成）+ `bin/render-template.ts` CLI + テスト
+- [x] 実 CFN 結線：media-orchestrator `AwsCloudFormationClient`（SDK 実装）+
+      `createAwsMediaStackProvisioner`（renderTemplate 注入の合流点）
+- [x] 字幕ワーカー bootstrap：`CaptionService`（worker + WebSocket 実ポート起動 + AudioSource）、
+      `configFromEnv`/`realProvidersFromEnv`/`runFromEnv` + `main.ts`、グレースフルシャットダウン
+- 受け入れ基準: 実テンプレート生成・実 CFN マッピング・**実 ws ポートでの E2E**（実 ws クライアント
+  が字幕受信）をテスト ✅
+
 ---
 
 ## 現在のステータス
 
-- 完了: **フェーズ 0〜11 すべて** ✅（build / typecheck / lint / test / format 全通過、計 123 tests）
-- パッケージ別テスト: shared 9 / infra 12 / control-api 26 / media-orchestrator 12 /
-  media-composer 12 / caption-pipeline 39 / admin-web 4 / stage-web 9
-- 実アダプタ・トランスポート・プロビジョナは注入クライアント/フェイクで単体テスト済み。
-- 字幕バス分散化は **ADR 0002 で Valkey Streams を採用**し、`ValkeyStreamsCaptionBus`
-  （`CaptionBus` 互換・イベント単位ストリーム名前空間）を実装・テスト済み。
-- 残（実 AWS 環境での E2E・運用が本体の事項, `DESIGN.md` 9.1）:
-  - 実 `cdk synth` テンプレートを `CloudFormationMediaStackProvisioner.renderTemplate` へ供給する配線
-  - WebSocket サーバの実ポート起動・スケール運用（橋渡しロジックは実装・テスト済み）
+- 完了: **フェーズ 0〜12 すべて** ✅（build / typecheck / lint / test / format 全通過、計 136 tests）
+- パッケージ別テスト: shared 9 / infra 14 / control-api 26 / media-orchestrator 15 /
+  media-composer 12 / caption-pipeline 47 / admin-web 4 / stage-web 9
+- ADR: 0001 技術選定 / 0002 字幕バス分散化 (Valkey Streams) / 0003 障害時フェイルオーバー
+- 残（実 AWS アカウントでのデプロイ/統合検証が本体。コードの実装単位は完了）:
+  - 実 LiveKit からの音声取り込み AudioSource 実装（I/F とワーカー結線は実装・テスト済み）
+  - オーケストレータ調整ループの定期実行スケジューラ（EventBridge → Lambda 配線）
   - `ValkeyStreamsCaptionBus` の実 Valkey クライアント結線（I/F・ロジックは実装・テスト済み）
-  - **障害時フェイルオーバー方針（次の ADR 0003 候補）**
+  - 実 AWS デプロイと E2E（実キー・実課金が必要）

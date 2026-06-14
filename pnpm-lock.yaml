@@ -212,6 +212,9 @@ importers:
 
   services/media-orchestrator:
     dependencies:
+      '@aws-sdk/client-cloudformation':
+        specifier: ^3.717.0
+        version: 3.1068.0
       '@stagecast/shared':
         specifier: workspace:*
         version: link:../../packages/shared
@@ -267,6 +270,10 @@ packages:
 
   '@aws-sdk/client-bedrock-runtime@3.1068.0':
     resolution: {integrity: sha512-0p4XoL8a6k5K+dF6mLByOEoOaF+BwRzSWLF87Xnxrs5xvrTezOmytNq+TZxZ3a2XuTW8JcLijchXeOlTZK+VPA==}
+    engines: {node: '>=20.0.0'}
+
+  '@aws-sdk/client-cloudformation@3.1068.0':
+    resolution: {integrity: sha512-Q79jGs2wgXoepAO1KcyKOiIQkfVfxz0QFgWavVO2hAetdoC+oTDrraOTaLE8iG8b9+N3BURam29nUn1j/YNs2w==}
     engines: {node: '>=20.0.0'}
 
   '@aws-sdk/client-dynamodb@3.1068.0':
@@ -1895,6 +1902,19 @@ snapshots:
       '@aws-sdk/middleware-eventstream': 3.972.17
       '@aws-sdk/middleware-websocket': 3.972.28
       '@aws-sdk/token-providers': 3.1068.0
+      '@aws-sdk/types': 3.973.12
+      '@smithy/core': 3.24.7
+      '@smithy/fetch-http-handler': 5.4.7
+      '@smithy/node-http-handler': 4.7.8
+      '@smithy/types': 4.14.4
+      tslib: 2.8.1
+
+  '@aws-sdk/client-cloudformation@3.1068.0':
+    dependencies:
+      '@aws-crypto/sha256-browser': 5.2.0
+      '@aws-crypto/sha256-js': 5.2.0
+      '@aws-sdk/core': 3.974.20
+      '@aws-sdk/credential-provider-node': 3.972.55
       '@aws-sdk/types': 3.973.12
       '@smithy/core': 3.24.7
       '@smithy/fetch-http-handler': 5.4.7
