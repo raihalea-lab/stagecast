@@ -6,10 +6,10 @@
  */
 
 /** 登壇者の表示状態。`live` = 発表中 (画面に出す) / `standby` = 待機。 */
-export type SpeakerVisibility = 'live' | 'standby';
+export type SpeakerVisibility = "live" | "standby";
 
 /** スライド投影の方式 (DESIGN.md 5.2, F-3)。 */
-export type SlideSource = 'screen-share' | 'uploaded';
+export type SlideSource = "screen-share" | "uploaded";
 
 /** 1 名の登壇者の状態。 */
 export interface SpeakerState {
@@ -37,5 +37,5 @@ export interface PresentationState {
 
 /** 発表中 (live) の登壇者だけを抽出する。 */
 export function liveSpeakers(state: PresentationState): SpeakerState[] {
-  return state.speakers.filter((s) => s.visibility === 'live');
+  return state.speakers.filter((s) => s.visibility === "live");
 }

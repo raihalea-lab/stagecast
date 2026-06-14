@@ -7,11 +7,11 @@
 
 /** スライド送りのデータメッセージ (事前アップロード方式・5.2)。 */
 export interface SlideMessage {
-  type: 'slide';
+  type: "slide";
   page: number;
 }
 
-export type RoomState = 'idle' | 'connected' | 'disconnected';
+export type RoomState = "idle" | "connected" | "disconnected";
 
 export interface RoomConnector {
   readonly state: RoomState;
@@ -27,7 +27,7 @@ export interface RoomConnector {
 
 /** テスト/ローカル用フェイク。publish 操作を記録する。 */
 export class FakeRoomConnector implements RoomConnector {
-  state: RoomState = 'idle';
+  state: RoomState = "idle";
   readonly calls: string[] = [];
   readonly slides: SlideMessage[] = [];
   mic = false;
@@ -36,7 +36,7 @@ export class FakeRoomConnector implements RoomConnector {
 
   async connect(url: string, _token: string): Promise<void> {
     this.calls.push(`connect:${url}`);
-    this.state = 'connected';
+    this.state = "connected";
   }
   async setMicrophoneEnabled(enabled: boolean): Promise<void> {
     this.mic = enabled;
@@ -54,7 +54,7 @@ export class FakeRoomConnector implements RoomConnector {
     this.slides.push(message);
   }
   async disconnect(): Promise<void> {
-    this.state = 'disconnected';
-    this.calls.push('disconnect');
+    this.state = "disconnected";
+    this.calls.push("disconnect");
   }
 }

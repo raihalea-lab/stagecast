@@ -2,15 +2,15 @@
  * 登壇者・モデレーター用ステージ画面 (DESIGN.md 4.1, 5.2, F-1, F-3)。
  * 招待 URL のトークンで入室し、登壇者は映像音声・画面共有・スライド送りを操作する。
  */
-import { useMemo, useState } from 'react';
-import { HttpStageClient, type StageClient } from './api/stage-client.js';
-import { LiveKitRoomConnector } from './lib/livekit-room.js';
-import type { RoomConnector } from './lib/room.js';
-import { StageController, type StageSession } from './stage-controller.js';
-import { parseInviteToken } from './lib/token.js';
+import { useMemo, useState } from "react";
+import { HttpStageClient, type StageClient } from "./api/stage-client.js";
+import { LiveKitRoomConnector } from "./lib/livekit-room.js";
+import type { RoomConnector } from "./lib/room.js";
+import { StageController, type StageSession } from "./stage-controller.js";
+import { parseInviteToken } from "./lib/token.js";
 
 function defaultClient(): StageClient {
-  const baseUrl = import.meta.env.VITE_CONTROL_API_URL ?? '';
+  const baseUrl = import.meta.env.VITE_CONTROL_API_URL ?? "";
   return new HttpStageClient(baseUrl);
 }
 
@@ -23,10 +23,10 @@ export function App(props: { client?: StageClient; room?: RoomConnector; search?
       ),
     [props.client, props.room],
   );
-  const initialToken = parseInviteToken(props.search ?? window.location.search) ?? '';
+  const initialToken = parseInviteToken(props.search ?? window.location.search) ?? "";
 
   const [token, setToken] = useState(initialToken);
-  const [name, setName] = useState('');
+  const [name, setName] = useState("");
   const [session, setSession] = useState<StageSession | undefined>();
   const [error, setError] = useState<string>();
   const [mic, setMic] = useState(false);
@@ -75,7 +75,7 @@ export function App(props: { client?: StageClient; room?: RoomConnector; search?
   return (
     <main className="stage">
       <h1>
-        {session.role === 'speaker' ? '登壇者' : 'モデレーター'} / イベント {session.eventId}
+        {session.role === "speaker" ? "登壇者" : "モデレーター"} / イベント {session.eventId}
       </h1>
       {error && <p className="error">{error}</p>}
 
@@ -87,7 +87,7 @@ export function App(props: { client?: StageClient; room?: RoomConnector; search?
               setMic(!mic);
             })}
           >
-            マイク: {mic ? 'ON' : 'OFF'}
+            マイク: {mic ? "ON" : "OFF"}
           </button>
           <button
             onClick={wrap(async () => {
@@ -95,7 +95,7 @@ export function App(props: { client?: StageClient; room?: RoomConnector; search?
               setCamera(!camera);
             })}
           >
-            カメラ: {camera ? 'ON' : 'OFF'}
+            カメラ: {camera ? "ON" : "OFF"}
           </button>
           <button
             onClick={wrap(async () => {
@@ -103,7 +103,7 @@ export function App(props: { client?: StageClient; room?: RoomConnector; search?
               setScreen(!screen);
             })}
           >
-            画面共有: {screen ? 'ON' : 'OFF'}
+            画面共有: {screen ? "ON" : "OFF"}
           </button>
 
           <div className="slides">

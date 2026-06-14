@@ -6,8 +6,8 @@
  *
  *   engine.onCaption → bus.publish → bus.subscribe → 各 Sink.deliver / CaptionStore.ingest
  */
-import type { AudioChunk, CaptionBus, CaptionEngine, CaptionSink } from '@stagecast/shared';
-import type { CaptionStore } from './store/caption-store.js';
+import type { AudioChunk, CaptionBus, CaptionEngine, CaptionSink } from "@stagecast/shared";
+import type { CaptionStore } from "./store/caption-store.js";
 
 export interface CaptionPipelineDeps {
   bus: CaptionBus;

@@ -2,8 +2,8 @@
  * 素材アップロードのローカル実装 (DESIGN.md 8 章)。
  * 本番は S3 署名付き URL を取得して PUT する。ローカルはインメモリ保管で代替する。
  */
-import type { AssetRef } from '@stagecast/shared';
-import type { AssetService } from './types.js';
+import type { AssetRef } from "@stagecast/shared";
+import type { AssetService } from "./types.js";
 
 export class InMemoryAssetService implements AssetService {
   readonly stored = new Map<string, { contentType: string; bytes: Uint8Array }>();

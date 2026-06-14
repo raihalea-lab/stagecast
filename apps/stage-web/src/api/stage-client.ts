@@ -4,7 +4,7 @@
  * 招待トークンを /join に提示し、LiveKit 接続情報を受け取る。認証は招待トークンのみで、
  * 管理者用 Cognito は不要 (モデレーター・登壇者はアカウントを持たない)。
  */
-import type { InvitedRole } from '@stagecast/shared';
+import type { InvitedRole } from "@stagecast/shared";
 
 export interface JoinSuccess {
   ok: true;
@@ -30,11 +30,11 @@ export class HttpStageClient implements StageClient {
 
   async join(token: string, displayName?: string): Promise<JoinResponse> {
     const res = await fetch(`${this.baseUrl}/join`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
+      method: "POST",
+      headers: { "content-type": "application/json" },
       body: JSON.stringify({ token, displayName }),
     });
-    if (res.status === 503) return { ok: false, reason: 'media-unavailable' };
+    if (res.status === 503) return { ok: false, reason: "media-unavailable" };
     return (await res.json()) as JoinResponse;
   }
 }

@@ -10,18 +10,18 @@
  *  - 'translate-only': 別の ASR が出した確定テキストを高品質翻訳する用途
  *    (pushText で投入)。
  */
-import type { AudioChunk, CaptionEngine, CaptionEvent, LanguageCode } from '@stagecast/shared';
-import type { LlmAdapter } from './types.js';
+import type { AudioChunk, CaptionEngine, CaptionEvent, LanguageCode } from "@stagecast/shared";
+import type { LlmAdapter } from "./types.js";
 
 export interface LlmEngineConfig {
   sourceLanguage: LanguageCode;
   targetLanguages: LanguageCode[];
-  mode: 'asr+translate' | 'translate-only';
+  mode: "asr+translate" | "translate-only";
   eventId?: string;
 }
 
 export class LLMEngine implements CaptionEngine {
-  readonly kind = 'llm';
+  readonly kind = "llm";
   readonly sourceLanguage: LanguageCode;
   readonly targetLanguages: LanguageCode[];
   private readonly handlers: ((c: CaptionEvent) => void)[] = [];
@@ -52,7 +52,7 @@ export class LLMEngine implements CaptionEngine {
     const base = {
       startMs,
       endMs,
-      status: (isFinal ? 'final' : 'interim') as CaptionEvent['status'],
+      status: (isFinal ? "final" : "interim") as CaptionEvent["status"],
       speakerId,
       eventId: this.config.eventId,
     };
@@ -65,7 +65,7 @@ export class LLMEngine implements CaptionEngine {
   }
 
   async pushAudio(chunk: AudioChunk): Promise<void> {
-    if (this.config.mode !== 'asr+translate' || !this.llm.transcribe) return;
+    if (this.config.mode !== "asr+translate" || !this.llm.transcribe) return;
     const segment = await this.llm.transcribe(chunk, this.sourceLanguage);
     if (!segment) return;
     await this.fanOut(

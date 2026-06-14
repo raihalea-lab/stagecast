@@ -5,8 +5,8 @@
  * ロールに応じて publish/subscribe 権限を絞る。秘密鍵はコードに置かず環境変数 /
  * Secrets Manager から注入する (ADR D-10)。
  */
-import { createHmac } from 'node:crypto';
-import type { Role } from '@stagecast/shared';
+import { createHmac } from "node:crypto";
+import type { Role } from "@stagecast/shared";
 
 export interface VideoGrant {
   roomJoin: boolean;
@@ -19,14 +19,14 @@ export interface VideoGrant {
 /** ロール → LiveKit 権限のマッピング (DESIGN.md 4 表)。 */
 export function grantForRole(role: Role, room: string): VideoGrant {
   switch (role) {
-    case 'speaker':
+    case "speaker":
       // 登壇者: 自分の映像音声・画面共有を publish、他を subscribe。
       return { roomJoin: true, room, canPublish: true, canSubscribe: true, canPublishData: true };
-    case 'moderator':
-    case 'admin':
+    case "moderator":
+    case "admin":
       // モデレーター・管理者: 進行のため publish/subscribe 双方可。
       return { roomJoin: true, room, canPublish: true, canSubscribe: true, canPublishData: true };
-    case 'viewer':
+    case "viewer":
     default:
       // 視聴者は SFU には来ない (YouTube 視聴) が、保険として subscribe のみ。
       return { roomJoin: true, room, canPublish: false, canSubscribe: true, canPublishData: false };
@@ -34,7 +34,7 @@ export function grantForRole(role: Role, room: string): VideoGrant {
 }
 
 function base64url(input: string | Buffer): string {
-  return Buffer.from(input).toString('base64url');
+  return Buffer.from(input).toString("base64url");
 }
 
 export interface AccessTokenInput {
@@ -58,9 +58,9 @@ export interface AccessTokenInput {
  */
 export function createLiveKitAccessToken(input: AccessTokenInput): string {
   if (!input.apiKey || !input.apiSecret) {
-    throw new Error('LiveKit apiKey/apiSecret are required');
+    throw new Error("LiveKit apiKey/apiSecret are required");
   }
-  const header = { alg: 'HS256', typ: 'JWT' };
+  const header = { alg: "HS256", typ: "JWT" };
   const payload = {
     iss: input.apiKey,
     sub: input.identity,
@@ -73,6 +73,6 @@ export function createLiveKitAccessToken(input: AccessTokenInput): string {
   const headerB64 = base64url(JSON.stringify(header));
   const payloadB64 = base64url(JSON.stringify(payload));
   const signingInput = `${headerB64}.${payloadB64}`;
-  const sig = createHmac('sha256', input.apiSecret).update(signingInput).digest('base64url');
+  const sig = createHmac("sha256", input.apiSecret).update(signingInput).digest("base64url");
   return `${signingInput}.${sig}`;
 }

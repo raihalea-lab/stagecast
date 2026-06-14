@@ -2,24 +2,24 @@
  * Lambda エントリ (API Gateway HTTP API v2 アダプタ)。
  * フェーズ1の CDK プレースホルダはフェーズ2でこのハンドラ資産に差し替える。
  */
-import type { APIGatewayProxyEventV2, APIGatewayProxyStructuredResultV2 } from 'aws-lambda';
-import { buildControlApi } from './factory.js';
-import type { HttpRequest } from './http/app.js';
+import type { APIGatewayProxyEventV2, APIGatewayProxyStructuredResultV2 } from "aws-lambda";
+import { buildControlApi } from "./factory.js";
+import type { HttpRequest } from "./http/app.js";
 
-export * from './http/app.js';
-export * from './factory.js';
-export * from './usecases/events.js';
-export * from './usecases/invites.js';
-export * from './usecases/presentation.js';
-export * from './usecases/join.js';
-export * from './auth/livekit-minter.js';
-export * from './assets/asset-upload.js';
-export * from './invite/token.js';
-export * from './auth/admin-auth.js';
-export * from './repo/types.js';
-export * from './repo/memory.js';
-export * from './repo/dynamo-mapper.js';
-export * from './repo/dynamo.js';
+export * from "./http/app.js";
+export * from "./factory.js";
+export * from "./usecases/events.js";
+export * from "./usecases/invites.js";
+export * from "./usecases/presentation.js";
+export * from "./usecases/join.js";
+export * from "./auth/livekit-minter.js";
+export * from "./assets/asset-upload.js";
+export * from "./invite/token.js";
+export * from "./auth/admin-auth.js";
+export * from "./repo/types.js";
+export * from "./repo/memory.js";
+export * from "./repo/dynamo-mapper.js";
+export * from "./repo/dynamo.js";
 
 const app = buildControlApi();
 
@@ -35,8 +35,8 @@ export async function handler(
   const res = await app.handle(req);
   return {
     statusCode: res.status,
-    headers: { 'content-type': 'application/json' },
-    body: res.body === null ? '' : JSON.stringify(res.body),
+    headers: { "content-type": "application/json" },
+    body: res.body === null ? "" : JSON.stringify(res.body),
   };
 }
 

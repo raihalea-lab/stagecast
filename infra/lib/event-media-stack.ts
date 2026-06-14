@@ -9,9 +9,9 @@ import {
   aws_elasticache as elasticache,
   aws_logs as logs,
   aws_iam as iam,
-} from 'aws-cdk-lib';
-import type { Construct } from 'constructs';
-import type { CaptionEngineKind } from '@stagecast/shared';
+} from "aws-cdk-lib";
+import type { Construct } from "constructs";
+import type { CaptionEngineKind } from "@stagecast/shared";
 
 export interface EventMediaStackProps extends StackProps {
   /** このスタックが対応する配信イベント ID。 */
@@ -41,52 +41,52 @@ export class EventMediaStack extends Stack {
     super(scope, id, props);
 
     // イベント識別タグ。破棄・コスト按分・隔離の追跡に使う (7.3)。
-    Tags.of(this).add('stagecast:eventId', props.eventId);
-    Tags.of(this).add('stagecast:ephemeral', 'true');
+    Tags.of(this).add("stagecast:eventId", props.eventId);
+    Tags.of(this).add("stagecast:ephemeral", "true");
 
     // --- ネットワーク (このイベント専用。破棄で消える) ---
     // NAT は 1 つに絞りコストを抑える。イベント時のみ存在するため常時費用にはならない。
-    const vpc = new ec2.Vpc(this, 'Vpc', { maxAzs: 2, natGateways: 1 });
+    const vpc = new ec2.Vpc(this, "Vpc", { maxAzs: 2, natGateways: 1 });
 
-    const cluster = new ecs.Cluster(this, 'Cluster', {
+    const cluster = new ecs.Cluster(this, "Cluster", {
       vpc,
       containerInsightsV2: ecs.ContainerInsights.ENABLED,
     });
 
     // --- 共有状態: ElastiCache for Valkey (Serverless) (DESIGN.md 3.2, 7.2) ---
-    const valkeySg = new ec2.SecurityGroup(this, 'ValkeySg', { vpc, allowAllOutbound: true });
+    const valkeySg = new ec2.SecurityGroup(this, "ValkeySg", { vpc, allowAllOutbound: true });
     valkeySg.addIngressRule(
       ec2.Peer.ipv4(vpc.vpcCidrBlock),
       ec2.Port.tcp(6379),
-      'Valkey from within VPC',
+      "Valkey from within VPC",
     );
-    const valkey = new elasticache.CfnServerlessCache(this, 'Valkey', {
-      engine: 'valkey',
+    const valkey = new elasticache.CfnServerlessCache(this, "Valkey", {
+      engine: "valkey",
       serverlessCacheName: `stagecast-${props.eventId}`.toLowerCase().slice(0, 40),
       securityGroupIds: [valkeySg.securityGroupId],
       subnetIds: vpc.selectSubnets({ subnetType: ec2.SubnetType.PRIVATE_WITH_EGRESS }).subnetIds,
     });
 
     // --- メディア/字幕の Fargate サービス群 ---
-    const logGroup = new logs.LogGroup(this, 'Logs', {
+    const logGroup = new logs.LogGroup(this, "Logs", {
       retention: logs.RetentionDays.ONE_WEEK,
       removalPolicy: RemovalPolicy.DESTROY,
     });
 
     // 字幕ワーカーは Transcribe/Translate/Bedrock を呼ぶため最小権限を付与 (DESIGN.md 6.2)。
-    const captionTaskRole = new iam.Role(this, 'CaptionTaskRole', {
-      assumedBy: new iam.ServicePrincipal('ecs-tasks.amazonaws.com'),
+    const captionTaskRole = new iam.Role(this, "CaptionTaskRole", {
+      assumedBy: new iam.ServicePrincipal("ecs-tasks.amazonaws.com"),
     });
     captionTaskRole.addToPolicy(
       new iam.PolicyStatement({
         actions: [
-          'transcribe:StartStreamTranscriptionWebSocket',
-          'transcribe:StartStreamTranscription',
-          'translate:TranslateText',
-          'bedrock:InvokeModel',
-          'bedrock:InvokeModelWithResponseStream',
+          "transcribe:StartStreamTranscriptionWebSocket",
+          "transcribe:StartStreamTranscription",
+          "translate:TranslateText",
+          "bedrock:InvokeModel",
+          "bedrock:InvokeModelWithResponseStream",
         ],
-        resources: ['*'],
+        resources: ["*"],
       }),
     );
 
@@ -126,11 +126,11 @@ export class EventMediaStack extends Stack {
     };
 
     // SFU(LiveKit) と Egress、字幕ワーカー。イメージは差し替え可能。
-    const sfu = addService('Sfu', images.sfu ?? 'livekit/livekit-server:latest', 7880);
-    addService('Egress', images.egress ?? 'livekit/egress:latest', undefined);
+    const sfu = addService("Sfu", images.sfu ?? "livekit/livekit-server:latest", 7880);
+    addService("Egress", images.egress ?? "livekit/egress:latest", undefined);
     addService(
-      'CaptionWorker',
-      images.captionWorker ?? 'public.ecr.aws/docker/library/node:22-alpine',
+      "CaptionWorker",
+      images.captionWorker ?? "public.ecr.aws/docker/library/node:24-alpine",
       props.customCaptionApi ? 8080 : undefined,
       captionTaskRole,
     );
@@ -139,12 +139,12 @@ export class EventMediaStack extends Stack {
     sfu.connections.allowFrom(
       ec2.Peer.ipv4(vpc.vpcCidrBlock),
       ec2.Port.tcp(7880),
-      'SFU signaling within VPC',
+      "SFU signaling within VPC",
     );
 
-    new CfnOutput(this, 'EventId', { value: props.eventId });
-    new CfnOutput(this, 'ValkeyEndpoint', { value: valkey.attrEndpointAddress });
-    new CfnOutput(this, 'ClusterName', { value: cluster.clusterName });
+    new CfnOutput(this, "EventId", { value: props.eventId });
+    new CfnOutput(this, "ValkeyEndpoint", { value: valkey.attrEndpointAddress });
+    new CfnOutput(this, "ClusterName", { value: cluster.clusterName });
   }
 }
 

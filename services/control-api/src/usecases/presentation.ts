@@ -4,8 +4,8 @@
  * 管理者が各登壇者を「発表中(live)/待機(standby)」に切り替える。状態は本番では Valkey に
  * 保持され (DESIGN.md 3.2)、合成処理が即座に反映する。ここでは状態更新の使用例を提供する。
  */
-import type { PresentationState, SlideSource, SpeakerVisibility } from '@stagecast/shared';
-import type { PresentationRepository } from '../repo/types.js';
+import type { PresentationState, SlideSource, SpeakerVisibility } from "@stagecast/shared";
+import type { PresentationRepository } from "../repo/types.js";
 
 export function createPresentationService(deps: {
   repo: PresentationRepository;

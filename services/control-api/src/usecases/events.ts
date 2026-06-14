@@ -8,19 +8,19 @@ import {
   type EventStatus,
   type AssetRef,
   type YouTubeTarget,
-} from '@stagecast/shared';
-import type { EventRepository } from '../repo/types.js';
+} from "@stagecast/shared";
+import type { EventRepository } from "../repo/types.js";
 
 export class ValidationError extends Error {
   constructor(message: string) {
     super(message);
-    this.name = 'ValidationError';
+    this.name = "ValidationError";
   }
 }
 export class NotFoundError extends Error {
-  constructor(message = 'not found') {
+  constructor(message = "not found") {
     super(message);
-    this.name = 'NotFoundError';
+    this.name = "NotFoundError";
   }
 }
 
@@ -45,9 +45,9 @@ export function createEventService(deps: {
   const { repo, newId, now } = deps;
 
   async function create(input: CreateEventInput): Promise<EventDefinition> {
-    if (!input.title.trim()) throw new ValidationError('title is required');
+    if (!input.title.trim()) throw new ValidationError("title is required");
     if (!isValidCaptionSettings(input.caption)) {
-      throw new ValidationError('youtubeLanguage must be one of caption.languages');
+      throw new ValidationError("youtubeLanguage must be one of caption.languages");
     }
     const ts = now();
     const event: EventDefinition = {
@@ -55,7 +55,7 @@ export function createEventService(deps: {
       title: input.title,
       startsAt: input.startsAt,
       endsAt: input.endsAt,
-      status: 'draft',
+      status: "draft",
       caption: input.caption,
       qrAsset: input.qrAsset,
       brandingAssets: input.brandingAssets,
@@ -85,7 +85,7 @@ export function createEventService(deps: {
     const e = await get(eventId);
     const next: EventDefinition = { ...e, ...patch, updatedAtMs: now() };
     if (next.caption && !isValidCaptionSettings(next.caption)) {
-      throw new ValidationError('youtubeLanguage must be one of caption.languages');
+      throw new ValidationError("youtubeLanguage must be one of caption.languages");
     }
     await repo.put(next);
     return next;
@@ -93,9 +93,9 @@ export function createEventService(deps: {
 
   // ライフサイクル遷移 (DESIGN.md 7.1)。許可された遷移のみ受け付ける。
   const allowed: Record<EventStatus, EventStatus[]> = {
-    draft: ['scheduled', 'live'],
-    scheduled: ['live', 'draft'],
-    live: ['ended'],
+    draft: ["scheduled", "live"],
+    scheduled: ["live", "draft"],
+    live: ["ended"],
     ended: [],
   };
 
@@ -112,7 +112,7 @@ export function createEventService(deps: {
 
   async function remove(eventId: string): Promise<void> {
     const e = await get(eventId);
-    if (e.status === 'live') throw new ValidationError('cannot delete a live event');
+    if (e.status === "live") throw new ValidationError("cannot delete a live event");
     await repo.delete(eventId);
   }
 

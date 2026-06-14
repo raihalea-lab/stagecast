@@ -8,13 +8,13 @@
  * 外部依存（Transcribe/Translate/Bedrock/S3/YouTube）は USE_FAKE_ADAPTERS で実/フェイクを
  * 切り替える。実ポート起動・グレースフルシャットダウンまでを担う。
  */
-import type { AudioChunk, LanguageCode } from '@stagecast/shared';
+import type { AudioChunk, LanguageCode } from "@stagecast/shared";
 import {
   createCaptionWorker,
   type CaptionRuntimeConfig,
   type CaptionRuntimeProviders,
-} from './runtime.js';
-import { WebSocketCaptionServer } from './sinks/ws-server.js';
+} from "./runtime.js";
+import { WebSocketCaptionServer } from "./sinks/ws-server.js";
 
 /** 音声入力源 (DESIGN.md 6: 登壇者音声の分岐)。実体は SFU/LiveKit トラック。 */
 export interface AudioSource {
@@ -95,19 +95,19 @@ export class CaptionService {
 
 function parseLanguages(value: string | undefined, fallback: LanguageCode[]): LanguageCode[] {
   if (!value) return fallback;
-  return value.split(',').map((s) => s.trim()) as LanguageCode[];
+  return value.split(",").map((s) => s.trim()) as LanguageCode[];
 }
 
 /** 環境変数から CaptionServiceConfig を組み立てる。 */
 export function configFromEnv(env: NodeJS.ProcessEnv = process.env): CaptionServiceConfig {
-  const languages = parseLanguages(env.CAPTION_LANGUAGES, ['ja', 'en']);
+  const languages = parseLanguages(env.CAPTION_LANGUAGES, ["ja", "en"]);
   return {
-    eventId: env.STAGECAST_EVENT_ID ?? 'unknown',
-    sourceLanguage: (env.CAPTION_SOURCE_LANGUAGE as LanguageCode) ?? 'ja',
+    eventId: env.STAGECAST_EVENT_ID ?? "unknown",
+    sourceLanguage: (env.CAPTION_SOURCE_LANGUAGE as LanguageCode) ?? "ja",
     languages,
-    engine: (env.CAPTION_ENGINE as CaptionServiceConfig['engine']) ?? 'transcribe',
+    engine: (env.CAPTION_ENGINE as CaptionServiceConfig["engine"]) ?? "transcribe",
     youtubeLanguage: env.YOUTUBE_CAPTION_LANGUAGE as LanguageCode | undefined,
-    customApiEnabled: env.CUSTOM_CAPTION_API === 'true',
+    customApiEnabled: env.CUSTOM_CAPTION_API === "true",
     wsPort: env.CAPTION_WS_PORT ? Number(env.CAPTION_WS_PORT) : undefined,
   };
 }
@@ -122,20 +122,20 @@ export async function realProvidersFromEnv(
 ): Promise<CaptionRuntimeProviders> {
   const [{ TranscribeStreamingAsrAdapter }, { AmazonTranslateTranslator }, { BedrockLlmAdapter }] =
     await Promise.all([
-      import('./aws/transcribe-adapter.js'),
-      import('./aws/translate-adapter.js'),
-      import('./aws/bedrock-adapter.js'),
+      import("./aws/transcribe-adapter.js"),
+      import("./aws/translate-adapter.js"),
+      import("./aws/bedrock-adapter.js"),
     ]);
-  const { S3ObjectStorage } = await import('./aws/s3-storage.js');
-  const { HttpYouTubeCaptionPublisher } = await import('./sinks/youtube-publisher.js');
+  const { S3ObjectStorage } = await import("./aws/s3-storage.js");
+  const { HttpYouTubeCaptionPublisher } = await import("./sinks/youtube-publisher.js");
 
   const providers: CaptionRuntimeProviders = {};
-  if (config.engine === 'transcribe') {
+  if (config.engine === "transcribe") {
     providers.asr = new TranscribeStreamingAsrAdapter(config.sourceLanguage);
     providers.translator = new AmazonTranslateTranslator();
-  } else if (config.engine === 'llm') {
+  } else if (config.engine === "llm") {
     providers.llm = new BedrockLlmAdapter({
-      modelId: env.BEDROCK_MODEL_ID ?? 'anthropic.claude-3-5-sonnet-20241022-v2:0',
+      modelId: env.BEDROCK_MODEL_ID ?? "anthropic.claude-3-5-sonnet-20241022-v2:0",
     });
   }
   if (env.CAPTIONS_BUCKET_NAME) {
@@ -154,8 +154,8 @@ export async function realProvidersFromEnv(
 async function fakeProvidersFromConfig(
   config: CaptionServiceConfig,
 ): Promise<CaptionRuntimeProviders> {
-  const { FakeAsrAdapter, FakeTranslator, FakeLlmAdapter } = await import('./engines/fakes.js');
-  if (config.engine === 'llm') return { llm: new FakeLlmAdapter() };
+  const { FakeAsrAdapter, FakeTranslator, FakeLlmAdapter } = await import("./engines/fakes.js");
+  if (config.engine === "llm") return { llm: new FakeLlmAdapter() };
   return { asr: new FakeAsrAdapter(config.sourceLanguage, []), translator: new FakeTranslator() };
 }
 
@@ -169,7 +169,7 @@ export async function runFromEnv(
 ): Promise<CaptionService> {
   const config = configFromEnv(env);
   const providers =
-    env.USE_FAKE_ADAPTERS === 'true'
+    env.USE_FAKE_ADAPTERS === "true"
       ? await fakeProvidersFromConfig(config)
       : await realProvidersFromEnv(config, env);
   const service = new CaptionService(config, providers, audioSource);

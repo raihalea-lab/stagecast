@@ -27,3 +27,7 @@ pnpm-debug.log*
 .idea/
 .vscode/
 *.swp
+
+# devenv / direnv (キャッシュのみ。devenv.nix / devenv.lock / .envrc は追跡対象)
+.devenv/
+.direnv/

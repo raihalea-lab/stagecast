@@ -5,8 +5,8 @@
  * ソース言語をストリーミング ASR で認識し、各ターゲット言語へ翻訳して字幕イベントを発行する。
  * ソース言語の字幕もそのまま発行する。暫定/確定フラグは ASR の結果を引き継ぐ。
  */
-import type { AudioChunk, CaptionEngine, CaptionEvent, LanguageCode } from '@stagecast/shared';
-import type { AsrAdapter, Translator, TranscriptSegment } from './types.js';
+import type { AudioChunk, CaptionEngine, CaptionEvent, LanguageCode } from "@stagecast/shared";
+import type { AsrAdapter, Translator, TranscriptSegment } from "./types.js";
 
 export interface TranscribeEngineConfig {
   sourceLanguage: LanguageCode;
@@ -15,7 +15,7 @@ export interface TranscribeEngineConfig {
 }
 
 export class TranscribeStreamingEngine implements CaptionEngine {
-  readonly kind = 'transcribe';
+  readonly kind = "transcribe";
   readonly sourceLanguage: LanguageCode;
   readonly targetLanguages: LanguageCode[];
   private readonly handlers: ((c: CaptionEvent) => void)[] = [];
@@ -42,10 +42,10 @@ export class TranscribeStreamingEngine implements CaptionEngine {
   }
 
   private async handleSegment(segment: TranscriptSegment): Promise<void> {
-    const baseEvent: Omit<CaptionEvent, 'language' | 'text'> = {
+    const baseEvent: Omit<CaptionEvent, "language" | "text"> = {
       startMs: segment.startMs,
       endMs: segment.endMs,
-      status: segment.isFinal ? 'final' : 'interim',
+      status: segment.isFinal ? "final" : "interim",
       speakerId: segment.speakerId,
       eventId: this.config.eventId,
     };

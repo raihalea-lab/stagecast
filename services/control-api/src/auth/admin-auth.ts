@@ -17,9 +17,9 @@ export interface AdminAuthVerifier {
 }
 
 export class UnauthorizedError extends Error {
-  constructor(message = 'unauthorized') {
+  constructor(message = "unauthorized") {
     super(message);
-    this.name = 'UnauthorizedError';
+    this.name = "UnauthorizedError";
   }
 }
 
@@ -29,9 +29,9 @@ export class UnauthorizedError extends Error {
  */
 export class FakeAdminAuthVerifier implements AdminAuthVerifier {
   async verify(authorizationHeader: string | undefined): Promise<AdminPrincipal> {
-    const token = authorizationHeader?.replace(/^Bearer\s+/i, '');
-    if (!token || !token.startsWith('fake:')) throw new UnauthorizedError();
-    const [, userId, email] = token.split(':');
+    const token = authorizationHeader?.replace(/^Bearer\s+/i, "");
+    if (!token || !token.startsWith("fake:")) throw new UnauthorizedError();
+    const [, userId, email] = token.split(":");
     if (!userId) throw new UnauthorizedError();
     return { userId, email };
   }
@@ -54,13 +54,13 @@ export class CognitoJwtAdminAuthVerifier implements AdminAuthVerifier {
   constructor(private readonly verifyJwt: (token: string) => Promise<VerifiedJwtClaims>) {}
 
   async verify(authorizationHeader: string | undefined): Promise<AdminPrincipal> {
-    const token = authorizationHeader?.replace(/^Bearer\s+/i, '');
-    if (!token) throw new UnauthorizedError('missing bearer token');
+    const token = authorizationHeader?.replace(/^Bearer\s+/i, "");
+    if (!token) throw new UnauthorizedError("missing bearer token");
     try {
       const claims = await this.verifyJwt(token);
       return { userId: claims.sub, email: claims.email };
     } catch {
-      throw new UnauthorizedError('invalid token');
+      throw new UnauthorizedError("invalid token");
     }
   }
 }
@@ -76,11 +76,11 @@ export function cognitoAdminAuthVerifier(config: {
   let verifier: { verify: (token: string) => Promise<VerifiedJwtClaims> } | undefined;
   const verifyJwt = async (token: string): Promise<VerifiedJwtClaims> => {
     if (!verifier) {
-      const { CognitoJwtVerifier } = await import('aws-jwt-verify');
+      const { CognitoJwtVerifier } = await import("aws-jwt-verify");
       verifier = CognitoJwtVerifier.create({
         userPoolId: config.userPoolId,
         clientId: config.clientId,
-        tokenUse: 'id',
+        tokenUse: "id",
       }) as unknown as { verify: (token: string) => Promise<VerifiedJwtClaims> };
     }
     return verifier.verify(token);

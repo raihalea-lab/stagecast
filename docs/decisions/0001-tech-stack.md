@@ -33,7 +33,7 @@
   型（字幕イベント、イベント設定、ロール、招待トークン）を全層で共有する。
 - 例外: GPU 上の自前 ASR（`DESIGN.md` 6.2「自前 ASR」, 9.1）が必要になった場合のみ Python 等を許容。
   本フェーズではインターフェースのみ用意し、実装は将来拡張とする。
-- ランタイムは Node.js 22（Lambda・Fargate ともに 22 系を前提）。
+- ランタイムは Node.js 24（Lambda・Fargate ともに 24 系を前提）。
 
 ### D-3. フロントエンド: React + TypeScript + Vite
 

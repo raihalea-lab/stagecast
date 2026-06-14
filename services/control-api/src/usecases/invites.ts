@@ -4,9 +4,9 @@
  * 署名 (HMAC) は invite/token.ts、失効状態は InviteTokenRepository が担う。
  * 検証は「署名・有効期限」(token.ts) に加えて「失効していないか・version 一致」(repo) を確認する。
  */
-import type { InvitedRole } from '@stagecast/shared';
-import type { InviteTokenRepository } from '../repo/types.js';
-import { signInviteToken, verifyInviteToken } from '../invite/token.js';
+import type { InvitedRole } from "@stagecast/shared";
+import type { InviteTokenRepository } from "../repo/types.js";
+import { signInviteToken, verifyInviteToken } from "../invite/token.js";
 
 export interface IssuedInvite {
   jti: string;
@@ -23,12 +23,12 @@ export type InviteVerifyResult =
   | {
       valid: false;
       reason:
-        | 'malformed'
-        | 'bad-signature'
-        | 'expired'
-        | 'invalid-payload'
-        | 'revoked'
-        | 'stale-version';
+        | "malformed"
+        | "bad-signature"
+        | "expired"
+        | "invalid-payload"
+        | "revoked"
+        | "stale-version";
     };
 
 export function createInviteService(deps: {
@@ -105,9 +105,9 @@ export function createInviteService(deps: {
     const res = verifyInviteToken(token, secret, nowSec);
     if (!res.valid) return { valid: false, reason: res.reason };
     const record = await repo.get(res.payload.jti);
-    if (!record || record.revoked) return { valid: false, reason: 'revoked' };
+    if (!record || record.revoked) return { valid: false, reason: "revoked" };
     if (res.payload.version !== record.currentVersion) {
-      return { valid: false, reason: 'stale-version' };
+      return { valid: false, reason: "stale-version" };
     }
     return {
       valid: true,

@@ -68,18 +68,37 @@ DESIGN.md             # 設計の正
 
 ## ローカル起動手順
 
-前提: Node.js 22+, pnpm 10+。
+前提: Vite+ CLI (`vp`)。Node.js / pnpm は `vp` が裏で管理する。
 
 ```bash
-pnpm install          # 依存をインストール
+# 初回のみ: Vite+ CLI のインストール
+curl -fsSL https://vite.plus | bash    # macOS / Linux
+# (Windows PowerShell の場合は: irm https://vite.plus/ps1 | iex)
+
+vp install            # 依存をインストール (内部で pnpm install を実行)
 cp .env.example .env  # 環境変数を用意 (実値はコミットしない)
 
-pnpm build            # 全ワークスペースをビルド
-pnpm test             # 全ワークスペースのテスト (外部接続なしで完結)
-pnpm typecheck        # 型チェック
-pnpm lint             # ESLint
-pnpm format           # Prettier 整形
+vp run -r build       # 全ワークスペースをビルド
+vp run -r test        # 全ワークスペースのテスト (外部接続なしで完結)
+vp run -r typecheck   # 型チェック
+vp lint               # oxlint 相当
+vp fmt                # oxfmt 相当
+vp check              # lint + fmt + typecheck をまとめて
+
+# パッケージ追加例
+vp add -D some-pkg --filter @stagecast/admin-web   # admin-web に dev 依存を追加
 ```
+
+> ℹ️ **Vite+ について**: フロントエンド/テスト/パッケージ管理の統合ツールチェイン。
+> `pnpm-workspace.yaml` の `overrides` で `vite` / `vitest` を
+> `@voidzero-dev/vite-plus-*` にエイリアスしているため、各 package.json の
+> `vite` / `vitest` 記述はそのままで Vite+ 実装が使われる。
+> `vp install` は `pnpm-workspace.yaml` + `pnpm-lock.yaml` を検出して
+> pnpm を裏で呼び出すため、ロックファイルや packageManager 設定はそのまま。
+> 公式: https://viteplus.dev/
+
+> 💡 `pnpm <script>` 経由でも実行可（root scripts も `vp run -r ...` を呼ぶように
+> なっているため、好みの入り口で OK）。devenv が用意する `pnpm` を引き続き使える。
 
 外部依存 (YouTube Live API, LiveKit, Transcribe, Translate, Bedrock 等) は
 フェイク実装に切り替えられる (`USE_FAKE_ADAPTERS=true`)。テストは外部接続なしで通る。

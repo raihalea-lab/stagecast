@@ -2,18 +2,18 @@
  * 管理コンソールのルート (DESIGN.md 3.1, 8 章)。
  * イベント一覧・作成・詳細を束ねる。データ層はクライアント抽象に委譲する。
  */
-import { useCallback, useEffect, useMemo, useState } from 'react';
-import type { EventDefinition } from '@stagecast/shared';
-import type { CreateEventInput } from '@stagecast/control-api';
-import { HttpControlApiClient } from './api/http-client.js';
-import { HttpAssetService } from './api/http-asset-service.js';
-import type { ControlApiClient, AssetService } from './api/types.js';
-import { EventForm } from './components/EventForm.js';
-import { EventDetail } from './components/EventDetail.js';
+import { useCallback, useEffect, useMemo, useState } from "react";
+import type { EventDefinition } from "@stagecast/shared";
+import type { CreateEventInput } from "@stagecast/control-api";
+import { HttpControlApiClient } from "./api/http-client.js";
+import { HttpAssetService } from "./api/http-asset-service.js";
+import type { ControlApiClient, AssetService } from "./api/types.js";
+import { EventForm } from "./components/EventForm.js";
+import { EventDetail } from "./components/EventDetail.js";
 
-const apiBaseUrl = (): string => import.meta.env.VITE_CONTROL_API_URL ?? '';
+const apiBaseUrl = (): string => import.meta.env.VITE_CONTROL_API_URL ?? "";
 // Cognito で取得した JWT を sessionStorage 等から取り出す想定 (F-12)。
-const idToken = (): string | undefined => sessionStorage.getItem('stagecast.idToken') ?? undefined;
+const idToken = (): string | undefined => sessionStorage.getItem("stagecast.idToken") ?? undefined;
 
 /** ブラウザ既定は HTTP クライアント。ローカル/テストは LocalControlApiClient を注入する。 */
 function defaultClient(): ControlApiClient {
@@ -61,7 +61,7 @@ export function App(props: { client?: ControlApiClient; assets?: AssetService })
               <li key={e.id}>
                 <button
                   onClick={() => setSelectedId(e.id)}
-                  className={e.id === selectedId ? 'active' : ''}
+                  className={e.id === selectedId ? "active" : ""}
                 >
                   {e.title} ({e.status})
                 </button>

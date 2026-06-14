@@ -12,8 +12,8 @@ import type {
   PresentationState,
   SlideSource,
   SpeakerVisibility,
-} from '@stagecast/shared';
-import type { CreateEventInput } from '@stagecast/control-api';
+} from "@stagecast/shared";
+import type { CreateEventInput } from "@stagecast/control-api";
 
 export interface IssuedInvite {
   jti: string;

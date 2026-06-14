@@ -4,8 +4,8 @@
  * 確定字幕を言語ごとに収集し、イベント後に SRT/VTT として書き出して S3 に保存する。
  * S3 アクセスは差し替え可能な ObjectStorage 抽象を介し、テストはインメモリ実装を使う。
  */
-import type { CaptionEvent, LanguageCode } from '@stagecast/shared';
-import { isFinalCaption } from '@stagecast/shared';
+import type { CaptionEvent, LanguageCode } from "@stagecast/shared";
+import { isFinalCaption } from "@stagecast/shared";
 
 export interface ObjectStorage {
   put(key: string, body: string, contentType: string): Promise<void>;
@@ -14,19 +14,19 @@ export interface ObjectStorage {
 
 /** ミリ秒 → SRT タイムコード (HH:MM:SS,mmm)。 */
 export function formatSrtTime(ms: number): string {
-  return formatTime(ms, ',');
+  return formatTime(ms, ",");
 }
 /** ミリ秒 → VTT タイムコード (HH:MM:SS.mmm)。 */
 export function formatVttTime(ms: number): string {
-  return formatTime(ms, '.');
+  return formatTime(ms, ".");
 }
-function formatTime(ms: number, msSep: ',' | '.'): string {
+function formatTime(ms: number, msSep: "," | "."): string {
   const clamped = Math.max(0, Math.floor(ms));
   const h = Math.floor(clamped / 3_600_000);
   const m = Math.floor((clamped % 3_600_000) / 60_000);
   const s = Math.floor((clamped % 60_000) / 1000);
   const millis = clamped % 1000;
-  const pad = (n: number, w = 2) => String(n).padStart(w, '0');
+  const pad = (n: number, w = 2) => String(n).padStart(w, "0");
   return `${pad(h)}:${pad(m)}:${pad(s)}${msSep}${pad(millis, 3)}`;
 }
 
@@ -36,14 +36,14 @@ export function toSrt(captions: CaptionEvent[]): string {
     .map((c, i) => {
       return `${i + 1}\n${formatSrtTime(c.startMs)} --> ${formatSrtTime(c.endMs)}\n${c.text}\n`;
     })
-    .join('\n');
+    .join("\n");
 }
 
 /** 確定字幕の配列から WebVTT を生成する。 */
 export function toVtt(captions: CaptionEvent[]): string {
   const cues = captions
     .map((c) => `${formatVttTime(c.startMs)} --> ${formatVttTime(c.endMs)}\n${c.text}`)
-    .join('\n\n');
+    .join("\n\n");
   return `WEBVTT\n\n${cues}\n`;
 }
 
@@ -75,7 +75,7 @@ export class CaptionStore {
     return [...(this.byLanguage.get(language) ?? [])].sort((a, b) => a.startMs - b.startMs);
   }
 
-  private key(language: LanguageCode, ext: 'srt' | 'vtt'): string {
+  private key(language: LanguageCode, ext: "srt" | "vtt"): string {
     const prefix = this.config.keyPrefix ?? `captions/${this.config.eventId}/`;
     return `${prefix}${language}.${ext}`;
   }
@@ -85,10 +85,10 @@ export class CaptionStore {
     const keys: string[] = [];
     for (const language of this.languages()) {
       const captions = this.captionsFor(language);
-      const srtKey = this.key(language, 'srt');
-      const vttKey = this.key(language, 'vtt');
-      await this.storage.put(srtKey, toSrt(captions), 'application/x-subrip');
-      await this.storage.put(vttKey, toVtt(captions), 'text/vtt');
+      const srtKey = this.key(language, "srt");
+      const vttKey = this.key(language, "vtt");
+      await this.storage.put(srtKey, toSrt(captions), "application/x-subrip");
+      await this.storage.put(vttKey, toVtt(captions), "text/vtt");
       keys.push(srtKey, vttKey);
     }
     return keys;

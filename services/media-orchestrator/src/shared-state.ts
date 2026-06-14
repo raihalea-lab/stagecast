@@ -35,8 +35,8 @@ export class InMemorySharedStateStore implements SharedStateStore {
     this.store.delete(namespacedKey(eventId, key));
   }
   async clearNamespace(eventId: string): Promise<void> {
-    const prefix = namespacedKey(eventId, '');
-    for (const k of [...this.store.keys()]) {
+    const prefix = namespacedKey(eventId, "");
+    for (const k of this.store.keys()) {
       if (k.startsWith(prefix)) this.store.delete(k);
     }
   }

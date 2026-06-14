@@ -10,18 +10,18 @@ import type {
   CaptionEngineKind,
   CaptionSink,
   LanguageCode,
-} from '@stagecast/shared';
-import { InProcessCaptionBus } from './bus.js';
-import { CaptionPipeline } from './pipeline.js';
-import { TranscribeStreamingEngine } from './engines/transcribe-engine.js';
-import { LLMEngine } from './engines/llm-engine.js';
-import { SelfHostedAsrEngine } from './engines/self-hosted.js';
-import type { AsrAdapter, LlmAdapter, Translator } from './engines/types.js';
-import { YouTubeCaptionSink, type YouTubeCaptionPublisher } from './sinks/youtube-sink.js';
-import { CustomCaptionApiSink, type CaptionBroadcaster } from './sinks/custom-api-sink.js';
-import { CaptionStore, type ObjectStorage } from './store/caption-store.js';
-import { CaptionConnectionHub, HubCaptionBroadcaster } from './sinks/caption-hub.js';
-import type { AudioChunk } from '@stagecast/shared';
+} from "@stagecast/shared";
+import { InProcessCaptionBus } from "./bus.js";
+import { CaptionPipeline } from "./pipeline.js";
+import { TranscribeStreamingEngine } from "./engines/transcribe-engine.js";
+import { LLMEngine } from "./engines/llm-engine.js";
+import { SelfHostedAsrEngine } from "./engines/self-hosted.js";
+import type { AsrAdapter, LlmAdapter, Translator } from "./engines/types.js";
+import { YouTubeCaptionSink, type YouTubeCaptionPublisher } from "./sinks/youtube-sink.js";
+import { CustomCaptionApiSink, type CaptionBroadcaster } from "./sinks/custom-api-sink.js";
+import { CaptionStore, type ObjectStorage } from "./store/caption-store.js";
+import { CaptionConnectionHub, HubCaptionBroadcaster } from "./sinks/caption-hub.js";
+import type { AudioChunk } from "@stagecast/shared";
 
 export interface CaptionRuntimeConfig {
   eventId: string;
@@ -57,18 +57,18 @@ export function selectEngine(
     eventId: config.eventId,
   };
   switch (config.engine) {
-    case 'transcribe':
+    case "transcribe":
       if (!providers.asr || !providers.translator) {
-        throw new Error('transcribe engine requires asr + translator providers');
+        throw new Error("transcribe engine requires asr + translator providers");
       }
       return new TranscribeStreamingEngine(providers.asr, providers.translator, common);
-    case 'llm':
-      if (!providers.llm) throw new Error('llm engine requires an llm provider');
-      return new LLMEngine(providers.llm, { ...common, mode: 'asr+translate' });
-    case 'self-hosted-asr':
+    case "llm":
+      if (!providers.llm) throw new Error("llm engine requires an llm provider");
+      return new LLMEngine(providers.llm, { ...common, mode: "asr+translate" });
+    case "self-hosted-asr":
       return new SelfHostedAsrEngine({
         ...common,
-        modelEndpoint: providers.selfHostedEndpoint ?? '',
+        modelEndpoint: providers.selfHostedEndpoint ?? "",
       });
   }
 }
