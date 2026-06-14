@@ -37,7 +37,7 @@ StreamYard 型の YouTube ライブ配信プラットフォーム。配信管理
 /infra                # AWS CDK スタック (制御層)。イベント単位メディアスタックは今後追加  [実装済]
 /apps
   /admin-web          # 管理SPA (S3+CloudFront, Cognito 認証)                         [実装済]
-  /stage-web          # 登壇者・モデレーター用 (招待URL, WebRTC送出)                  [未着手/残作業]
+  /stage-web          # 登壇者・モデレーター用 (招待URL入室, LiveKit WebRTC送出, スライド送り)  [実装済]
 /services
   /control-api        # 制御 API。イベント設定・発表者制御・招待トークン・認証         [実装済]
   /media-orchestrator # メディア/字幕スタックの起動・破棄・最大3並列・共有状態         [実装済]

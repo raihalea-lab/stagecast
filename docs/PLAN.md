@@ -93,9 +93,11 @@
 
 ### フェーズ 8: 登壇者/モデレーター用 stage-web
 
-- [ ] 招待 URL 入室（トークン検証 → ロール判定）（4.1, F-12）
-- [ ] LiveKit 接続抽象 + スライド送り（画面共有/事前アップロードのページ送り）（F-3, 5.2）
-- 受け入れ基準: 入室フロー・スライド制御ロジックのテスト + vite build
+- [x] control-api に `/join` 追加（招待トークン検証 → LiveKit トークン払い出し）（4.1, F-1）
+- [x] stage-web: 招待 URL 入室・ロール別 publish ガード（登壇者のみ送出, モデレーターは補助）
+- [x] RoomConnector 抽象 + LiveKit 実装 + Fake（カメラ/マイク/画面共有, F-3）
+- [x] スライド送り（事前アップロードのページ送りをデータ配信, 5.2）
+- 受け入れ基準: StageController/入室/スライドのテスト 9件 + vite build ✅
 
 ### フェーズ 9: DynamoDB 永続化（control-api 実リポジトリ）
 

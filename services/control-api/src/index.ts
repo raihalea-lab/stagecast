@@ -11,6 +11,8 @@ export * from './factory.js';
 export * from './usecases/events.js';
 export * from './usecases/invites.js';
 export * from './usecases/presentation.js';
+export * from './usecases/join.js';
+export * from './auth/livekit-minter.js';
 export * from './invite/token.js';
 export * from './auth/admin-auth.js';
 export * from './repo/types.js';

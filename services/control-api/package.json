@@ -12,6 +12,7 @@
     "clean": "rm -rf dist *.tsbuildinfo"
   },
   "dependencies": {
+    "@stagecast/media-composer": "workspace:*",
     "@stagecast/shared": "workspace:*"
   },
   "devDependencies": {

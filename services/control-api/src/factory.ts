@@ -19,6 +19,8 @@ import type {
 import { createEventService } from './usecases/events.js';
 import { createInviteService } from './usecases/invites.js';
 import { createPresentationService } from './usecases/presentation.js';
+import { createJoinService } from './usecases/join.js';
+import { DefaultLiveKitTokenMinter, type LiveKitTokenMinter } from './auth/livekit-minter.js';
 import { createApp } from './http/app.js';
 
 export interface FactoryConfig {
@@ -28,8 +30,21 @@ export interface FactoryConfig {
   presentationRepo?: PresentationRepository;
   inviteSecret?: string;
   inviteBaseUrl?: string;
+  /** LiveKit トークン発行器 (入室時に使用)。未指定なら環境変数から構築を試みる。 */
+  livekitMinter?: LiveKitTokenMinter;
   now?: () => number;
   newId?: () => string;
+}
+
+/** 環境変数から LiveKit 設定が揃っていれば既定の発行器を作る。 */
+function livekitFromEnv(): LiveKitTokenMinter | undefined {
+  const url = process.env.LIVEKIT_URL;
+  const apiKey = process.env.LIVEKIT_API_KEY;
+  const apiSecret = process.env.LIVEKIT_API_SECRET;
+  if (url && apiKey && apiSecret) {
+    return new DefaultLiveKitTokenMinter({ url, apiKey, apiSecret });
+  }
+  return undefined;
 }
 
 export function buildControlApi(config: FactoryConfig = {}) {
@@ -55,11 +70,17 @@ export function buildControlApi(config: FactoryConfig = {}) {
     repo: config.presentationRepo ?? new MemoryPresentationRepository(),
     now,
   });
+  const join = createJoinService({
+    invites,
+    minter: config.livekitMinter ?? livekitFromEnv(),
+    newIdentity: newId,
+  });
 
   return createApp({
     auth: config.auth ?? new FakeAdminAuthVerifier(),
     events,
     invites,
     presentation,
+    join,
   });
 }

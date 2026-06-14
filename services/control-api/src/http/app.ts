@@ -16,6 +16,7 @@ import {
 } from '../usecases/events.js';
 import type { createInviteService } from '../usecases/invites.js';
 import type { createPresentationService } from '../usecases/presentation.js';
+import { ServiceUnavailableError, type createJoinService } from '../usecases/join.js';
 
 export interface HttpRequest {
   method: string;
@@ -31,18 +32,20 @@ export interface HttpResponse {
 
 type InviteService = ReturnType<typeof createInviteService>;
 type PresentationService = ReturnType<typeof createPresentationService>;
+type JoinService = ReturnType<typeof createJoinService>;
 
 export interface AppDeps {
   auth: AdminAuthVerifier;
   events: EventService;
   invites: InviteService;
   presentation: PresentationService;
+  join: JoinService;
 }
 
 const json = (status: number, body: unknown): HttpResponse => ({ status, body });
 
 export function createApp(deps: AppDeps) {
-  const { auth, events, invites, presentation } = deps;
+  const { auth, events, invites, presentation, join } = deps;
 
   async function requireAdmin(req: HttpRequest): Promise<void> {
     await auth.verify(req.headers['authorization'] ?? req.headers['Authorization']);
@@ -56,6 +59,15 @@ export function createApp(deps: AppDeps) {
     if (req.method === 'POST' && req.path === '/invites/verify') {
       const result = await invites.verify(String(body.token ?? ''));
       return json(result.valid ? 200 : 401, result);
+    }
+
+    // 公開: 入室 (招待トークン → LiveKit アクセストークン払い出し) (4.1, F-1)
+    if (req.method === 'POST' && req.path === '/join') {
+      const result = await join.join(
+        String(body.token ?? ''),
+        body.displayName as string | undefined,
+      );
+      return json(result.ok ? 200 : 401, result);
     }
 
     // 以降は管理者専用 (Cognito)
@@ -136,6 +148,7 @@ export function createApp(deps: AppDeps) {
       if (err instanceof UnauthorizedError) return json(401, { error: err.message });
       if (err instanceof ValidationError) return json(400, { error: err.message });
       if (err instanceof NotFoundError) return json(404, { error: err.message });
+      if (err instanceof ServiceUnavailableError) return json(503, { error: err.message });
       return json(500, { error: err instanceof Error ? err.message : 'internal error' });
     }
   }
