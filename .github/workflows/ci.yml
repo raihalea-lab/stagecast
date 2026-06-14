@@ -11,9 +11,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # pnpm のバージョンは package.json の packageManager から解決する
+      # (二重指定すると ERR_PNPM_BAD_PM_VERSION になるため version は指定しない)
       - uses: pnpm/action-setup@v4
-        with:
-          version: 10
 
       - uses: actions/setup-node@v4
         with:
@@ -26,11 +26,13 @@ jobs:
       - name: Lint
         run: pnpm lint
 
-      - name: Typecheck
-        run: pnpm typecheck
-
+      # ワークスペース間の型解決には各パッケージの dist (型宣言) が必要なため、
+      # typecheck / test の前に build を実行する。
       - name: Build
         run: pnpm build
+
+      - name: Typecheck
+        run: pnpm typecheck
 
       - name: Test
         run: pnpm test
