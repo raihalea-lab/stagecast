@@ -1,8 +1,10 @@
 import { describe, expect, it, vi } from "vitest";
 import type { PresentationState } from "@stagecast/shared";
+import type { EgressClient } from "livekit-server-sdk";
 import {
   LiveKitEgressClient,
   attachComposerToPresentation,
+  createLiveKitEgressApi,
   layoutToLiveKit,
   type LiveKitEgressApi,
 } from "./livekit-egress.js";
@@ -111,6 +113,69 @@ describe("LiveKitEgressClient (T2)", () => {
     expect(api.updates[0]).toMatchObject({ egressId: handle.egressId, layout: "single-speaker" });
     await client.stop(handle);
     expect(api.stopped).toEqual([handle.egressId]);
+  });
+});
+
+describe("createLiveKitEgressApi (D3: 実 livekit-server-sdk シグネチャ整合)", () => {
+  type StartArgs = {
+    roomName: string;
+    output: { stream?: unknown; file?: unknown };
+    opts: unknown;
+  };
+  function fakeClient() {
+    const starts: StartArgs[] = [];
+    const updates: { id: string; layout: string }[] = [];
+    const stops: string[] = [];
+    const client = {
+      async startRoomCompositeEgress(roomName: string, output: StartArgs["output"], opts: unknown) {
+        starts.push({ roomName, output, opts });
+        return { egressId: "eg-real-1" };
+      },
+      async updateLayout(id: string, layout: string) {
+        updates.push({ id, layout });
+        return {};
+      },
+      async stopEgress(id: string) {
+        stops.push(id);
+        return {};
+      },
+    } as unknown as EgressClient;
+    return { client, starts, updates, stops };
+  }
+
+  it("RoomComposite を (roomName, output, {layout}) で起動し stream/file 出力を生成する", async () => {
+    const { client, starts } = fakeClient();
+    const api = createLiveKitEgressApi(client);
+    const res = await api.startRoomCompositeEgress({
+      roomName: "stagecast-evt-1",
+      layout: "speaker",
+      streamOutputs: [{ protocol: "rtmp", urls: ["rtmp://yt/live2/k"] }],
+      fileOutputs: [
+        {
+          fileType: "mp4",
+          filepath: "recordings/evt-1/x.mp4",
+          s3: { bucket: "b", region: "us-east-1" },
+        },
+      ],
+    });
+    expect(res.egressId).toBe("eg-real-1");
+    expect(starts).toHaveLength(1);
+    const call = starts[0]!;
+    // 現行 SDK: roomName は第 1 引数、layout は opts に渡る。
+    expect(call.roomName).toBe("stagecast-evt-1");
+    expect((call.opts as { layout?: string }).layout).toBe("speaker");
+    // 出力は実 protobuf (StreamOutput / EncodedFileOutput) に変換される。
+    expect((call.output.stream as { urls: string[] }).urls).toEqual(["rtmp://yt/live2/k"]);
+    expect((call.output.file as { filepath: string }).filepath).toBe("recordings/evt-1/x.mp4");
+  });
+
+  it("updateLayout / stopEgress を実 client に転送する", async () => {
+    const { client, updates, stops } = fakeClient();
+    const api = createLiveKitEgressApi(client);
+    await api.updateLayout("eg-9", "grid");
+    await api.stopEgress("eg-9");
+    expect(updates).toEqual([{ id: "eg-9", layout: "grid" }]);
+    expect(stops).toEqual(["eg-9"]);
   });
 });
 

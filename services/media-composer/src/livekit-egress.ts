@@ -8,6 +8,7 @@
  * `LiveKitEgressApi` インターフェースで抽象化することで、SDK 非依存のユニットテストを
  * 維持しつつ、本番では実 SDK を注入する。
  */
+import type { EncodedOutputs, EgressClient as LiveKitServerEgressClient } from "livekit-server-sdk";
 import type { CompositionLayout } from "./layout.js";
 import type { EgressClient, EgressHandle, RecordingConfig, StartEgressInput } from "./egress.js";
 
@@ -116,6 +117,66 @@ export class LiveKitEgressClient implements EgressClient {
     const id = egressId ?? "{egress}";
     return `${recording.s3KeyPrefix}${eventId}/${id}.mp4`;
   }
+}
+
+/**
+ * 抽象 `LiveKitEgressApi` を実 `livekit-server-sdk` の `EgressClient` で満たすアダプタ
+ * (D3, ADR 0006 D-5/D-7)。
+ *
+ * 本アダプタにより `LiveKitEgressApi` の手書きインターフェースが実 SDK の現行シグネチャ
+ * (`startRoomCompositeEgress(roomName, output, opts)`) と整合していることを型レベルで担保する。
+ * `livekit-server-sdk` 本体はランタイムでのみ必要なので、型は `import type` で参照し、
+ * 出力 (`StreamOutput` / `EncodedFileOutput`) の生成は呼び出し時に lazy import する
+ * (ADR 0006 D-7「型のみ正規 import + lazy ランタイム」)。
+ */
+export function createLiveKitEgressApi(client: LiveKitServerEgressClient): LiveKitEgressApi {
+  return {
+    async startRoomCompositeEgress(input) {
+      const sdk = await import("livekit-server-sdk");
+      const output: EncodedOutputs = {};
+
+      const streamUrls = (input.streamOutputs ?? []).flatMap((s) => s.urls);
+      if (streamUrls.length > 0) {
+        output.stream = new sdk.StreamOutput({
+          protocol: sdk.StreamProtocol.RTMP,
+          urls: streamUrls,
+        });
+      }
+
+      const file = input.fileOutputs?.[0];
+      if (file) {
+        output.file = new sdk.EncodedFileOutput({
+          fileType: sdk.EncodedFileType.MP4,
+          filepath: file.filepath,
+          ...(file.s3
+            ? {
+                output: {
+                  case: "s3" as const,
+                  value: new sdk.S3Upload({
+                    bucket: file.s3.bucket,
+                    ...(file.s3.region ? { region: file.s3.region } : {}),
+                  }),
+                },
+              }
+            : {}),
+        });
+      }
+
+      // layout は opts に渡す (現行 SDK は output を第 2 引数、layout を opts に取る)。
+      const info = await client.startRoomCompositeEgress(input.roomName, output, {
+        ...(input.layout ? { layout: input.layout } : {}),
+        ...(input.audioOnly ? { audioOnly: input.audioOnly } : {}),
+        ...(input.videoOnly ? { videoOnly: input.videoOnly } : {}),
+      });
+      return { egressId: info.egressId };
+    },
+    async updateLayout(egressId, layout) {
+      await client.updateLayout(egressId, layout);
+    },
+    async stopEgress(egressId) {
+      await client.stopEgress(egressId);
+    },
+  };
 }
 
 /**

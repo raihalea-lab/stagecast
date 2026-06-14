@@ -169,48 +169,25 @@ export async function liveKitAudioSourceFromEnv(
 }
 
 /**
- * livekit-rtc-node を遅延 import で読み込み、`LiveKitTrackSubscriber` 互換のラッパを返す。
+ * `@livekit/rtc-node` を遅延 import で読み込み、`LiveKitTrackSubscriber` 互換のラッパを返す
+ * (D3, ADR 0006 D-7)。
  *
- * `@livekit/rtc-node` はネイティブ依存があるオプショナルパッケージなので、本ファイルは
- * コンパイル時には型依存しない (string indirection で TS の解決を回避)。
- * SDK が無い環境 (テスト/ローカルで未インストール) では実行時に throw する。
+ * 型は実 SDK (`Room` / `RoomEvent` / `AudioStream` / `AudioFrame` 等) に整合させている
+ * (従来の string indirection + `as unknown as {...}` を撤廃)。`@livekit/rtc-node` は
+ * ネイティブ依存の **optionalDependency** なので、未インストール環境では `import` が実行時に
+ * throw する (テストは fake subscriber を注入し外部接続なしに完結する、CLAUDE.md テスト方針)。
  */
 async function loadDefaultSubscriber(): Promise<LiveKitTrackSubscriber> {
-  // string 変数経由にすることで bundler/TS が解決を試みない (実行時にのみ解決)。
-  const pkgName = "@livekit/rtc-node";
-  const mod = (await import(/* @vite-ignore */ pkgName)) as unknown as {
-    Room: new () => {
-      connect: (url: string, token: string) => Promise<void>;
-      disconnect: () => Promise<void>;
-      on: (event: string, handler: (...args: unknown[]) => void) => void;
-    };
-  };
+  const rtc = await import("@livekit/rtc-node");
   return {
     async subscribe(config, onFrame) {
-      const room = new mod.Room();
-      room.on("trackSubscribed", (track: unknown, _publication: unknown, participant: unknown) => {
-        const anyTrack = track as {
-          kind?: string;
-          source?: string;
-          on?: (e: string, cb: (frame: unknown) => void) => void;
-        };
-        if (anyTrack.kind !== "audio") return;
-        const identity = (participant as { identity?: string } | undefined)?.identity;
-        anyTrack.on?.("frame", (raw: unknown) => {
-          const r = raw as {
-            data: Int16Array | Float32Array;
-            sampleRate: number;
-            channels: number;
-            timestampUs?: bigint;
-          };
-          onFrame({
-            pcm: r.data,
-            sampleRate: r.sampleRate,
-            channels: r.channels,
-            timestampMs: r.timestampUs ? Number(r.timestampUs / 1000n) : Date.now(),
-            ...(identity ? { speakerId: identity } : {}),
-          });
-        });
+      const room = new rtc.Room();
+      room.on(rtc.RoomEvent.TrackSubscribed, (track, _publication, participant) => {
+        // 音声トラックのみを字幕に流す。
+        if (!(track instanceof rtc.RemoteAudioTrack)) return;
+        const identity = participant.identity;
+        // AudioStream は ReadableStream<AudioFrame>。フレームを順に RawAudioFrame へ写す。
+        void pumpAudioStream(new rtc.AudioStream(track), identity, onFrame);
       });
       await room.connect(config.url, config.token);
       return async () => {
@@ -218,4 +195,32 @@ async function loadDefaultSubscriber(): Promise<LiveKitTrackSubscriber> {
       };
     },
   };
+}
+
+/**
+ * `AudioStream` (ReadableStream<AudioFrame>) を読み切り、各フレームを `onFrame` へ流す。
+ * 読み取りエラーは握って配信全体を止めない (字幕は best-effort, N-2)。
+ */
+async function pumpAudioStream(
+  stream: import("@livekit/rtc-node").AudioStream,
+  identity: string | undefined,
+  onFrame: (frame: RawAudioFrame) => void,
+): Promise<void> {
+  const reader = stream.getReader();
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) return;
+      onFrame({
+        pcm: value.data,
+        sampleRate: value.sampleRate,
+        channels: value.channels,
+        // AudioFrame は壁時計を持たないため受信時刻を用いる。
+        timestampMs: Date.now(),
+        ...(identity ? { speakerId: identity } : {}),
+      });
+    }
+  } catch (err) {
+    console.error("LiveKitAudioSource: audio stream read failed", err);
+  }
 }
