@@ -84,16 +84,26 @@ pnpm format           # Prettier 整形
 
 ## デプロイ手順
 
-> フェーズ 1 で AWS CDK スタックを追加予定。確定後に以下を記載する。
->
-> ```bash
-> # 例 (フェーズ1以降)
-> pnpm --filter @stagecast/infra cdk synth
-> pnpm --filter @stagecast/infra cdk deploy ControlPlaneStack
-> ```
->
-> シークレット (YouTube API キー・LiveKit キー等) はコードに置かず、
-> SSM パラメータストア / Secrets Manager で管理する (ADR D-10)。
+制御層 (常時稼働) の CDK スタックを synth/deploy する。
+
+```bash
+# 制御層スタックの合成 (テンプレ確認)
+pnpm --filter @stagecast/infra synth
+
+# デプロイ (要 AWS 資格情報・cdk bootstrap 済み)
+pnpm --filter @stagecast/infra cdk deploy StagecastControlPlane
+
+# 管理 SPA をビルドし、出力された S3 バケットへ配置 (CloudFront 配信)
+pnpm --filter @stagecast/admin-web build
+# aws s3 sync apps/admin-web/dist s3://<AdminWebBucket> --delete
+```
+
+- 常時稼働するのは制御層スタックのみ (S3/CloudFront・API Gateway/Lambda・DynamoDB・Cognito・成果物S3)。
+  メディア層/字幕層は `media-orchestrator` がイベント単位で起動・破棄する (N-1)。
+- シークレット (YouTube API キー・LiveKit キー等) はコードに置かず、
+  SSM パラメータストア / Secrets Manager で管理する (ADR D-10)。
+- 残作業: control-api 実ハンドラの NodejsFunction 化、イベント単位メディアスタックの
+  CDK 定義、各フェイクの実 AWS SDK 実装 (`docs/PLAN.md` 末尾参照)。
 
 ## 開発ルール
 
