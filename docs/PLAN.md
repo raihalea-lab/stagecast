@@ -83,15 +83,33 @@
 
 ---
 
+## 運用化フェーズ（フェーズ7〜: あるべき姿への実体化）
+
+### フェーズ 7: イベント単位メディアスタックの CDK 定義
+
+- [x] `EventMediaStack`: ECS/Fargate(SFU/Egress/字幕worker) + ElastiCache Valkey Serverless
+- [x] イベント単位で独立・破棄可能（N-5, 7.1, 7.3）。専用VPC・タグで隔離、bin で -c eventId 合成
+- 受け入れ基準: synth + assertion（Valkey Serverless・3 Fargate・専用VPC・IAM最小権限）✅ 6件
+
+### フェーズ 8: 登壇者/モデレーター用 stage-web
+
+- [ ] 招待 URL 入室（トークン検証 → ロール判定）（4.1, F-12）
+- [ ] LiveKit 接続抽象 + スライド送り（画面共有/事前アップロードのページ送り）（F-3, 5.2）
+- 受け入れ基準: 入室フロー・スライド制御ロジックのテスト + vite build
+
+### フェーズ 9: DynamoDB 永続化（control-api 実リポジトリ）
+
+- [ ] 単一テーブル設計の純粋マッパー（item ⇄ ドメイン）+ テスト
+- [ ] `DynamoEventRepository` ほか（AWS SDK v3, 結合は統合時）
+- 受け入れ基準: マッパーの往復テスト・キー設計の単体テスト
+
+---
+
 ## 現在のステータス
 
-- 完了: **フェーズ 0〜6 すべて** ✅（build / typecheck / lint / test 全通過、66 tests）
-- パッケージ別テスト: shared 9 / infra 6 / control-api 11 / media-orchestrator 6 /
-  media-composer 12 / caption-pipeline 14 / admin-web 4
-- 残作業（実デプロイ・実エンジン結線・別 ADR 化が必要な事項, `DESIGN.md` 9.1）:
-  - 各種フェイク → 実 AWS SDK 実装（DynamoDB/ECS/Transcribe/Translate/Bedrock/LiveKit/YouTube）
-  - CDK への control-api 実ハンドラ・イベント単位メディアスタックの組み込み
-  - 登壇者/モデレーター用 stage-web（WebRTC 送出 UI）
+- 完了: **フェーズ 0〜6 すべて** ✅（build / typecheck / lint / test 全通過）
+- 運用化フェーズ 7〜9 を順次実装中。
+- 別 ADR 化が必要な事項（`DESIGN.md` 9.1）:
   - 字幕バスの分散メッセージング基盤
   - 独自字幕配信 API のプロトコル詳細（再接続・認証）
   - YouTube Live API 連携詳細
