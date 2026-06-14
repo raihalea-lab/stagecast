@@ -31,8 +31,8 @@ export class AwsCloudFormationClient implements CloudFormationLike {
   async createStack(input: {
     StackName: string;
     TemplateBody: string;
-    Capabilities?: string[];
-  }): Promise<{ StackId?: string }> {
+    Capabilities?: string[] | undefined;
+  }): Promise<{ StackId?: string | undefined }> {
     const res = await this.client.send(
       new CreateStackCommand({
         StackName: input.StackName,

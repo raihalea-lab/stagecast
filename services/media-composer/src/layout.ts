@@ -22,7 +22,7 @@ export interface SpeakerTile {
 
 export interface CompositionLayout {
   /** スライド (画面共有 or 事前アップロード) の表示領域。未投影なら null。 */
-  slide: { region: Rect; source: "screen-share" | "uploaded"; page?: number } | null;
+  slide: { region: Rect; source: "screen-share" | "uploaded"; page?: number | undefined } | null;
   /** 発表中の登壇者タイル一覧。 */
   speakers: SpeakerTile[];
   /** QR コードのオーバーレイ (右下)。 */

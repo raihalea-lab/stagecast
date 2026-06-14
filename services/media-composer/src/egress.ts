@@ -18,8 +18,8 @@ export interface StartEgressInput {
   room: string;
   layout: CompositionLayout;
   /** RTMP 送出先 (YouTube Live)。未指定はモック送出 (ローカル検証用)。 */
-  rtmpUrl?: string;
-  recording?: RecordingConfig;
+  rtmpUrl?: string | undefined;
+  recording?: RecordingConfig | undefined;
 }
 
 export type EgressStatus = "starting" | "active" | "stopped";
@@ -28,8 +28,8 @@ export interface EgressHandle {
   egressId: string;
   eventId: string;
   status: EgressStatus;
-  rtmpUrl?: string;
-  recordingS3Uri?: string;
+  rtmpUrl?: string | undefined;
+  recordingS3Uri?: string | undefined;
 }
 
 export interface EgressClient {

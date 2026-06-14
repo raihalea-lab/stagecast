@@ -5,16 +5,21 @@ on:
     branches: ["**"]
   pull_request:
 
+# 同じブランチ/PR の古い run は新しい push でキャンセル。main は守る。
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
 jobs:
   build-test:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       # pnpm のバージョンは package.json の packageManager から解決する
       # (二重指定すると ERR_PNPM_BAD_PM_VERSION になるため version は指定しない)。
       # setup-vp は Node の取得は面倒を見るが、pnpm 本体は別途セットアップが必要。
-      - uses: pnpm/action-setup@v4
+      - uses: pnpm/action-setup@v6
 
       # Vite+ CLI 導入 + Node.js セットアップ + 依存インストールまでを一括。
       # - node-version: 24 で actions/setup-node の代わりに vp env が Node を用意

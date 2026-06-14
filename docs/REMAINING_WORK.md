@@ -150,7 +150,7 @@
 
 - **目的**: 再現可能なデプロイと CI 強化。
 - **作業内容**:
-  - CI に `pnpm --filter @stagecast/infra synth`（テンプレ生成の健全性）を追加。
+  - CI に `vp run --filter @stagecast/infra synth`（テンプレ生成の健全性）を追加。
   - `deploy` ワークフロー（手動 dispatch）: 制御層 `cdk deploy` → フロント `s3 sync` → invalidation。
   - README の「デプロイ手順」を実コマンドで更新（bootstrap・account/region・secrets 準備含む）。
 - **受け入れ基準**: ワークフローが lint/build を通り、dry-run（`--no-execute` 等）で検証できる。

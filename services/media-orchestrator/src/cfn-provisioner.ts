@@ -11,11 +11,11 @@
 import type { EventMediaSpec, MediaStackHandle, MediaStackProvisioner } from "./provisioner.js";
 
 export interface StackOutput {
-  OutputKey?: string;
-  OutputValue?: string;
+  OutputKey?: string | undefined;
+  OutputValue?: string | undefined;
 }
 export interface DescribeResult {
-  Stacks?: { StackStatus?: string; Outputs?: StackOutput[] }[];
+  Stacks?: { StackStatus?: string | undefined; Outputs?: StackOutput[] | undefined }[] | undefined;
 }
 
 /** CloudFormation の最小サブセット。 */
@@ -23,8 +23,8 @@ export interface CloudFormationLike {
   createStack(input: {
     StackName: string;
     TemplateBody: string;
-    Capabilities?: string[];
-  }): Promise<{ StackId?: string }>;
+    Capabilities?: string[] | undefined;
+  }): Promise<{ StackId?: string | undefined }>;
   deleteStack(input: { StackName: string }): Promise<void>;
   describeStacks(input: { StackName: string }): Promise<DescribeResult>;
 }
@@ -36,10 +36,10 @@ export interface CfnProvisionerConfig {
   /** イベント ID → スタック名 (infra の eventMediaStackName と一致させる)。 */
   stackName: (eventId: string) => string;
   /** 完了待ちのポーリング間隔・最大回数 (テストでは 0/1)。 */
-  pollIntervalMs?: number;
-  maxPolls?: number;
+  pollIntervalMs?: number | undefined;
+  maxPolls?: number | undefined;
   /** 待機関数 (テストで差し替え可能)。 */
-  delay?: (ms: number) => Promise<void>;
+  delay?: ((ms: number) => Promise<void>) | undefined;
 }
 
 const COMPLETE = /COMPLETE$/;
