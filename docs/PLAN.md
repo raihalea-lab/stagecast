@@ -141,8 +141,10 @@
 - パッケージ別テスト: shared 9 / infra 12 / control-api 26 / media-orchestrator 12 /
   media-composer 12 / caption-pipeline 39 / admin-web 4 / stage-web 9
 - 実アダプタ・トランスポート・プロビジョナは注入クライアント/フェイクで単体テスト済み。
+- 字幕バス分散化は **ADR 0002 で Valkey Streams を採用**し、`ValkeyStreamsCaptionBus`
+  （`CaptionBus` 互換・イベント単位ストリーム名前空間）を実装・テスト済み。
 - 残（実 AWS 環境での E2E・運用が本体の事項, `DESIGN.md` 9.1）:
-  - 字幕バスの**分散**実装（現状はプロセス内 InProcessCaptionBus。I/F 互換で差し替え可能）
   - 実 `cdk synth` テンプレートを `CloudFormationMediaStackProvisioner.renderTemplate` へ供給する配線
   - WebSocket サーバの実ポート起動・スケール運用（橋渡しロジックは実装・テスト済み）
-  - 障害時フェイルオーバーと配信途中のリソース再起動方針
+  - `ValkeyStreamsCaptionBus` の実 Valkey クライアント結線（I/F・ロジックは実装・テスト済み）
+  - **障害時フェイルオーバー方針（次の ADR 0003 候補）**

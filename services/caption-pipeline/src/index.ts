@@ -1,4 +1,5 @@
 export * from './bus.js';
+export * from './valkey-bus.js';
 export * from './pipeline.js';
 export * from './runtime.js';
 export * from './engines/types.js';
