@@ -6,12 +6,14 @@
  * として注入するため、本番は実 AWS 実装、テストはフェイクを渡せる。
  */
 import type {
+  CaptionBus,
   CaptionEngine,
   CaptionEngineKind,
   CaptionSink,
   LanguageCode,
 } from "@stagecast/shared";
 import { InProcessCaptionBus } from "./bus.js";
+import { ValkeyStreamsCaptionBus, type CaptionStreamClient } from "./valkey-bus.js";
 import { CaptionPipeline } from "./pipeline.js";
 import { TranscribeStreamingEngine } from "./engines/transcribe-engine.js";
 import { LLMEngine } from "./engines/llm-engine.js";
@@ -44,6 +46,10 @@ export interface CaptionRuntimeProviders {
   broadcaster?: CaptionBroadcaster;
   storage?: ObjectStorage;
   selfHostedEndpoint?: string;
+  /** 字幕バスの実装 (省略時は InProcessCaptionBus)。Valkey 切替で `ValkeyStreamsCaptionBus` を渡す (T3)。 */
+  bus?: CaptionBus;
+  /** Valkey クライアント (省略可、bus 未指定で valkeyStreamClient を渡せばここから組み立てる)。 */
+  valkeyStreamClient?: CaptionStreamClient;
 }
 
 /** 設定とプロバイダからエンジンを選択する (F-8, 6.2)。 */
@@ -103,7 +109,16 @@ export function assembleCaptionPipeline(
   const store = providers.storage
     ? new CaptionStore(providers.storage, { eventId: config.eventId })
     : undefined;
-  return new CaptionPipeline({ bus: new InProcessCaptionBus(), engine, sinks, store });
+  // バス選択順: 明示注入 > valkeyStreamClient から組み立て > InProcess (既定)。
+  const bus: CaptionBus =
+    providers.bus ??
+    (providers.valkeyStreamClient
+      ? new ValkeyStreamsCaptionBus({
+          eventId: config.eventId,
+          client: providers.valkeyStreamClient,
+        })
+      : new InProcessCaptionBus());
+  return new CaptionPipeline({ bus, engine, sinks, store });
 }
 
 /**

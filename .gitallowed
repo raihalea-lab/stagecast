@@ -1,0 +1,5 @@
+# git-secrets で誤検知する placeholder を許可する。
+# 12 桁ゼロは「AWS_ACCOUNT_ID の例示プレースホルダ」(本物のアカウント ID ではない)。
+AWS_ACCOUNT_ID=000000000000
+# ドキュメント例示用の placeholder アカウント (CDK assertion test 等)。
+111111111111

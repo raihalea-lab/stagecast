@@ -1,0 +1,113 @@
+name: Deploy
+
+# T10: 手動 dispatch で制御層 + フロントを再現可能にデプロイする。
+# AWS 認証は OIDC (GitHub → AWS IAM Role) を前提とし、リポジトリには長期キーを置かない。
+# IAM Role の用意 (信頼ポリシーに `token.actions.githubusercontent.com` を許可) は
+# デプロイ環境の事前準備として運用者が行う (README に手順あり)。
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: "デプロイ先環境 (dev / staging / prod 等)"
+        required: true
+        default: "dev"
+      dry-run:
+        description: "true なら cdk diff のみ。false なら cdk deploy + s3 sync まで実行"
+        required: true
+        default: "true"
+
+# 同一環境への同時 deploy を防ぐ。
+concurrency:
+  group: deploy-${{ github.event.inputs.environment }}
+  cancel-in-progress: false
+
+permissions:
+  id-token: write # OIDC で AWS にアクセス
+  contents: read
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment: ${{ github.event.inputs.environment }}
+    env:
+      AWS_REGION: ${{ vars.AWS_REGION || 'ap-northeast-1' }}
+      DRY_RUN: ${{ github.event.inputs.dry-run }}
+
+    steps:
+      - uses: actions/checkout@v6
+      - uses: pnpm/action-setup@v6
+      - uses: voidzero-dev/setup-vp@v1
+        with:
+          node-version: "24"
+          cache: true
+          run-install: true
+
+      # GitHub OIDC → AWS Role 引き受け。AWS_DEPLOY_ROLE_ARN は環境変数に登録しておく。
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v6
+        with:
+          role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Build
+        run: vp run -r build
+
+      - name: CDK diff (制御層)
+        run: vp run --filter @stagecast/infra cdk -- diff StagecastControlPlane
+
+      - name: CDK deploy (制御層)
+        if: ${{ env.DRY_RUN == 'false' }}
+        run: |
+          vp run --filter @stagecast/infra cdk -- deploy StagecastControlPlane \
+            --require-approval never \
+            --outputs-file infra/cdk-outputs.json
+
+      - name: Read CDK outputs into env
+        if: ${{ env.DRY_RUN == 'false' }}
+        run: |
+          set -e
+          out=infra/cdk-outputs.json
+          echo "ADMIN_WEB_BUCKET=$(jq -r '.StagecastControlPlane.AdminWebBucketName' $out)" >> $GITHUB_ENV
+          echo "STAGE_WEB_BUCKET=$(jq -r '.StagecastControlPlane.StageWebBucketName' $out)" >> $GITHUB_ENV
+          echo "ADMIN_DIST_ID=$(jq -r '.StagecastControlPlane.AdminWebDistributionId' $out)" >> $GITHUB_ENV
+          echo "STAGE_DIST_ID=$(jq -r '.StagecastControlPlane.StageWebDistributionId' $out)" >> $GITHUB_ENV
+          echo "CONTROL_API_ENDPOINT=$(jq -r '.StagecastControlPlane.ControlApiEndpoint' $out)" >> $GITHUB_ENV
+          echo "ADMIN_AUTH_DOMAIN=$(jq -r '.StagecastControlPlane.AdminAuthDomain' $out)" >> $GITHUB_ENV
+          echo "ADMIN_USER_POOL_CLIENT_ID=$(jq -r '.StagecastControlPlane.AdminUserPoolClientId' $out)" >> $GITHUB_ENV
+
+      - name: Build SPAs with CDK outputs
+        if: ${{ env.DRY_RUN == 'false' }}
+        env:
+          VITE_CONTROL_API_URL: ${{ env.CONTROL_API_ENDPOINT }}
+          VITE_COGNITO_DOMAIN: ${{ env.ADMIN_AUTH_DOMAIN }}
+          VITE_COGNITO_USER_POOL_CLIENT_ID: ${{ env.ADMIN_USER_POOL_CLIENT_ID }}
+        run: |
+          vp run --filter @stagecast/admin-web build
+          vp run --filter @stagecast/stage-web build
+
+      - name: Sync admin-web to S3 + CloudFront invalidate
+        if: ${{ env.DRY_RUN == 'false' }}
+        run: |
+          aws s3 sync apps/admin-web/dist "s3://$ADMIN_WEB_BUCKET" --delete
+          aws cloudfront create-invalidation \
+            --distribution-id "$ADMIN_DIST_ID" \
+            --paths '/*'
+
+      - name: Sync stage-web to S3 + CloudFront invalidate
+        if: ${{ env.DRY_RUN == 'false' }}
+        run: |
+          aws s3 sync apps/stage-web/dist "s3://$STAGE_WEB_BUCKET" --delete
+          aws cloudfront create-invalidation \
+            --distribution-id "$STAGE_DIST_ID" \
+            --paths '/*'
+
+      - name: Summary
+        run: |
+          echo "## Deploy summary" >> $GITHUB_STEP_SUMMARY
+          echo "- environment: ${{ github.event.inputs.environment }}" >> $GITHUB_STEP_SUMMARY
+          echo "- dry-run: ${{ env.DRY_RUN }}" >> $GITHUB_STEP_SUMMARY
+          if [ "${{ env.DRY_RUN }}" = "false" ]; then
+            echo "- admin-web: https://$ADMIN_DIST_ID.cloudfront.net" >> $GITHUB_STEP_SUMMARY
+            echo "- control-api: $CONTROL_API_ENDPOINT" >> $GITHUB_STEP_SUMMARY
+          fi

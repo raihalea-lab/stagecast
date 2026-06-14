@@ -149,13 +149,24 @@
 
 ## 現在のステータス
 
-- 完了: **フェーズ 0〜12 すべて** ✅（build / typecheck / lint / test / format 全通過、計 136 tests）
-- パッケージ別テスト: shared 9 / infra 14 / control-api 26 / media-orchestrator 15 /
-  media-composer 12 / caption-pipeline 47 / admin-web 4 / stage-web 9
-- ADR: 0001 技術選定 / 0002 字幕バス分散化 (Valkey Streams) / 0003 障害時フェイルオーバー
-- 残（実 AWS アカウントでのデプロイ/統合検証が本体。コードの実装単位は完了）:
-  → **[`docs/REMAINING_WORK.md`](./REMAINING_WORK.md)** に Claude Code 実行用のタスク（T1〜T10）として分解済み。
-  - 実 LiveKit からの音声取り込み AudioSource 実装（I/F とワーカー結線は実装・テスト済み）
-  - オーケストレータ調整ループの定期実行スケジューラ（EventBridge → Lambda 配線）
-  - `ValkeyStreamsCaptionBus` の実 Valkey クライアント結線（I/F・ロジックは実装・テスト済み）
-  - 実 AWS デプロイと E2E（実キー・実課金が必要）
+- 完了: **フェーズ 0〜12 + REMAINING_WORK T1〜T10 すべて** ✅
+  （build / typecheck / lint / test / format 全通過、計 **190 tests** + 9 integration tests）
+- パッケージ別テスト: shared 9 / infra 21 / control-api 32 / media-orchestrator 30 /
+  media-composer 20 / caption-pipeline 59 / admin-web 10 / stage-web 9
+- ADR: 0001 技術選定 / 0002 字幕バス分散化 (Valkey Streams) / 0003 障害時フェイルオーバー /
+  0004 ツールチェイン (Vite+)
+
+### REMAINING_WORK T1〜T10 の達成内容（2026-06-15）
+
+| ID      | 主な追加・差し替え                                                                                   | テスト追加                       |
+| ------- | ---------------------------------------------------------------------------------------------------- | -------------------------------- |
+| **T5**  | `control-plane-stack` を NodejsFunction + Cognito JWT Authorizer 化、`lambda.ts` で Secrets 経由起動 | control-api +5 / infra +1        |
+| **T7**  | Secrets Manager (`invite-token` / `livekit` / `youtube`) を CDK 定義、Lambda に grantRead            | infra +2                         |
+| **T6**  | stage-web 用 S3+CloudFront、admin-web に Cognito Hosted UI (PKCE) クライアント実装                   | admin-web +6                     |
+| **T4**  | `reconcile.ts` 純粋関数 + EventBridge スケジュール Lambda (`reconcile-handler`)、CDK 配線            | media-orchestrator +9 / infra +1 |
+| **T2**  | `LiveKitEgressClient` (RoomComposite + S3 録画 + layoutToLiveKit) + `attachComposerToPresentation`   | media-composer +8                |
+| **T1**  | `LiveKitAudioSource` + `resampleLinearInt16` + `liveKitAudioSourceFromEnv`                           | caption-pipeline +5              |
+| **T3**  | `ValkeyStreamClient` (ioredis ベース XADD/XREAD)、`CAPTION_BUS=valkey` で runtime 切替               | caption-pipeline +3              |
+| **T9**  | `CaptionMetricsCollector` + EMF Sink、EventMediaStack に Alarm/MetricFilter/Dashboard                | caption-pipeline +4 / infra +1   |
+| **T8**  | `*.integration.test.ts` + `RUN_INTEGRATION=1` ゲート、ルートに `test:integration` script             | integration +9                   |
+| **T10** | CI に `cdk synth` ステップ追加、`deploy.yml` (手動 dispatch + OIDC)、README デプロイ手順刷新         | —                                |

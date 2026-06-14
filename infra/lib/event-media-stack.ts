@@ -2,6 +2,7 @@ import {
   Stack,
   type StackProps,
   RemovalPolicy,
+  Duration,
   CfnOutput,
   Tags,
   aws_ec2 as ec2,
@@ -9,6 +10,9 @@ import {
   aws_elasticache as elasticache,
   aws_logs as logs,
   aws_iam as iam,
+  aws_cloudwatch as cloudwatch,
+  aws_sns as sns,
+  aws_cloudwatch_actions as cwActions,
 } from "aws-cdk-lib";
 import type { Construct } from "constructs";
 import type { CaptionEngineKind } from "@stagecast/shared";
@@ -127,8 +131,8 @@ export class EventMediaStack extends Stack {
 
     // SFU(LiveKit) と Egress、字幕ワーカー。イメージは差し替え可能。
     const sfu = addService("Sfu", images.sfu ?? "livekit/livekit-server:latest", 7880);
-    addService("Egress", images.egress ?? "livekit/egress:latest", undefined);
-    addService(
+    const egress = addService("Egress", images.egress ?? "livekit/egress:latest", undefined);
+    const captionWorker = addService(
       "CaptionWorker",
       images.captionWorker ?? "public.ecr.aws/docker/library/node:24-alpine",
       props.customCaptionApi ? 8080 : undefined,
@@ -142,9 +146,133 @@ export class EventMediaStack extends Stack {
       "SFU signaling within VPC",
     );
 
+    // --- オブザーバビリティ (T9, ADR 0003 監視・検知) ---
+    // 通知 SNS Topic (運用者が後で email/Slack を購読する想定)。
+    const alarmTopic = new sns.Topic(this, "AlarmTopic", {
+      displayName: `Stagecast Event ${props.eventId} Alarms`,
+    });
+
+    // タスク異常: ECS RunningCount が desiredCount を下回る (= タスク落ち) アラーム。
+    const services: { name: string; service: ecs.FargateService }[] = [
+      { name: "Sfu", service: sfu },
+      { name: "Egress", service: egress },
+      { name: "CaptionWorker", service: captionWorker },
+    ];
+    const taskAlarms: cloudwatch.Alarm[] = [];
+    for (const { name, service } of services) {
+      const alarm = new cloudwatch.Alarm(this, `${name}TaskHealthAlarm`, {
+        alarmName: `stagecast-${props.eventId}-${name.toLowerCase()}-task-down`,
+        alarmDescription: `${name} task running count dropped below desired (ADR 0003 D-3)`,
+        metric: service.metric("RunningTaskCount", { statistic: "Minimum" }),
+        threshold: 1,
+        comparisonOperator: cloudwatch.ComparisonOperator.LESS_THAN_THRESHOLD,
+        evaluationPeriods: 2,
+        treatMissingData: cloudwatch.TreatMissingData.BREACHING,
+      });
+      alarm.addAlarmAction(new cwActions.SnsAction(alarmTopic));
+      taskAlarms.push(alarm);
+    }
+
+    // 字幕遅延アラーム: caption-pipeline が EMF で書き出す CaptionLatencyMs を見る。
+    const latencyMetric = new cloudwatch.Metric({
+      namespace: "Stagecast/CaptionPipeline",
+      metricName: "CaptionLatencyMs",
+      dimensionsMap: { EventId: props.eventId, Status: "final" },
+      statistic: "p95",
+      period: Duration.minutes(1),
+    });
+    const latencyAlarm = new cloudwatch.Alarm(this, "CaptionLatencyAlarm", {
+      alarmName: `stagecast-${props.eventId}-caption-latency`,
+      alarmDescription: "字幕遅延 (確定) p95 が 3 秒を超えた (DESIGN.md N-2)",
+      metric: latencyMetric,
+      threshold: 3000,
+      comparisonOperator: cloudwatch.ComparisonOperator.GREATER_THAN_THRESHOLD,
+      evaluationPeriods: 3,
+      treatMissingData: cloudwatch.TreatMissingData.NOT_BREACHING,
+    });
+    latencyAlarm.addAlarmAction(new cwActions.SnsAction(alarmTopic));
+
+    // ログメトリクスフィルタ: 「RTMP disconnect」「reconnect failed」などをカウント。
+    const rtmpDisconnectFilter = new logs.MetricFilter(this, "RtmpDisconnectFilter", {
+      logGroup,
+      metricNamespace: "Stagecast/MediaLayer",
+      metricName: "RtmpDisconnects",
+      filterPattern: logs.FilterPattern.anyTerm(
+        "rtmp disconnect",
+        "RTMP disconnect",
+        "stream disconnected",
+      ),
+      metricValue: "1",
+      dimensions: { EventId: props.eventId },
+    });
+    void rtmpDisconnectFilter;
+
+    const rtmpAlarm = new cloudwatch.Alarm(this, "RtmpDisconnectAlarm", {
+      alarmName: `stagecast-${props.eventId}-rtmp-disconnect`,
+      alarmDescription: "RTMP 切断ログが直近 5 分で複数発生 (ADR 0003 D-3)",
+      metric: new cloudwatch.Metric({
+        namespace: "Stagecast/MediaLayer",
+        metricName: "RtmpDisconnects",
+        dimensionsMap: { EventId: props.eventId },
+        statistic: "Sum",
+        period: Duration.minutes(5),
+      }),
+      threshold: 2,
+      comparisonOperator: cloudwatch.ComparisonOperator.GREATER_THAN_OR_EQUAL_TO_THRESHOLD,
+      evaluationPeriods: 1,
+      treatMissingData: cloudwatch.TreatMissingData.NOT_BREACHING,
+    });
+    rtmpAlarm.addAlarmAction(new cwActions.SnsAction(alarmTopic));
+
+    // 統合ダッシュボード。
+    const dashboard = new cloudwatch.Dashboard(this, "EventDashboard", {
+      dashboardName: `stagecast-${props.eventId}`,
+    });
+    dashboard.addWidgets(
+      new cloudwatch.GraphWidget({
+        title: "ECS タスク Running Count",
+        left: services.map(({ name, service }) =>
+          service.metric("RunningTaskCount", { label: name, statistic: "Minimum" }),
+        ),
+      }),
+      new cloudwatch.GraphWidget({
+        title: "字幕遅延 (p50 / p95) ms",
+        left: [
+          latencyMetric.with({ statistic: "p50", label: "p50" }),
+          latencyMetric.with({ statistic: "p95", label: "p95" }),
+        ],
+      }),
+      new cloudwatch.GraphWidget({
+        title: "字幕発行件数 / RTMP 切断",
+        left: [
+          new cloudwatch.Metric({
+            namespace: "Stagecast/CaptionPipeline",
+            metricName: "CaptionsPublished",
+            dimensionsMap: { EventId: props.eventId, Status: "final" },
+            statistic: "Sum",
+            period: Duration.minutes(1),
+            label: "Captions/min (final)",
+          }),
+          new cloudwatch.Metric({
+            namespace: "Stagecast/MediaLayer",
+            metricName: "RtmpDisconnects",
+            dimensionsMap: { EventId: props.eventId },
+            statistic: "Sum",
+            period: Duration.minutes(5),
+            label: "RTMP disconnects/5min",
+          }),
+        ],
+      }),
+    );
+
     new CfnOutput(this, "EventId", { value: props.eventId });
     new CfnOutput(this, "ValkeyEndpoint", { value: valkey.attrEndpointAddress });
     new CfnOutput(this, "ClusterName", { value: cluster.clusterName });
+    new CfnOutput(this, "AlarmTopicArn", { value: alarmTopic.topicArn });
+    new CfnOutput(this, "DashboardName", {
+      value: dashboard.dashboardName,
+      description: "CloudWatch Dashboard 名 (運用者が確認用に開く)",
+    });
   }
 }
 

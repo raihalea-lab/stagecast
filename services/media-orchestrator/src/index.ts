@@ -4,3 +4,4 @@ export * from "./cfn-provisioner.js";
 export * from "./aws-cfn.js";
 export * from "./shared-state.js";
 export * from "./valkey-store.js";
+export * from "./reconcile.js";
