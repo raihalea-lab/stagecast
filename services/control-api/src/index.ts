@@ -17,6 +17,8 @@ export * from './invite/token.js';
 export * from './auth/admin-auth.js';
 export * from './repo/types.js';
 export * from './repo/memory.js';
+export * from './repo/dynamo-mapper.js';
+export * from './repo/dynamo.js';
 
 const app = buildControlApi();
 

@@ -101,18 +101,23 @@
 
 ### フェーズ 9: DynamoDB 永続化（control-api 実リポジトリ）
 
-- [ ] 単一テーブル設計の純粋マッパー（item ⇄ ドメイン）+ テスト
-- [ ] `DynamoEventRepository` ほか（AWS SDK v3, 結合は統合時）
-- 受け入れ基準: マッパーの往復テスト・キー設計の単体テスト
+- [x] 単一テーブル設計の純粋マッパー（item ⇄ ドメイン, pk/sk/GSI1）+ 往復テスト
+- [x] `DynamoEventRepository`/`DynamoInviteTokenRepository`/`DynamoPresentationRepository`
+      （AWS SDK v3 DocumentClient。SDK 層はロジックを持たずマッパーに委譲）
+- [x] factory が `METADATA_TABLE_NAME` 環境変数で Dynamo↔インメモリを自動選択
+- 受け入れ基準: マッパー往復・キー設計のテスト 4件（SDK 層は統合時に検証）✅
 
 ---
 
 ## 現在のステータス
 
-- 完了: **フェーズ 0〜6 すべて** ✅（build / typecheck / lint / test 全通過）
-- 運用化フェーズ 7〜9 を順次実装中。
-- 別 ADR 化が必要な事項（`DESIGN.md` 9.1）:
-  - 字幕バスの分散メッセージング基盤
+- 完了: **フェーズ 0〜9 すべて** ✅（build / typecheck / lint / test / format 全通過）
+- パッケージ別テスト: shared 9 / infra 12 / control-api 18 / media-orchestrator 6 /
+  media-composer 12 / caption-pipeline 14 / admin-web 4 / stage-web 9（計 84）
+- なお実 AWS SDK 層（DynamoDB/Transcribe/Translate/Bedrock/LiveKit/YouTube の各 Sink/Adapter）の
+  一部は本番結線時に統合テストする方針（ロジックは純粋関数として単体テスト済み）。
+- 残（別 ADR 化が妥当な設計事項, `DESIGN.md` 9.1）:
+  - 字幕バスの分散メッセージング基盤（現状はプロセス内実装）
   - 独自字幕配信 API のプロトコル詳細（再接続・認証）
-  - YouTube Live API 連携詳細
-  - 障害時フェイルオーバー方針
+  - YouTube Live API 連携の詳細（配信開始・字幕送出の実アダプタ）
+  - 障害時フェイルオーバーと配信途中のリソース再起動方針

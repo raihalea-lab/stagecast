@@ -21,6 +21,7 @@ import { createInviteService } from './usecases/invites.js';
 import { createPresentationService } from './usecases/presentation.js';
 import { createJoinService } from './usecases/join.js';
 import { DefaultLiveKitTokenMinter, type LiveKitTokenMinter } from './auth/livekit-minter.js';
+import { dynamoRepositories } from './repo/dynamo.js';
 import { createApp } from './http/app.js';
 
 export interface FactoryConfig {
@@ -54,20 +55,25 @@ export function buildControlApi(config: FactoryConfig = {}) {
   const baseUrl =
     config.inviteBaseUrl ?? process.env.INVITE_BASE_URL ?? 'https://app.stagecast.local/join';
 
+  // METADATA_TABLE_NAME があれば DynamoDB、無ければインメモリ (ローカル/テスト)。
+  // 明示的に repo が注入された場合はそちらを優先する。
+  const tableName = process.env.METADATA_TABLE_NAME;
+  const dynamo = tableName ? dynamoRepositories(tableName) : undefined;
+
   const events = createEventService({
-    repo: config.eventRepo ?? new MemoryEventRepository(),
+    repo: config.eventRepo ?? dynamo?.eventRepo ?? new MemoryEventRepository(),
     newId,
     now,
   });
   const invites = createInviteService({
-    repo: config.inviteRepo ?? new MemoryInviteTokenRepository(),
+    repo: config.inviteRepo ?? dynamo?.inviteRepo ?? new MemoryInviteTokenRepository(),
     secret,
     newJti: newId,
     now,
     baseUrl,
   });
   const presentation = createPresentationService({
-    repo: config.presentationRepo ?? new MemoryPresentationRepository(),
+    repo: config.presentationRepo ?? dynamo?.presentationRepo ?? new MemoryPresentationRepository(),
     now,
   });
   const join = createJoinService({
