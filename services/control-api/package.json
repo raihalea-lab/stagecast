@@ -1,0 +1,28 @@
+{
+  "name": "@stagecast/control-api",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "scripts": {
+    "build": "tsc -b",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "clean": "rm -rf dist *.tsbuildinfo"
+  },
+  "dependencies": {
+    "@aws-sdk/client-dynamodb": "^3.717.0",
+    "@aws-sdk/client-s3": "^3.717.0",
+    "@aws-sdk/lib-dynamodb": "^3.717.0",
+    "@aws-sdk/s3-request-presigner": "^3.717.0",
+    "@stagecast/media-composer": "workspace:*",
+    "@stagecast/shared": "workspace:*",
+    "aws-jwt-verify": "^4.0.1"
+  },
+  "devDependencies": {
+    "@types/aws-lambda": "^8.10.145",
+    "typescript": "^5.7.2",
+    "vitest": "^2.1.8"
+  }
+}

@@ -1,0 +1,27 @@
+{
+  "name": "@stagecast/infra",
+  "version": "0.1.0",
+  "private": true,
+  "bin": {
+    "stagecast": "bin/app.ts"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc --noEmit",
+    "synth": "cdk synth",
+    "cdk": "cdk",
+    "test": "vitest run",
+    "clean": "rm -rf dist cdk.out *.tsbuildinfo"
+  },
+  "dependencies": {
+    "@stagecast/shared": "workspace:*",
+    "aws-cdk-lib": "^2.170.0",
+    "constructs": "^10.4.2"
+  },
+  "devDependencies": {
+    "aws-cdk": "^2.170.0",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.7.2",
+    "vitest": "^2.1.8"
+  }
+}

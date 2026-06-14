@@ -1,0 +1,27 @@
+{
+  "name": "@stagecast/caption-pipeline",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "scripts": {
+    "build": "tsc -b",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "clean": "rm -rf dist *.tsbuildinfo"
+  },
+  "dependencies": {
+    "@aws-sdk/client-bedrock-runtime": "^3.717.0",
+    "@aws-sdk/client-s3": "^3.717.0",
+    "@aws-sdk/client-transcribe-streaming": "^3.717.0",
+    "@aws-sdk/client-translate": "^3.717.0",
+    "@stagecast/shared": "workspace:*",
+    "ws": "^8.18.0"
+  },
+  "devDependencies": {
+    "@types/ws": "^8.5.13",
+    "typescript": "^5.7.2",
+    "vitest": "^2.1.8"
+  }
+}
