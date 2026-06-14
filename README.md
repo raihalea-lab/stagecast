@@ -34,20 +34,21 @@ StreamYard 型の YouTube ライブ配信プラットフォーム。配信管理
 ## リポジトリ構成
 
 ```
-/infra              # AWS CDK スタック (制御層 / イベント単位メディアスタック)  ※フェーズ1以降
+/infra                # AWS CDK スタック (制御層)。イベント単位メディアスタックは今後追加  [実装済]
 /apps
-  /admin-web        # 管理SPA (S3+CloudFront, Cognito 認証)                      ※フェーズ6
-  /stage-web        # 登壇者・モデレーター用 (招待URL, WebRTC送出)               ※フェーズ4
+  /admin-web          # 管理SPA (S3+CloudFront, Cognito 認証)                         [実装済]
+  /stage-web          # 登壇者・モデレーター用 (招待URL, WebRTC送出)                  [未着手/残作業]
 /services
-  /control-api      # API Gateway + Lambda。イベント設定・発表者制御・起動制御    ※フェーズ2
-  /media-orchestrator # メディア/字幕スタックの起動・破棄                         ※フェーズ3
-  /caption-pipeline # ASR/翻訳エンジン + 字幕バス + 出力先(Sink)                  ※フェーズ5
+  /control-api        # 制御 API。イベント設定・発表者制御・招待トークン・認証         [実装済]
+  /media-orchestrator # メディア/字幕スタックの起動・破棄・最大3並列・共有状態         [実装済]
+  /media-composer     # LiveKitトークン・レイアウト合成・Egress/RTMP・録画            [実装済]
+  /caption-pipeline   # ASR/翻訳エンジン + 字幕バス + 出力先(Sink) + SRT/VTT保存       [実装済]
 /packages
-  /shared           # 中核の型 (字幕イベント・イベント設定・ロール・招待トークン 等)
+  /shared             # 中核の型 (字幕イベント・イベント設定・ロール・招待トークン 等)  [実装済]
 /docs
-  /decisions        # ADR
+  /decisions          # ADR
   PLAN.md
-DESIGN.md           # 設計の正
+DESIGN.md             # 設計の正
 ```
 
 現在の実装状況: **フェーズ 0〜6 すべて実装済み**（`pnpm build` / `typecheck` / `lint` / `test` 全通過、66 tests）。
