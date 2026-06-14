@@ -1,0 +1,32 @@
+version: 2
+updates:
+  # npm / pnpm 依存。ワークスペース全体を週 1 でスキャン。
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 10
+    groups:
+      aws-sdk:
+        patterns:
+          - "@aws-sdk/*"
+      aws-cdk:
+        patterns:
+          - "aws-cdk"
+          - "aws-cdk-lib"
+          - "constructs"
+      vite-plus:
+        patterns:
+          - "vite-plus"
+          - "@voidzero-dev/*"
+      types:
+        patterns:
+          - "@types/*"
+
+  # GitHub Actions のバージョンも週 1 で更新を提案。
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday

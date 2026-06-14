@@ -135,7 +135,7 @@ export async function realProvidersFromEnv(
     providers.translator = new AmazonTranslateTranslator();
   } else if (config.engine === "llm") {
     providers.llm = new BedrockLlmAdapter({
-      modelId: env.BEDROCK_MODEL_ID ?? "anthropic.claude-3-5-sonnet-20241022-v2:0",
+      modelId: env.BEDROCK_MODEL_ID ?? "us.anthropic.claude-sonnet-4-5-20250929-v1:0",
     });
   }
   if (env.CAPTIONS_BUCKET_NAME) {

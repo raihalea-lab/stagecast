@@ -6,14 +6,11 @@ import { runFromEnv, type CaptionService } from "./bootstrap.js";
 
 async function main(): Promise<void> {
   const service: CaptionService = await runFromEnv();
-  // eslint-disable-next-line no-console
   console.log(`caption worker started (ws port: ${service.wsPort ?? "n/a"})`);
 
   const shutdown = async (signal: string): Promise<void> => {
-    // eslint-disable-next-line no-console
     console.log(`received ${signal}, shutting down...`);
     const keys = await service.stop();
-    // eslint-disable-next-line no-console
     console.log(`saved caption artifacts: ${keys.join(", ") || "(none)"}`);
     process.exit(0);
   };
@@ -23,7 +20,6 @@ async function main(): Promise<void> {
 }
 
 main().catch((err) => {
-  // eslint-disable-next-line no-console
   console.error("caption worker failed to start:", err);
   process.exit(1);
 });

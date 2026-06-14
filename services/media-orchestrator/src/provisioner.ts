@@ -16,7 +16,7 @@ export interface EventMediaSpec {
   /** 独自字幕配信 API を起動するか (DESIGN.md 6.3.2, 任意起動)。 */
   customCaptionApi: boolean;
   /** YouTube RTMP 送出先 (任意。未指定はモック送出)。 */
-  rtmpUrl?: string;
+  rtmpUrl?: string | undefined;
 }
 
 export type StackStatus = "provisioning" | "running" | "destroying" | "destroyed";
@@ -34,7 +34,7 @@ export interface MediaStackHandle {
   /** 共有状態の名前空間 (= eventId)。 */
   valkeyNamespace: string;
   /** 独自字幕 API のエンドポイント (有効化時のみ)。 */
-  customCaptionApiUrl?: string;
+  customCaptionApiUrl?: string | undefined;
 }
 
 export interface MediaStackProvisioner {

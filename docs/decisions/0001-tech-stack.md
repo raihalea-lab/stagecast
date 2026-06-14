@@ -81,6 +81,10 @@
 
 ### D-9. テスト/Lint/ビルド
 
+> 🔄 **2026-06-15 更新**: ツールチェイン具体は [ADR 0004](./0004-toolchain-vite-plus.md) に
+> よって **Vite+ (`vp`) ベース** へ統合された。Vitest API は維持しつつ、ESLint/Prettier/tsup は
+> oxlint/oxfmt/Rolldown に置換。CI も `setup-vp@v1` に集約。本項は方針の原典として残す。
+
 - テスト: **Vitest**（全パッケージ共通、外部接続なしで完結。モック/フェイクを同梱）。
 - Lint: **ESLint** + **Prettier**。型チェック: `tsc --noEmit`。
 - ライブラリのバンドルは **tsup**、CDK は `cdk synth`。

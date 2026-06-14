@@ -12,7 +12,7 @@ import type { LlmAdapter } from "../engines/types.js";
 const LANGUAGE_NAMES: Record<LanguageCode, string> = { ja: "Japanese", en: "English" };
 
 export interface BedrockAdapterConfig {
-  /** モデル ID (例: anthropic.claude-3-5-sonnet-...)。 */
+  /** モデル ID (例: us.anthropic.claude-sonnet-4-5-...)。 */
   modelId: string;
   maxTokens?: number;
 }

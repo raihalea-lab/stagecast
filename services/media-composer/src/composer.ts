@@ -18,8 +18,8 @@ export interface StreamComposerConfig {
 }
 
 export class StreamComposer {
-  private handle?: EgressHandle;
-  private lastLayout?: CompositionLayout;
+  private handle: EgressHandle | undefined;
+  private lastLayout: CompositionLayout | undefined;
 
   constructor(
     private readonly egress: EgressClient,

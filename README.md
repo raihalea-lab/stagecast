@@ -52,9 +52,9 @@ StreamYard 型の YouTube ライブ配信プラットフォーム。配信管理
 DESIGN.md             # 設計の正
 ```
 
-現在の実装状況: **フェーズ 0〜6 すべて実装済み**（`pnpm build` / `typecheck` / `lint` / `test` 全通過、66 tests）。
+現在の実装状況: **フェーズ 0〜12 すべて実装済み**（`vp run -r build / typecheck / test` + `vp lint / fmt` 全通過、136 tests）。
 外部依存（AWS SDK・LiveKit・YouTube 等）は差し替え可能なインターフェース + フェイクで実装し、
-テストは外部接続なしで完結する。実 AWS への結線・デプロイは残作業。詳細は `docs/PLAN.md`。
+テストは外部接続なしで完結する。実 AWS への結線・デプロイは残作業。詳細は `docs/PLAN.md` / `docs/REMAINING_WORK.md`。
 
 | パッケージ                    | 役割                                                                   | フェーズ |
 | ----------------------------- | ---------------------------------------------------------------------- | -------- |
@@ -109,13 +109,13 @@ vp add -D some-pkg --filter @stagecast/admin-web   # admin-web に dev 依存を
 
 ```bash
 # 制御層スタックの合成 (テンプレ確認)
-pnpm --filter @stagecast/infra synth
+vp run --filter @stagecast/infra synth
 
 # デプロイ (要 AWS 資格情報・cdk bootstrap 済み)
-pnpm --filter @stagecast/infra cdk deploy StagecastControlPlane
+vp run --filter @stagecast/infra cdk deploy StagecastControlPlane
 
 # 管理 SPA をビルドし、出力された S3 バケットへ配置 (CloudFront 配信)
-pnpm --filter @stagecast/admin-web build
+vp run --filter @stagecast/admin-web build
 # aws s3 sync apps/admin-web/dist s3://<AdminWebBucket> --delete
 ```
 
