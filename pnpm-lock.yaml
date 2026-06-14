@@ -118,6 +118,9 @@ importers:
       aws-cdk:
         specifier: ^2.1126.0
         version: 2.1126.0
+      esbuild:
+        specifier: '>=0.28.1'
+        version: 0.28.1
       tsx:
         specifier: ^4.22.4
         version: 4.22.4
