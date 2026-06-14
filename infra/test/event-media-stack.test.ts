@@ -1,7 +1,12 @@
 import { describe, expect, it } from "vitest";
 import { App } from "aws-cdk-lib";
-import { Template } from "aws-cdk-lib/assertions";
-import { EventMediaStack, eventMediaStackName } from "../lib/event-media-stack";
+import { Match, Template } from "aws-cdk-lib/assertions";
+import {
+  EventMediaStack,
+  eventMediaStackName,
+  liveKitServerConfig,
+  serverlessCacheName,
+} from "../lib/event-media-stack";
 
 function synth(customApi = false): Template {
   const app = new App();
@@ -66,6 +71,84 @@ describe("EventMediaStack (DESIGN.md 7.1/7.3, N-5)", () => {
     expect(portMapped.length).toBe(1);
   });
 
+  it("LiveKit signaling/WebRTC を受ける Network Load Balancer を持つ (R1, ADR 0006 D-1)", () => {
+    template.resourceCountIs("AWS::ElasticLoadBalancingV2::LoadBalancer", 1);
+    template.hasResourceProperties("AWS::ElasticLoadBalancingV2::LoadBalancer", {
+      Type: "network",
+      Scheme: "internet-facing",
+    });
+  });
+
+  it("signaling(TCP 7880) / RTC-TCP(7881) / RTC-UDP(7882) のリスナを公開する (ADR 0006 D-2)", () => {
+    template.resourceCountIs("AWS::ElasticLoadBalancingV2::Listener", 3);
+    template.hasResourceProperties("AWS::ElasticLoadBalancingV2::Listener", {
+      Protocol: "TCP",
+      Port: 7880,
+    });
+    template.hasResourceProperties("AWS::ElasticLoadBalancingV2::Listener", {
+      Protocol: "TCP",
+      Port: 7881,
+    });
+    template.hasResourceProperties("AWS::ElasticLoadBalancingV2::Listener", {
+      Protocol: "UDP",
+      Port: 7882,
+    });
+    // UDP ターゲットグループの死活監視は signaling(TCP) ポートで行う。
+    template.hasResourceProperties("AWS::ElasticLoadBalancingV2::TargetGroup", {
+      Protocol: "UDP",
+      Port: 7882,
+      HealthCheckProtocol: "TCP",
+      HealthCheckPort: "7880",
+    });
+  });
+
+  it("SFU タスク SG が WebRTC ポートをインターネットへ開く (UDP 7882 含む, ADR 0006 D-1)", () => {
+    // signaling(7880/TCP)・ICE/TCP(7881)・media(7882/UDP) を 0.0.0.0/0 から許可する。
+    // CIDR ピアなので SecurityGroup の SecurityGroupIngress に inline 展開される。
+    template.hasResourceProperties("AWS::EC2::SecurityGroup", {
+      SecurityGroupIngress: Match.arrayWith([
+        Match.objectLike({ IpProtocol: "tcp", FromPort: 7880, ToPort: 7880, CidrIp: "0.0.0.0/0" }),
+        Match.objectLike({ IpProtocol: "tcp", FromPort: 7881, ToPort: 7881, CidrIp: "0.0.0.0/0" }),
+        Match.objectLike({ IpProtocol: "udp", FromPort: 7882, ToPort: 7882, CidrIp: "0.0.0.0/0" }),
+      ]),
+    });
+  });
+
+  it("SFU に LiveKit config.yaml を注入し Valkey を redis アダプタにする (R1, ADR 0006 D-3)", () => {
+    const taskDefs = template.findResources("AWS::ECS::TaskDefinition");
+    const withConfig = Object.values(taskDefs).filter((d) =>
+      JSON.stringify(d).includes("LIVEKIT_CONFIG_BODY"),
+    );
+    expect(withConfig.length).toBe(1);
+    const json = JSON.stringify(withConfig[0]);
+    // redis(=Valkey) を TLS で参照し、port は NLB リスナと一致する。
+    expect(json).toContain("use_tls: true");
+    expect(json).toContain("port: 7880");
+  });
+
+  it("SFU/Egress は LiveKit 資格情報を Secrets Manager から注入する (ADR 0001 D-10)", () => {
+    const taskDefs = template.findResources("AWS::ECS::TaskDefinition");
+    const withSecret = Object.values(taskDefs).filter((d) =>
+      JSON.stringify(d).includes("LIVEKIT_API_KEY"),
+    );
+    // SFU と Egress の 2 タスク定義に注入される。
+    expect(withSecret.length).toBe(2);
+  });
+
+  it("Egress タスクロールは録画プレフィックスのみに S3 PUT を絞る (R2, ADR 0006 D-4)", () => {
+    template.hasResourceProperties("AWS::IAM::Policy", {
+      PolicyDocument: {
+        Statement: Match.arrayWith([
+          Match.objectLike({
+            Action: Match.arrayWith(["s3:PutObject"]),
+            Effect: "Allow",
+            Resource: "arn:aws:s3:::stagecast-recordings/recordings/*",
+          }),
+        ]),
+      },
+    });
+  });
+
   it("CloudWatch アラーム/メトリクスフィルタ/ダッシュボードを定義する (T9, ADR 0003)", () => {
     // タスク異常 3 + 字幕遅延 1 + RTMP 切断 1 = 5 アラーム
     template.resourceCountIs("AWS::CloudWatch::Alarm", 5);
@@ -78,5 +161,43 @@ describe("EventMediaStack (DESIGN.md 7.1/7.3, N-5)", () => {
       Namespace: "Stagecast/CaptionPipeline",
       MetricName: "CaptionLatencyMs",
     });
+  });
+});
+
+describe("serverlessCacheName (D5: short hash で衝突回避)", () => {
+  it("40 文字以内かつ stagecast- 始まりの命名規約に従う", () => {
+    const name = serverlessCacheName("evt-a");
+    expect(name.length).toBeLessThanOrEqual(40);
+    expect(name.startsWith("stagecast-")).toBe(true);
+    // 英小文字・数字・ハイフンのみ (ElastiCache 命名制約)。
+    expect(name).toMatch(/^[a-z0-9-]+$/);
+    expect(name.endsWith("-")).toBe(false);
+  });
+
+  it("極端に長い eventId でも 40 文字に収まる", () => {
+    const name = serverlessCacheName("e".repeat(200));
+    expect(name.length).toBeLessThanOrEqual(40);
+  });
+
+  it("先頭が同じで 40 文字クリップ後に衝突しうる eventId を区別する", () => {
+    const a = serverlessCacheName(`${"long-event-prefix-".repeat(3)}-a`);
+    const b = serverlessCacheName(`${"long-event-prefix-".repeat(3)}-b`);
+    // 素朴な slice(0,40) では同一になるが、short hash により区別される。
+    expect(a).not.toBe(b);
+  });
+
+  it("同じ eventId には決定的に同じ名前を返す", () => {
+    expect(serverlessCacheName("evt-a")).toBe(serverlessCacheName("evt-a"));
+  });
+});
+
+describe("liveKitServerConfig (R1)", () => {
+  it("Valkey を TLS つき redis アダプタとして参照する", () => {
+    const yaml = liveKitServerConfig("my-valkey.cache.amazonaws.com");
+    expect(yaml).toContain("address: my-valkey.cache.amazonaws.com:6379");
+    expect(yaml).toContain("use_tls: true");
+    // signaling/RTC ポートが NLB リスナと一致する。
+    expect(yaml).toContain("port: 7880");
+    expect(yaml).toContain("udp_port: 7882");
   });
 });
