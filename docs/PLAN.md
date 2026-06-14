@@ -24,9 +24,10 @@
 
 ## フェーズ 1: 制御層インフラ（常時稼働・低コスト）
 
-- [ ] CDK 制御層スタック: S3+CloudFront（admin-web）, API Gateway+Lambda, DynamoDB, Cognito, 成果物S3
-- [ ] 常時稼働リソースを制御層のみに限定（N-1）。README に一覧を明記
-- 受け入れ基準: `cdk synth` が通り、常時稼働リソースが制御層のみ
+- [x] CDK 制御層スタック: S3+CloudFront（admin-web）, API Gateway+Lambda, DynamoDB, Cognito, 成果物S3
+- [x] 常時稼働リソースを制御層のみに限定（N-1）。README に一覧を明記
+- [x] CDK assertion テスト（オンデマンド課金/自己サインアップ不可/メディア層を含めない 等）
+- 受け入れ基準: `cdk synth` が通り、常時稼働リソースが制御層のみ ✅
 
 ## フェーズ 2: 制御 API と認証
 
