@@ -10,7 +10,9 @@ StreamYard 型 YouTube ライブ配信プラットフォーム (`stagecast`) の
   新規 ADR は `0006-*.md` に。テンプレ: ステータス/日付/関連/コンテキスト/決定/影響・トレードオフ。
 - 残作業ロードマップ:
   - `docs/REMAINING_WORK.md` (T1〜T10) … **完了** ✅
-  - `docs/decisions/0005-media-layer-rollout.md` (R1〜R7 = LiveKit/Egress コンテナ実体化・字幕ワーカー Docker 化・最小権限化・本番化) … 進行中
+  - `docs/decisions/0005-media-layer-rollout.md` … メディア層実体化の意思決定 (R1〜R7)
+  - `docs/NEXT_WORK.md` … **次にやる作業の総合リスト** (R / O 運用準備 / D 技術的負債 / N nice-to-have / L 法的 / P pending PR)。
+    着手前にここを見て関連タスクを束ねる
 
 ## アーキテクチャ要点 (DESIGN.md 3 章)
 

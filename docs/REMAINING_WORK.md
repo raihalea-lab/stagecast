@@ -4,8 +4,9 @@
 > 実装サマリは [`PLAN.md`](./PLAN.md#remaining_work-t1t10-の達成内容2026-06-15) 参照。
 > 本ファイルは経緯と方針の参照用として残す。
 >
-> **次のフェーズ (本番配信までの段階的ロールアウト R1〜R7)** は
-> [`ADR 0005 メディア層運用化と段階的デプロイ戦略`](./decisions/0005-media-layer-rollout.md) を参照。
+> **次のフェーズの総合リスト** は [`docs/NEXT_WORK.md`](./NEXT_WORK.md) を参照
+> (R = ADR 0005 R1〜R7 / O 運用準備 / D 技術的負債 / N nice-to-have / L 法的 / P pending PR)。
+> 意思決定の背景は [ADR 0005 メディア層運用化と段階的デプロイ戦略](./decisions/0005-media-layer-rollout.md)。
 
 このドキュメントは、`DESIGN.md` の設計に対して **コード上の実装単位は完了**した後に残る
 「実 AWS アカウントでのデプロイ・統合・運用結線」を、Claude Code で順に実行できる粒度の
