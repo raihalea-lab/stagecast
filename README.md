@@ -6,7 +6,10 @@ StreamYard 型の YouTube ライブ配信プラットフォーム。配信管理
 
 設計の正は [`DESIGN.md`](./DESIGN.md)。技術選定は [ADR 0001](./docs/decisions/0001-tech-stack.md)、
 実装計画は [`docs/PLAN.md`](./docs/PLAN.md) を参照。
-実 AWS デプロイ・統合に向けた残作業は [`docs/REMAINING_WORK.md`](./docs/REMAINING_WORK.md)（T1〜T10）にまとめてある。
+
+- 実 AWS デプロイ・統合に向けた残作業 (T1〜T10) は [`docs/REMAINING_WORK.md`](./docs/REMAINING_WORK.md) … **完了** ✅
+- 本番配信までの次フェーズ (R1〜R7: LiveKit/Egress コンテナ実体化・字幕ワーカー Docker 化・最小権限化) は
+  [`ADR 0005`](./docs/decisions/0005-media-layer-rollout.md) を参照。
 
 ## アーキテクチャ概要 (DESIGN.md 3 章 / 9 章)
 
