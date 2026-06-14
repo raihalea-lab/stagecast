@@ -8,12 +8,15 @@
  */
 import type { AudioChunk, CaptionBus, CaptionEngine, CaptionSink } from "@stagecast/shared";
 import type { CaptionStore } from "./store/caption-store.js";
+import type { CaptionMetricsCollector } from "./metrics.js";
 
 export interface CaptionPipelineDeps {
   bus: CaptionBus;
   engine: CaptionEngine;
   sinks: CaptionSink[];
   store?: CaptionStore;
+  /** CloudWatch メトリクス送信 (T9, ADR 0003)。省略時は計測なし。 */
+  metrics?: CaptionMetricsCollector;
 }
 
 export class CaptionPipeline {
@@ -23,14 +26,21 @@ export class CaptionPipeline {
   constructor(private readonly deps: CaptionPipelineDeps) {}
 
   async start(): Promise<void> {
-    const { bus, engine, sinks, store } = this.deps;
+    const { bus, engine, sinks, store, metrics } = this.deps;
     await engine.start();
     // エンジンの字幕をバスへ。
     engine.onCaption((caption) => bus.publish(caption));
     // バスを購読し、各 Sink と保存へ配る。配信は非同期なので drain で待ち合わせる。
     this.unsubscribe = bus.subscribe((caption) => {
+      metrics?.observeCaption(caption);
       store?.ingest(caption);
-      for (const sink of sinks) this.pending.push(sink.deliver(caption));
+      for (const sink of sinks) {
+        const p = sink.deliver(caption).catch((err) => {
+          metrics?.observeSinkError(sink.kind);
+          throw err;
+        });
+        this.pending.push(p);
+      }
     });
     for (const sink of sinks) await sink.start();
   }

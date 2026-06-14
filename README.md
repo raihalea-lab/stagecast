@@ -106,25 +106,71 @@ vp add -D some-pkg --filter @stagecast/admin-web   # admin-web に dev 依存を
 ## デプロイ手順
 
 制御層 (常時稼働) の CDK スタックを synth/deploy する。
+**手動デプロイ** と **GitHub Actions (手動 dispatch)** の 2 経路がある。
+
+### 事前準備 (一度きり)
 
 ```bash
-# 制御層スタックの合成 (テンプレ確認)
-vp run --filter @stagecast/infra synth
+# AWS 認証 (ローカル) — Claude Code 実行時はブラウザで認証操作する
+aws sso login    # または aws login
 
-# デプロイ (要 AWS 資格情報・cdk bootstrap 済み)
-vp run --filter @stagecast/infra cdk deploy StagecastControlPlane
-
-# 管理 SPA をビルドし、出力された S3 バケットへ配置 (CloudFront 配信)
-vp run --filter @stagecast/admin-web build
-# aws s3 sync apps/admin-web/dist s3://<AdminWebBucket> --delete
+# CDK bootstrap (アカウント x リージョンごとに 1 回)
+vp run --filter @stagecast/infra cdk -- bootstrap aws://<account>/<region>
 ```
 
-- 常時稼働するのは制御層スタックのみ (S3/CloudFront・API Gateway/Lambda・DynamoDB・Cognito・成果物S3)。
+### ローカルから手動デプロイ
+
+```bash
+# 1. テンプレ生成の健全性チェック
+vp run --filter @stagecast/infra synth
+
+# 2. 差分確認
+vp run --filter @stagecast/infra cdk -- diff StagecastControlPlane
+
+# 3. 制御層デプロイ (control-api Lambda + Secrets + Cognito + reconcile Lambda)
+vp run --filter @stagecast/infra cdk -- deploy StagecastControlPlane \
+  --require-approval never \
+  --outputs-file infra/cdk-outputs.json
+
+# 4. シークレットを実値で更新 (LiveKit / YouTube)
+aws secretsmanager update-secret --secret-id stagecast/livekit \
+  --secret-string '{"url":"wss://...","apiKey":"...","apiSecret":"..."}'
+
+# 5. フロント (admin-web / stage-web) をビルドして S3 へ配置
+VITE_CONTROL_API_URL="$(jq -r '.StagecastControlPlane.ControlApiEndpoint' infra/cdk-outputs.json)" \
+VITE_COGNITO_DOMAIN="$(jq -r '.StagecastControlPlane.AdminAuthDomain' infra/cdk-outputs.json)" \
+VITE_COGNITO_USER_POOL_CLIENT_ID="$(jq -r '.StagecastControlPlane.AdminUserPoolClientId' infra/cdk-outputs.json)" \
+  vp run --filter @stagecast/admin-web build
+
+aws s3 sync apps/admin-web/dist \
+  "s3://$(jq -r '.StagecastControlPlane.AdminWebBucketName' infra/cdk-outputs.json)" --delete
+
+aws cloudfront create-invalidation \
+  --distribution-id "$(jq -r '.StagecastControlPlane.AdminWebDistributionId' infra/cdk-outputs.json)" \
+  --paths '/*'
+```
+
+### GitHub Actions から (T10)
+
+`.github/workflows/deploy.yml` を **Actions → Deploy → Run workflow** で起動する。
+入力:
+
+- `environment`: dev / staging / prod のいずれか (GitHub Environment と一致)
+- `dry-run`: true (cdk diff のみ) / false (cdk deploy + S3 sync まで実行)
+
+事前に Environment ごとに以下を設定する:
+
+- `vars.AWS_DEPLOY_ROLE_ARN`: GitHub OIDC で引き受ける IAM Role の ARN
+- `vars.AWS_REGION`: 既定 ap-northeast-1
+
+### 運用上の注意
+
+- 常時稼働するのは制御層スタックのみ (S3/CloudFront・API Gateway/Lambda・DynamoDB・Cognito・成果物S3・SNS Topic)。
   メディア層/字幕層は `media-orchestrator` がイベント単位で起動・破棄する (N-1)。
-- シークレット (YouTube API キー・LiveKit キー等) はコードに置かず、
-  SSM パラメータストア / Secrets Manager で管理する (ADR D-10)。
-- 残作業: control-api 実ハンドラの NodejsFunction 化、イベント単位メディアスタックの
-  CDK 定義、各フェイクの実 AWS SDK 実装 (`docs/PLAN.md` 末尾参照)。
+- イベント単位スタックの起動・破棄は **reconcile Lambda** (60s tick) が自動で行う (ADR 0003 D-2)。
+- シークレット (YouTube API キー・LiveKit キー等) はコードに置かず、Secrets Manager から注入する (T7, ADR D-10)。
+- 実 AWS との疎通確認は `pnpm run test:integration` (`*.integration.test.ts`) で行える (T8)。
+  RUN_INTEGRATION 環境変数が立たない通常 CI ではスキップされる。
 
 ## 開発ルール
 

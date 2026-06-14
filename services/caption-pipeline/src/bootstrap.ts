@@ -147,6 +147,12 @@ export async function realProvidersFromEnv(
       baseEpochMs: Date.now(),
     });
   }
+  // 字幕バスを Valkey Streams に切替える (T3, ADR 0002)。
+  // CAPTION_BUS=valkey かつ VALKEY_URL/ENDPOINT があれば ioredis ベースの client を構築。
+  if (env.CAPTION_BUS === "valkey" && (env.VALKEY_URL || env.VALKEY_ENDPOINT)) {
+    const { valkeyStreamClientFromEnv } = await import("./valkey-stream-client.js");
+    providers.valkeyStreamClient = await valkeyStreamClientFromEnv(env);
+  }
   return providers;
 }
 
@@ -161,7 +167,9 @@ async function fakeProvidersFromConfig(
 
 /**
  * 環境変数から CaptionService を構築・起動する。字幕ワーカープロセスのエントリ。
- * 音声入力 (SFU/LiveKit) の取り込みは実結線時に AudioSource として注入する。
+ *
+ * 音声ソース (SFU/LiveKit) は LIVEKIT_URL/TOKEN/ROOM が揃っていれば自動的に
+ * `LiveKitAudioSource` を構築する (T1)。明示的に注入したい場合は引数で渡す。
  */
 export async function runFromEnv(
   env: NodeJS.ProcessEnv = process.env,
@@ -172,7 +180,16 @@ export async function runFromEnv(
     env.USE_FAKE_ADAPTERS === "true"
       ? await fakeProvidersFromConfig(config)
       : await realProvidersFromEnv(config, env);
-  const service = new CaptionService(config, providers, audioSource);
+  const source =
+    audioSource ?? (env.USE_FAKE_ADAPTERS === "true" ? undefined : await audioSourceFromEnv(env));
+  const service = new CaptionService(config, providers, source);
   await service.start();
   return service;
+}
+
+/** LIVEKIT_* が揃っていれば LiveKitAudioSource を構築する (T1)。 */
+async function audioSourceFromEnv(env: NodeJS.ProcessEnv): Promise<AudioSource | undefined> {
+  if (!env.LIVEKIT_URL) return undefined;
+  const { liveKitAudioSourceFromEnv } = await import("./livekit-audio-source.js");
+  return liveKitAudioSourceFromEnv(env);
 }

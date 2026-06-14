@@ -5,6 +5,9 @@
   "bin": {
     "stagecast": "bin/app.ts"
   },
+  "exports": {
+    "./render-template": "./lib/render-template.ts"
+  },
   "scripts": {
     "build": "tsc --noEmit -p tsconfig.json",
     "typecheck": "tsc --noEmit",

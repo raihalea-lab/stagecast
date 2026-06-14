@@ -6,6 +6,7 @@
   "scripts": {
     "build": "vp run -r build",
     "test": "vp run -r test",
+    "test:integration": "RUN_INTEGRATION=1 vp run -r test",
     "typecheck": "vp run -r typecheck",
     "lint": "vp lint",
     "format": "vp fmt",

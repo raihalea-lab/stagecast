@@ -44,3 +44,13 @@ jobs:
 
       - name: Test (vp run -r test)
         run: vp run -r test
+
+      # T10: CDK synth でテンプレ生成の健全性を CI でも確認する。
+      # CDK_DEFAULT_* を渡さないと bin/app.ts が environment-agnostic に synth する
+      # (実 AWS 認証は不要)。NodejsFunction / ReconcileFunction の esbuild バンドルが
+      # 走るが、ローカルテストでも同じ経路を通っているので追加コストは小さい。
+      - name: CDK synth (infra)
+        env:
+          CDK_DEFAULT_ACCOUNT: "111111111111"
+          CDK_DEFAULT_REGION: "ap-northeast-1"
+        run: vp run --filter @stagecast/infra synth -- --quiet
