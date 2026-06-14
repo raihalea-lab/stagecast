@@ -13,30 +13,30 @@
  *    バックログから再送して追いつきを助ける。
  *  - 認証: 接続時に任意のトークン検証を行う (未設定なら誰でも可)。
  */
-import type { LanguageCode } from '@stagecast/shared';
-import type { CaptionStreamMessage, CaptionBroadcaster } from './custom-api-sink.js';
+import type { LanguageCode } from "@stagecast/shared";
+import type { CaptionStreamMessage, CaptionBroadcaster } from "./custom-api-sink.js";
 
 export interface WelcomeMessage {
   v: 1;
-  type: 'welcome';
-  protocol: 'stagecast-captions';
+  type: "welcome";
+  protocol: "stagecast-captions";
   supportedLanguages: LanguageCode[];
 }
 export interface PongMessage {
   v: 1;
-  type: 'pong';
+  type: "pong";
 }
 export interface ErrorMessage {
   v: 1;
-  type: 'error';
+  type: "error";
   message: string;
 }
 export type ServerMessage = CaptionStreamMessage | WelcomeMessage | PongMessage | ErrorMessage;
 
 export type ClientMessage =
-  | { action: 'subscribe'; languages: LanguageCode[] }
-  | { action: 'unsubscribe'; languages?: LanguageCode[] }
-  | { action: 'ping' };
+  | { action: "subscribe"; languages: LanguageCode[] }
+  | { action: "unsubscribe"; languages?: LanguageCode[] }
+  | { action: "ping" };
 
 /** トランスポート (WS/SSE) が実装する 1 接続の抽象。 */
 export interface CaptionStreamConnection {
@@ -48,21 +48,21 @@ export interface CaptionStreamConnection {
 /** クライアントから受信した生メッセージを検証付きでパースする。 */
 export function parseClientMessage(raw: unknown): ClientMessage | undefined {
   let obj = raw;
-  if (typeof raw === 'string') {
+  if (typeof raw === "string") {
     try {
       obj = JSON.parse(raw);
     } catch {
       return undefined;
     }
   }
-  if (typeof obj !== 'object' || obj === null) return undefined;
+  if (typeof obj !== "object" || obj === null) return undefined;
   const m = obj as Record<string, unknown>;
-  if (m.action === 'ping') return { action: 'ping' };
-  if (m.action === 'subscribe' && Array.isArray(m.languages)) {
-    return { action: 'subscribe', languages: m.languages as LanguageCode[] };
+  if (m.action === "ping") return { action: "ping" };
+  if (m.action === "subscribe" && Array.isArray(m.languages)) {
+    return { action: "subscribe", languages: m.languages as LanguageCode[] };
   }
-  if (m.action === 'unsubscribe') {
-    return { action: 'unsubscribe', languages: m.languages as LanguageCode[] | undefined };
+  if (m.action === "unsubscribe") {
+    return { action: "unsubscribe", languages: m.languages as LanguageCode[] | undefined };
   }
   return undefined;
 }
@@ -96,15 +96,15 @@ export class CaptionConnectionHub {
   /** 接続を受け入れる。認証 NG なら error を送って閉じ false を返す。 */
   addConnection(conn: CaptionStreamConnection, token?: string): boolean {
     if (this.config.authorize && !this.config.authorize(token)) {
-      conn.send({ v: 1, type: 'error', message: 'unauthorized' });
+      conn.send({ v: 1, type: "error", message: "unauthorized" });
       conn.close();
       return false;
     }
     this.subscribers.set(conn.id, { conn, languages: new Set() });
     conn.send({
       v: 1,
-      type: 'welcome',
-      protocol: 'stagecast-captions',
+      type: "welcome",
+      protocol: "stagecast-captions",
       supportedLanguages: this.config.supportedLanguages,
     });
     return true;
@@ -120,14 +120,14 @@ export class CaptionConnectionHub {
     if (!sub) return;
     const msg = parseClientMessage(raw);
     if (!msg) {
-      sub.conn.send({ v: 1, type: 'error', message: 'malformed message' });
+      sub.conn.send({ v: 1, type: "error", message: "malformed message" });
       return;
     }
-    if (msg.action === 'ping') {
-      sub.conn.send({ v: 1, type: 'pong' });
+    if (msg.action === "ping") {
+      sub.conn.send({ v: 1, type: "pong" });
       return;
     }
-    if (msg.action === 'subscribe') {
+    if (msg.action === "subscribe") {
       for (const lang of msg.languages) {
         if (!this.config.supportedLanguages.includes(lang)) continue;
         sub.languages.add(lang);
@@ -136,7 +136,7 @@ export class CaptionConnectionHub {
       }
       return;
     }
-    if (msg.action === 'unsubscribe') {
+    if (msg.action === "unsubscribe") {
       if (!msg.languages) sub.languages.clear();
       else for (const lang of msg.languages) sub.languages.delete(lang);
     }

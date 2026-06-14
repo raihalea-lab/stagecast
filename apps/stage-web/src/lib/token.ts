@@ -3,7 +3,7 @@
  * 例: https://stage.example.com/?token=xxxx
  */
 export function parseInviteToken(search: string): string | undefined {
-  const params = new URLSearchParams(search.startsWith('?') ? search : `?${search}`);
-  const token = params.get('token');
+  const params = new URLSearchParams(search.startsWith("?") ? search : `?${search}`);
+  const token = params.get("token");
   return token ?? undefined;
 }

@@ -4,10 +4,10 @@
  * 招待トークンでの入室 → SFU 接続 → publish 制御 → スライド送り を束ねる。
  * React コンポーネントはこのコントローラを呼ぶだけにし、ロジックを外部接続なしに検証する。
  */
-import type { InvitedRole } from '@stagecast/shared';
-import type { JoinResponse, StageClient } from './api/stage-client.js';
-import type { RoomConnector } from './lib/room.js';
-import { goToPage, nextPage, prevPage, type SlideDeckState } from './lib/slides.js';
+import type { InvitedRole } from "@stagecast/shared";
+import type { JoinResponse, StageClient } from "./api/stage-client.js";
+import type { RoomConnector } from "./lib/room.js";
+import { goToPage, nextPage, prevPage, type SlideDeckState } from "./lib/slides.js";
 
 export interface StageSession {
   eventId: string;
@@ -42,13 +42,13 @@ export class StageController {
       role: res.role,
       room: res.room,
       // 登壇者のみ publish 可。モデレーターは進行補助 (subscribe 主体)。
-      canPublish: res.role === 'speaker',
+      canPublish: res.role === "speaker",
     };
     return res;
   }
 
   private requirePublish(): void {
-    if (!this.session?.canPublish) throw new Error('this role cannot publish');
+    if (!this.session?.canPublish) throw new Error("this role cannot publish");
   }
 
   async toggleMic(on: boolean): Promise<void> {
@@ -72,19 +72,19 @@ export class StageController {
   async slideNext(): Promise<number> {
     this.requirePublish();
     this.deck = nextPage(this.deck);
-    await this.room.sendSlide({ type: 'slide', page: this.deck.page });
+    await this.room.sendSlide({ type: "slide", page: this.deck.page });
     return this.deck.page;
   }
   async slidePrev(): Promise<number> {
     this.requirePublish();
     this.deck = prevPage(this.deck);
-    await this.room.sendSlide({ type: 'slide', page: this.deck.page });
+    await this.room.sendSlide({ type: "slide", page: this.deck.page });
     return this.deck.page;
   }
   async slideGoTo(page: number): Promise<number> {
     this.requirePublish();
     this.deck = goToPage(this.deck, page);
-    await this.room.sendSlide({ type: 'slide', page: this.deck.page });
+    await this.room.sendSlide({ type: "slide", page: this.deck.page });
     return this.deck.page;
   }
 

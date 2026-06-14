@@ -1,6 +1,6 @@
-import { App } from 'aws-cdk-lib';
-import { EventMediaStack, eventMediaStackName } from './event-media-stack';
-import type { CaptionEngineKind } from '@stagecast/shared';
+import { App } from "aws-cdk-lib";
+import { EventMediaStack, eventMediaStackName } from "./event-media-stack";
+import type { CaptionEngineKind } from "@stagecast/shared";
 
 /**
  * イベント単位メディアスタックの CloudFormation テンプレート(JSON 文字列)を生成する

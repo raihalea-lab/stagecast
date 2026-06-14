@@ -1,9 +1,0 @@
-# DESIGN.md は設計の正。アップロード版をそのまま保持する。
-DESIGN.md
-node_modules/
-dist/
-build/
-coverage/
-cdk.out/
-pnpm-lock.yaml
-*.tsbuildinfo

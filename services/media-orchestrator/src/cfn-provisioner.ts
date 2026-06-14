@@ -8,7 +8,7 @@
  * テンプレートは EventMediaStack を `cdk synth` で生成したものを renderTemplate で供給する
  * (eventId 等をパラメータ化)。
  */
-import type { EventMediaSpec, MediaStackHandle, MediaStackProvisioner } from './provisioner.js';
+import type { EventMediaSpec, MediaStackHandle, MediaStackProvisioner } from "./provisioner.js";
 
 export interface StackOutput {
   OutputKey?: string;
@@ -62,7 +62,7 @@ export class CloudFormationMediaStackProvisioner implements MediaStackProvisione
     const interval = this.config.pollIntervalMs ?? 5000;
     for (let i = 0; i < maxPolls; i++) {
       const res = await this.config.cfn.describeStacks({ StackName: stackName });
-      const status = res.Stacks?.[0]?.StackStatus ?? '';
+      const status = res.Stacks?.[0]?.StackStatus ?? "";
       if (FAILED.test(status)) throw new Error(`stack ${stackName} failed: ${status}`);
       if (COMPLETE.test(status)) return this.outputs(res);
       await delay(interval);
@@ -75,13 +75,13 @@ export class CloudFormationMediaStackProvisioner implements MediaStackProvisione
     const created = await this.config.cfn.createStack({
       StackName: stackName,
       TemplateBody: this.config.renderTemplate(spec),
-      Capabilities: ['CAPABILITY_IAM', 'CAPABILITY_NAMED_IAM'],
+      Capabilities: ["CAPABILITY_IAM", "CAPABILITY_NAMED_IAM"],
     });
     const outputs = await this.waitForComplete(stackName);
     return {
       eventId: spec.eventId,
       stackId: created.StackId ?? stackName,
-      status: 'running',
+      status: "running",
       // 出力があれば使い、無ければ規約ベースで補完する。
       sfuUrl: outputs.SfuUrl ?? `wss://sfu-${spec.eventId}.media.internal`,
       captionPipelineId: outputs.CaptionPipelineId ?? `caption-${spec.eventId}`,

@@ -7,7 +7,7 @@
  *
  * 各スタックはイベント単位で独立し、相互に干渉しない (N-5, 7.3)。
  */
-import type { CaptionEngineKind } from '@stagecast/shared';
+import type { CaptionEngineKind } from "@stagecast/shared";
 
 export interface EventMediaSpec {
   eventId: string;
@@ -19,7 +19,7 @@ export interface EventMediaSpec {
   rtmpUrl?: string;
 }
 
-export type StackStatus = 'provisioning' | 'running' | 'destroying' | 'destroyed';
+export type StackStatus = "provisioning" | "running" | "destroying" | "destroyed";
 
 /** プロビジョン済みスタックのハンドル。イベント単位で独立した資源参照を持つ。 */
 export interface MediaStackHandle {
@@ -57,7 +57,7 @@ export class FakeMediaStackProvisioner implements MediaStackProvisioner {
     return {
       eventId: spec.eventId,
       stackId,
-      status: 'running',
+      status: "running",
       sfuUrl: `wss://sfu-${spec.eventId}.media.local`,
       captionPipelineId: `caption-${spec.eventId}`,
       valkeyNamespace: spec.eventId,

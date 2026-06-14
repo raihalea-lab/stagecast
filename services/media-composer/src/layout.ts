@@ -5,7 +5,7 @@
  * レイアウト記述を計算する。Egress (LiveKit) はこの記述に従って 1 本の映像を合成し
  * RTMP 出力する。発表者の出し入れは PresentationState に反映され、再計算で即座に映像へ伝わる。
  */
-import { liveSpeakers, type PresentationState } from '@stagecast/shared';
+import { liveSpeakers, type PresentationState } from "@stagecast/shared";
 
 /** 正規化された矩形領域 (0..1)。16:9 キャンバス上の相対位置。 */
 export interface Rect {
@@ -22,7 +22,7 @@ export interface SpeakerTile {
 
 export interface CompositionLayout {
   /** スライド (画面共有 or 事前アップロード) の表示領域。未投影なら null。 */
-  slide: { region: Rect; source: 'screen-share' | 'uploaded'; page?: number } | null;
+  slide: { region: Rect; source: "screen-share" | "uploaded"; page?: number } | null;
   /** 発表中の登壇者タイル一覧。 */
   speakers: SpeakerTile[];
   /** QR コードのオーバーレイ (右下)。 */
@@ -63,13 +63,13 @@ export function computeLayout(
   const live = liveSpeakers(state);
   const hasSlide = state.slideSource !== undefined;
 
-  let slide: CompositionLayout['slide'] = null;
+  let slide: CompositionLayout["slide"] = null;
   let speakers: SpeakerTile[];
 
   if (hasSlide) {
     slide = {
       region: { x: 0.02, y: 0.02, w: 0.66, h: 0.82 },
-      source: state.slideSource as 'screen-share' | 'uploaded',
+      source: state.slideSource as "screen-share" | "uploaded",
       page: state.slidePage,
     };
     const regions = speakerColumn(live.length);
@@ -80,7 +80,7 @@ export function computeLayout(
   }
 
   const qr: Rect | null = branding.showQr ? { x: 0.88, y: 0.7, w: 0.1, h: 0.18 } : null;
-  const title: CompositionLayout['title'] = branding.title
+  const title: CompositionLayout["title"] = branding.title
     ? { region: { x: 0.02, y: 0.88, w: 0.96, h: 0.1 }, text: branding.title }
     : null;
 

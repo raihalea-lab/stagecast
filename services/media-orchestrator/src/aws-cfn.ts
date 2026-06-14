@@ -11,13 +11,13 @@ import {
   CreateStackCommand,
   DeleteStackCommand,
   DescribeStacksCommand,
-} from '@aws-sdk/client-cloudformation';
+} from "@aws-sdk/client-cloudformation";
 import {
   CloudFormationMediaStackProvisioner,
   type CloudFormationLike,
   type DescribeResult,
-} from './cfn-provisioner.js';
-import type { EventMediaSpec } from './provisioner.js';
+} from "./cfn-provisioner.js";
+import type { EventMediaSpec } from "./provisioner.js";
 
 /** infra の eventMediaStackName と一致させる規約。 */
 export function eventMediaStackName(eventId: string): string {

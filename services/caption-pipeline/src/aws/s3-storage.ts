@@ -3,8 +3,8 @@
  *
  * 確定字幕 (SRT/VTT) を S3 に保存する。AWS SDK v3 の S3Client を注入する。
  */
-import { S3Client, PutObjectCommand, GetObjectCommand } from '@aws-sdk/client-s3';
-import type { ObjectStorage } from '../store/caption-store.js';
+import { S3Client, PutObjectCommand, GetObjectCommand } from "@aws-sdk/client-s3";
+import type { ObjectStorage } from "../store/caption-store.js";
 
 export class S3ObjectStorage implements ObjectStorage {
   constructor(

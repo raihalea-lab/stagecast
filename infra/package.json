@@ -6,11 +6,11 @@
     "stagecast": "bin/app.ts"
   },
   "scripts": {
-    "build": "tsc -p tsconfig.json",
+    "build": "tsc --noEmit -p tsconfig.json",
     "typecheck": "tsc --noEmit",
     "synth": "cdk synth",
     "cdk": "cdk",
-    "test": "vitest run",
+    "test": "vp test",
     "clean": "rm -rf dist cdk.out *.tsbuildinfo"
   },
   "dependencies": {
@@ -19,9 +19,10 @@
     "constructs": "^10.4.2"
   },
   "devDependencies": {
+    "@types/node": "^24.0.0",
     "aws-cdk": "^2.170.0",
     "ts-node": "^10.9.2",
-    "typescript": "^5.7.2",
-    "vitest": "^2.1.8"
+    "typescript": "^6.0.3",
+    "vitest": "^4.1.0"
   }
 }

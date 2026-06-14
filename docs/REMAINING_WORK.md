@@ -11,7 +11,7 @@
 
 ## 現状（前提）
 
-- フェーズ 0〜12 実装済み。`pnpm build / typecheck / lint / test / format` 全通過（136 tests）。
+- フェーズ 0〜12 実装済み。`vp run -r build / typecheck / test` + `vp lint / fmt` 全通過（136 tests）。
 - 外部依存はすべて**インターフェース + フェイク**で実装済み。実アダプタ（AWS SDK 実装）も
   注入クライアントで単体テスト済み。**未了は「実アカウントでの結線・デプロイ・E2E」**のみ。
 

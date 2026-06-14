@@ -4,8 +4,8 @@
  * 管理コンソールは発行された PUT URL に直接アップロードする (Lambda を経由しない)。
  * 署名は AssetUploadSigner 抽象に委ね、テストではフェイクを注入する。
  */
-import { S3Client, PutObjectCommand } from '@aws-sdk/client-s3';
-import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
+import { S3Client, PutObjectCommand } from "@aws-sdk/client-s3";
+import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 
 export interface PresignedUpload {
   key: string;
@@ -39,7 +39,7 @@ export function createAssetUploadService(deps: { signer: AssetUploadSigner; newI
     contentType: string,
   ): Promise<PresignedUpload> {
     // ファイル名衝突を避けつつイベント配下に配置する。
-    const safe = filename.replace(/[^\w.-]/g, '_');
+    const safe = filename.replace(/[^\w.-]/g, "_");
     const key = `assets/${eventId}/${deps.newId()}-${safe}`;
     const uploadUrl = await deps.signer.presignPut(key, contentType);
     return { key, uploadUrl };

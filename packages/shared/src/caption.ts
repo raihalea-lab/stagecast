@@ -7,7 +7,7 @@
  */
 
 /** 対応言語コード。最低限 ja / en をサポートする (DESIGN.md F-7)。 */
-export const SUPPORTED_LANGUAGES = ['ja', 'en'] as const;
+export const SUPPORTED_LANGUAGES = ["ja", "en"] as const;
 export type LanguageCode = (typeof SUPPORTED_LANGUAGES)[number];
 
 /**
@@ -15,7 +15,7 @@ export type LanguageCode = (typeof SUPPORTED_LANGUAGES)[number];
  * - `interim`: 暫定字幕。後続の認識で書き換わる可能性がある。
  * - `final`: 確定字幕。YouTube 字幕トラックへの送出や S3 保存の対象 (6.3.1, 6.4)。
  */
-export type CaptionStatus = 'interim' | 'final';
+export type CaptionStatus = "interim" | "final";
 
 /**
  * 字幕イベント (DESIGN.md 6.1)。
@@ -40,7 +40,7 @@ export interface CaptionEvent {
 
 /** 確定済みかどうかの型ガード。確定字幕のみを扱う Sink で使用する。 */
 export function isFinalCaption(c: CaptionEvent): boolean {
-  return c.status === 'final';
+  return c.status === "final";
 }
 
 /** 渡された値が対応言語コードかを判定する。 */
@@ -50,15 +50,15 @@ export function isSupportedLanguage(value: string): value is LanguageCode {
 
 /** 妥当な字幕イベントかを検証する (時刻の整合・言語・テキスト)。 */
 export function isValidCaptionEvent(value: unknown): value is CaptionEvent {
-  if (typeof value !== 'object' || value === null) return false;
+  if (typeof value !== "object" || value === null) return false;
   const c = value as Record<string, unknown>;
   return (
-    typeof c.startMs === 'number' &&
-    typeof c.endMs === 'number' &&
+    typeof c.startMs === "number" &&
+    typeof c.endMs === "number" &&
     c.endMs >= c.startMs &&
-    typeof c.text === 'string' &&
-    (c.status === 'interim' || c.status === 'final') &&
-    typeof c.language === 'string' &&
+    typeof c.text === "string" &&
+    (c.status === "interim" || c.status === "final") &&
+    typeof c.language === "string" &&
     isSupportedLanguage(c.language)
   );
 }

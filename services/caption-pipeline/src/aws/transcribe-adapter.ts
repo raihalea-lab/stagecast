@@ -11,12 +11,12 @@ import {
   TranscribeStreamingClient,
   StartStreamTranscriptionCommand,
   type TranscriptEvent,
-} from '@aws-sdk/client-transcribe-streaming';
-import type { AudioChunk, LanguageCode } from '@stagecast/shared';
-import type { AsrAdapter, TranscriptSegment } from '../engines/types.js';
+} from "@aws-sdk/client-transcribe-streaming";
+import type { AudioChunk, LanguageCode } from "@stagecast/shared";
+import type { AsrAdapter, TranscriptSegment } from "../engines/types.js";
 
 /** 内部言語コード → Transcribe の BCP-47 言語コード。 */
-const TRANSCRIBE_LANGUAGE: Record<LanguageCode, string> = { ja: 'ja-JP', en: 'en-US' };
+const TRANSCRIBE_LANGUAGE: Record<LanguageCode, string> = { ja: "ja-JP", en: "en-US" };
 
 /** TranscriptEvent → 字幕セグメント列への純粋変換 (テスト対象)。 */
 export function mapTranscriptEvent(
@@ -88,7 +88,7 @@ export class TranscribeStreamingAsrAdapter implements AsrAdapter {
     const command = new StartStreamTranscriptionCommand({
       LanguageCode: TRANSCRIBE_LANGUAGE[this.language] as never,
       MediaSampleRateHertz: this.sampleRate,
-      MediaEncoding: 'pcm',
+      MediaEncoding: "pcm",
       AudioStream: (async function* () {
         for await (const chunk of audio) {
           yield { AudioEvent: { AudioChunk: chunk.data } };

@@ -4,16 +4,16 @@
  * 管理者が配信前にイベント単位で準備・登録する。設定は DynamoDB に、
  * 素材 (QR・スライド等) は S3 に保存する。
  */
-import type { LanguageCode } from './caption.js';
+import type { LanguageCode } from "./caption.js";
 
 /** イベントのライフサイクル状態 (DESIGN.md 7.1)。 */
-export type EventStatus = 'draft' | 'scheduled' | 'live' | 'ended';
+export type EventStatus = "draft" | "scheduled" | "live" | "ended";
 
 /** 字幕エンジンの経路種別 (DESIGN.md 6.2)。 */
-export type CaptionEngineKind = 'transcribe' | 'llm' | 'self-hosted-asr';
+export type CaptionEngineKind = "transcribe" | "llm" | "self-hosted-asr";
 
 /** 字幕出力先の種別 (DESIGN.md 6.3)。 */
-export type CaptionSinkKind = 'youtube' | 'custom-api';
+export type CaptionSinkKind = "youtube" | "custom-api";
 
 /** S3 に保存された素材への参照 (QR・背景・ロゴ・スライド等)。 */
 export interface AssetRef {

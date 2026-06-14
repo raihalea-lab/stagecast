@@ -5,7 +5,7 @@
  * 組み合わせは自由で後からの追加も容易。実装は services/caption-pipeline に置く
  * (フェーズ 5)。ここでは全層が共有する契約のみを定義する。
  */
-import type { CaptionEvent, LanguageCode } from './caption.js';
+import type { CaptionEvent, LanguageCode } from "./caption.js";
 
 /** エンジンへ入力する音声チャンク (PCM などの生データ + タイムライン基準時刻)。 */
 export interface AudioChunk {

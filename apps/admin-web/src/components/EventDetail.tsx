@@ -1,9 +1,9 @@
 /**
  * イベント詳細: 素材アップロード・招待URL発行・配信開始/終了 (DESIGN.md 8 章, 7.1, 4.1)。
  */
-import { useState } from 'react';
-import type { EventDefinition, InvitedRole } from '@stagecast/shared';
-import type { AssetService, ControlApiClient, IssuedInvite } from '../api/types.js';
+import { useState } from "react";
+import type { EventDefinition, InvitedRole } from "@stagecast/shared";
+import type { AssetService, ControlApiClient, IssuedInvite } from "../api/types.js";
 
 export function EventDetail(props: {
   event: EventDefinition;
@@ -30,7 +30,7 @@ export function EventDetail(props: {
     setInvites((prev) => [...prev, invite]);
   };
 
-  const changeStatus = async (status: EventDefinition['status']) => {
+  const changeStatus = async (status: EventDefinition["status"]) => {
     await client.setStatus(event.id, status);
     onChanged();
   };
@@ -42,11 +42,11 @@ export function EventDetail(props: {
       </h2>
 
       <div className="lifecycle">
-        {event.status === 'draft' && (
-          <button onClick={() => changeStatus('live')}>配信開始 (live)</button>
+        {event.status === "draft" && (
+          <button onClick={() => changeStatus("live")}>配信開始 (live)</button>
         )}
-        {event.status === 'live' && (
-          <button onClick={() => changeStatus('ended')}>配信終了 (ended)</button>
+        {event.status === "live" && (
+          <button onClick={() => changeStatus("ended")}>配信終了 (ended)</button>
         )}
       </div>
 
@@ -62,8 +62,8 @@ export function EventDetail(props: {
       {event.qrAsset && <p>登録済み QR: {event.qrAsset.key}</p>}
 
       <h3>招待 URL</h3>
-      <button onClick={() => issue('moderator')}>モデレーター招待を発行</button>
-      <button onClick={() => issue('speaker')}>登壇者招待を発行</button>
+      <button onClick={() => issue("moderator")}>モデレーター招待を発行</button>
+      <button onClick={() => issue("speaker")}>登壇者招待を発行</button>
       <ul>
         {invites.map((inv) => (
           <li key={inv.jti}>

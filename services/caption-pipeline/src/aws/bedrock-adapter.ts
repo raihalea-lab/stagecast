@@ -5,11 +5,11 @@
  * 翻訳に特化する (transcribe は未提供 = LLMEngine の translate-only / 既存 ASR と組み合わせ)。
  * AWS SDK v3 の BedrockRuntimeClient を注入する。
  */
-import { BedrockRuntimeClient, InvokeModelCommand } from '@aws-sdk/client-bedrock-runtime';
-import type { LanguageCode } from '@stagecast/shared';
-import type { LlmAdapter } from '../engines/types.js';
+import { BedrockRuntimeClient, InvokeModelCommand } from "@aws-sdk/client-bedrock-runtime";
+import type { LanguageCode } from "@stagecast/shared";
+import type { LlmAdapter } from "../engines/types.js";
 
-const LANGUAGE_NAMES: Record<LanguageCode, string> = { ja: 'Japanese', en: 'English' };
+const LANGUAGE_NAMES: Record<LanguageCode, string> = { ja: "Japanese", en: "English" };
 
 export interface BedrockAdapterConfig {
   /** モデル ID (例: anthropic.claude-3-5-sonnet-...)。 */
@@ -36,12 +36,12 @@ export class BedrockLlmAdapter implements LlmAdapter {
     const res = await this.client.send(
       new InvokeModelCommand({
         modelId: this.config.modelId,
-        contentType: 'application/json',
-        accept: 'application/json',
+        contentType: "application/json",
+        accept: "application/json",
         body: JSON.stringify({
-          anthropic_version: 'bedrock-2023-05-31',
+          anthropic_version: "bedrock-2023-05-31",
           max_tokens: this.config.maxTokens ?? 512,
-          messages: [{ role: 'user', content: this.buildPrompt(text, source, target) }],
+          messages: [{ role: "user", content: this.buildPrompt(text, source, target) }],
         }),
       }),
     );

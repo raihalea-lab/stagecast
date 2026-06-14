@@ -5,8 +5,8 @@
  * 署名鍵 (LiveKit apiKey/apiSecret) は制御層で安全に保持し、ブラウザには渡さない (ADR D-10)。
  * 既定実装は media-composer の純粋なトークン生成関数を用いる。テストはフェイクを注入する。
  */
-import type { Role } from '@stagecast/shared';
-import { createLiveKitAccessToken } from '@stagecast/media-composer';
+import type { Role } from "@stagecast/shared";
+import { createLiveKitAccessToken } from "@stagecast/media-composer";
 
 export interface MintInput {
   identity: string;

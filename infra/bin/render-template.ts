@@ -9,19 +9,19 @@
  * media-orchestrator はこの出力 (または renderEventMediaTemplate の直接呼び出し) を
  * CloudFormationMediaStackProvisioner.renderTemplate に供給する。
  */
-import { renderEventMediaTemplate } from '../lib/render-template';
-import type { CaptionEngineKind } from '@stagecast/shared';
+import { renderEventMediaTemplate } from "../lib/render-template";
+import type { CaptionEngineKind } from "@stagecast/shared";
 
 const eventId = process.env.STAGECAST_EVENT_ID;
 if (!eventId) {
-  process.stderr.write('STAGECAST_EVENT_ID is required\n');
+  process.stderr.write("STAGECAST_EVENT_ID is required\n");
   process.exit(1);
 }
 
 const template = renderEventMediaTemplate({
   eventId,
-  captionEngine: (process.env.CAPTION_ENGINE as CaptionEngineKind) ?? 'transcribe',
-  customCaptionApi: process.env.CUSTOM_CAPTION_API === 'true',
+  captionEngine: (process.env.CAPTION_ENGINE as CaptionEngineKind) ?? "transcribe",
+  customCaptionApi: process.env.CUSTOM_CAPTION_API === "true",
 });
 
 process.stdout.write(template);

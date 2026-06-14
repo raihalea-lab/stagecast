@@ -9,7 +9,7 @@ import type {
   InvitedRole,
   PresentationState,
   SpeakerVisibility,
-} from '@stagecast/shared';
+} from "@stagecast/shared";
 
 export interface EventRepository {
   put(event: EventDefinition): Promise<void>;
@@ -46,6 +46,6 @@ export interface PresentationRepository {
   ): Promise<PresentationState>;
   setSlide(
     eventId: string,
-    slide: Pick<PresentationState, 'slideSource' | 'slidePage'>,
+    slide: Pick<PresentationState, "slideSource" | "slidePage">,
   ): Promise<PresentationState>;
 }
