@@ -154,6 +154,7 @@
   media-composer 12 / caption-pipeline 47 / admin-web 4 / stage-web 9
 - ADR: 0001 技術選定 / 0002 字幕バス分散化 (Valkey Streams) / 0003 障害時フェイルオーバー
 - 残（実 AWS アカウントでのデプロイ/統合検証が本体。コードの実装単位は完了）:
+  → **[`docs/REMAINING_WORK.md`](./REMAINING_WORK.md)** に Claude Code 実行用のタスク（T1〜T10）として分解済み。
   - 実 LiveKit からの音声取り込み AudioSource 実装（I/F とワーカー結線は実装・テスト済み）
   - オーケストレータ調整ループの定期実行スケジューラ（EventBridge → Lambda 配線）
   - `ValkeyStreamsCaptionBus` の実 Valkey クライアント結線（I/F・ロジックは実装・テスト済み）
