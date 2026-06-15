@@ -79,3 +79,10 @@ button.active {
 code {
   word-break: break-all;
 }
+
+/* 処理中インジケータ (error surfacing) */
+.busy {
+  margin-left: 0.5rem;
+  color: #888;
+  font-size: 0.85em;
+}

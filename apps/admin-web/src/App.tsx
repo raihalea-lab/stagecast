@@ -15,6 +15,7 @@ import type { ControlApiClient, AssetService, ArtifactService } from "./api/type
 import { EventForm } from "./components/EventForm.js";
 import { EventDetail } from "./components/EventDetail.js";
 import { CognitoAuthClient, configFromEnv } from "./auth/cognito.js";
+import { toErrorMessage } from "./lib/errors.js";
 
 const apiBaseUrl = (): string => import.meta.env.VITE_CONTROL_API_URL ?? "";
 
@@ -54,6 +55,21 @@ export function App(props: {
   const [auth, setAuth] = useState<AuthState>({ status: "loading" });
   const [events, setEvents] = useState<EventDefinition[]>([]);
   const [selectedId, setSelectedId] = useState<string | undefined>();
+  const [apiError, setApiError] = useState<string | undefined>();
+  const [busy, setBusy] = useState(false);
+
+  // API 操作を共通ラップ: 実行中は busy、失敗はエラーバナーに出す (従来は握り潰し)。
+  const run = useCallback(async (fn: () => Promise<void>) => {
+    setApiError(undefined);
+    setBusy(true);
+    try {
+      await fn();
+    } catch (err) {
+      setApiError(toErrorMessage(err));
+    } finally {
+      setBusy(false);
+    }
+  }, []);
 
   // OAuth callback 処理 → 既存トークンの再利用 → ログイン判定。
   useEffect(() => {
@@ -97,14 +113,15 @@ export function App(props: {
   }, [client]);
 
   useEffect(() => {
-    if (auth.status === "authenticated") void refresh();
-  }, [auth.status, refresh]);
+    if (auth.status === "authenticated") void run(refresh);
+  }, [auth.status, refresh, run]);
 
-  const create = async (input: CreateEventInput) => {
-    const created = await client.createEvent(input);
-    await refresh();
-    setSelectedId(created.id);
-  };
+  const create = (input: CreateEventInput) =>
+    run(async () => {
+      const created = await client.createEvent(input);
+      await refresh();
+      setSelectedId(created.id);
+    });
 
   const login = async () => {
     if (!authClient) return;
@@ -143,8 +160,14 @@ export function App(props: {
     <main className="app">
       <header>
         <h1>Stagecast 管理コンソール</h1>
+        {busy && <span className="busy">処理中…</span>}
         {authClient && <button onClick={logout}>ログアウト</button>}
       </header>
+      {apiError && (
+        <p className="error" role="alert">
+          {apiError} <button onClick={() => setApiError(undefined)}>×</button>
+        </p>
+      )}
       <div className="layout">
         <aside>
           <EventForm onCreate={create} />
@@ -169,7 +192,7 @@ export function App(props: {
               client={client}
               assets={assets}
               artifacts={artifacts}
-              onChanged={refresh}
+              onChanged={() => void run(refresh)}
             />
           ) : (
             <p>イベントを選択してください。</p>
