@@ -96,6 +96,21 @@ describe("StageController (DESIGN.md 4.1, F-1, F-3)", () => {
     expect(ctrl.currentSession).toBeUndefined();
   });
 
+  it("一時的な再接続ではセッションを保ち onReconnecting/onReconnected を呼ぶ", async () => {
+    const room = new FakeRoomConnector();
+    const ctrl = new StageController(new FakeStageClient(speakerJoin), room);
+    const events: string[] = [];
+    ctrl.onReconnecting(() => events.push("reconnecting"));
+    ctrl.onReconnected(() => events.push("reconnected"));
+    await ctrl.join("t");
+
+    room.emitReconnecting();
+    expect(ctrl.currentSession).toBeDefined(); // セッションは維持される
+    room.emitReconnected();
+    expect(ctrl.currentSession).toBeDefined();
+    expect(events).toEqual(["reconnecting", "reconnected"]);
+  });
+
   it("連打 (同時 join) でも SFU 接続は 1 回 (in-flight 共有)", async () => {
     const room = new FakeRoomConnector();
     const ctrl = new StageController(new FakeStageClient(speakerJoin), room);

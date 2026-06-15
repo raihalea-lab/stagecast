@@ -57,6 +57,10 @@ button:disabled {
 .error {
   color: #ff6b6b;
 }
+.reconnecting {
+  color: #f5a623;
+  font-weight: 600;
+}
 .leave {
   margin-top: 24px;
   background: #5a1f1f;

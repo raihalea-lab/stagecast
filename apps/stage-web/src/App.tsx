@@ -46,13 +46,18 @@ export function App(props: {
   const [camera, setCamera] = useState(false);
   const [screen, setScreen] = useState(false);
   const [page, setPage] = useState(1);
+  const [reconnecting, setReconnecting] = useState(false);
 
   // SFU 切断を検知したら入室画面へ戻し、再入室を促す。
+  // 一時的な回線断は自動再接続を試みるのでセッションは保ち、再接続中バナーだけ出す。
   useEffect(() => {
     controller.onDisconnected(() => {
       setSession(undefined);
+      setReconnecting(false);
       setError("配信サーバから切断されました。もう一度入室してください。");
     });
+    controller.onReconnecting(() => setReconnecting(true));
+    controller.onReconnected(() => setReconnecting(false));
   }, [controller]);
 
   const join = async () => {
@@ -101,6 +106,11 @@ export function App(props: {
       <h1>
         {session.role === "speaker" ? "登壇者" : "モデレーター"} / イベント {session.eventId}
       </h1>
+      {reconnecting && (
+        <p className="reconnecting" role="status">
+          配信サーバへ再接続中… そのままお待ちください。
+        </p>
+      )}
       {error && <p className="error">{error}</p>}
 
       {session.canPublish ? (

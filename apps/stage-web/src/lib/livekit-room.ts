@@ -26,6 +26,18 @@ export class LiveKitRoomConnector implements RoomConnector {
       handler();
     });
   }
+  onReconnecting(handler: () => void): void {
+    this.room.on(RoomEvent.Reconnecting, () => {
+      this.state = "reconnecting";
+      handler();
+    });
+  }
+  onReconnected(handler: () => void): void {
+    this.room.on(RoomEvent.Reconnected, () => {
+      this.state = "connected";
+      handler();
+    });
+  }
   async setMicrophoneEnabled(enabled: boolean): Promise<void> {
     // 入室前テストで選んだマイクを capture options で指定する (N7)。
     await this.room.localParticipant.setMicrophoneEnabled(
