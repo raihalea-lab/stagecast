@@ -266,3 +266,53 @@ gh pr merge 7 --merge --delete-branch
 7. **N (Nice-to-have)** は配信が安定してから順次
 
 D / L / N は R を進めながら **思い出した時に PR を切る** のが現実的。
+
+---
+
+## 継続改善ループの完了ログ (2026-06-15)
+
+`/loop` による継続改善で、デプロイ検証が不要な範囲を中心に以下をマージ済み。
+
+### レジリエンス
+
+- **D8** 汎用 `withRetry` (指数バックオフ) を `@stagecast/shared` に追加
+- 字幕 Sink 配信を `withRetry` でラップ + 全滅は計測/ログのみで握る (字幕 best-effort)
+- reconcile の `describeStacks` を `withRetry` で耐スロットリング化 (createStack は非冪等で対象外)
+- `StageController.join` を冪等化 (連打/入室済みで二重接続しない)
+
+### 入力検証 / セキュリティ
+
+- control-api イベント入力の型/長さ/日時バリデーション (400 応答, 500 回避)
+- 招待発行の role 値域 / ttl 範囲 (60s〜7d) / eventId 検証
+
+### 可観測性
+
+- `createLogger` (構造化 1 行 JSON ログ) を導入し backend の `console` を置換 (N3)
+- `SinkDeliveryRetries` メトリクス + EventMediaStack に Sink エラーアラーム/ダッシュボード
+
+### UX / フロント (N1/N7)
+
+- 配信成果物 (録画/字幕) のダウンロード API + admin-web UI (N1)
+- stage-web 入室前デバイステスト (マイク/カメラ選択 + 音量メーター) (N7)
+- stage-web SFU 切断検知 → 再入室導線 (N7)
+- admin-web / EventDetail の API エラー surface + 処理中表示
+
+### 字幕品質 / リファクタ
+
+- SRT/VTT キュー本文サニタイズ (VTT エスケープ + 空行除去)
+- 字幕 Sink 種別を `CAPTION_SINK_KINDS` / `CaptionSinkKind` に集約 (重複解消)
+
+## 次の改善候補 (deploy 不要で着手可能)
+
+- エンジン側 (Transcribe/Translate/Bedrock) の一過性エラー再試行 (二重字幕回避を設計)
+- stage-web 自動再接続 UI (livekit-client の reconnecting を反映) / カメラライブプレビュー
+- admin-web のローディングスケルトン / ボタン連打防止 (操作中 disabled)
+- YouTube ingest 呼び出しへの `withRetry` 横展開
+- `media-composer` の多人数レイアウト (speakerColumn の負値クランプ) の堅牢化
+- 招待 `eventId` の実在チェック / 招待レート制限
+
+## デプロイ/外部依存が必要 (ループ対象外)
+
+- R3 Playwright 実装 (要 LiveKit) / R7 (要 AWS+YouTube) / R6 ACM 独自ドメイン (要ドメイン)
+- N3 残り: X-Ray 有効化 / SNS Slack subscribe
+- O1/O2 (AWS アカウント・OIDC Role)・S1/S2 デプロイ
