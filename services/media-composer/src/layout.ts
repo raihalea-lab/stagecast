@@ -98,14 +98,22 @@ function gridTiles(ids: string[]): SpeakerTile[] {
   const cols = Math.ceil(Math.sqrt(n));
   const rows = Math.ceil(n / cols);
   const gap = 0.01;
-  const w = (1 - gap * (cols + 1)) / cols;
-  const h = (1 - gap * (rows + 1)) / rows;
+  // 列/行が多いとギャップ総量が軸長 (1) を超え、タイル幅/高さが負になる。各軸でギャップ総量に
+  // 上限を設けて常に正の矩形に収める (少人数では従来と同じ値。speakerColumn と同方針)。
+  const { tile: w, gap: gapX } = clampGrid(gap, cols);
+  const { tile: h, gap: gapY } = clampGrid(gap, rows);
   return ids.map((speakerId, i) => {
     const r = Math.floor(i / cols);
     const c = i % cols;
     return {
       speakerId,
-      region: { x: gap + c * (w + gap), y: gap + r * (h + gap), w, h },
+      region: { x: gapX + c * (w + gapX), y: gapY + r * (h + gapY), w, h },
     };
   });
+}
+
+/** 1 軸あたりの「ギャップ総量を上限内に収めたタイル長と実効ギャップ」を返す。 */
+function clampGrid(gap: number, count: number): { tile: number; gap: number } {
+  const gapTotal = Math.min(gap * (count + 1), 0.5);
+  return { tile: (1 - gapTotal) / count, gap: gapTotal / (count + 1) };
 }
