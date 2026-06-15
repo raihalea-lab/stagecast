@@ -163,9 +163,12 @@ reconcile Lambda 自身は `cloudformation:*` (スタック操作) + `iam:PassRo
 
 ### N3. 観測性の強化
 
-- AWS X-Ray の有効化 (Lambda / Fargate)。reconcile → CFN → ECS の trace が繋がる
-- 構造化ログ (pino) に切替え。CloudWatch Logs Insights で `eventId` で grep しやすく
-- Slack 通知 webhook を SNS Topic に subscribe (現状は SNS Topic を作っただけで購読者ゼロ)
+- AWS X-Ray の有効化 (Lambda / Fargate)。reconcile → CFN → ECS の trace が繋がる (未)
+- ✅ 構造化ログ: `@stagecast/shared` の `createLogger` (1 行 1 JSON, `component`/`eventId` 束縛)
+  に切替え。pino は使わず Lambda/Fargate バンドルを軽く保つ。caption-worker / audio-source /
+  media-composer / reconcile で採用。CloudWatch Logs Insights で `eventId` 絞り込み可。
+  EMF メトリクス出力 (`metrics.ts`) は別フォーマットなので据え置き
+- Slack 通知 webhook を SNS Topic に subscribe (現状は SNS Topic を作っただけで購読者ゼロ) (未)
 
 ### N4. 配信前リハーサル機能
 

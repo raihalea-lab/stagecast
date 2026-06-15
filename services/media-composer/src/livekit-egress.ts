@@ -8,9 +8,12 @@
  * `LiveKitEgressApi` インターフェースで抽象化することで、SDK 非依存のユニットテストを
  * 維持しつつ、本番では実 SDK を注入する。
  */
+import { createLogger } from "@stagecast/shared";
 import type { EncodedOutputs, EgressClient as LiveKitServerEgressClient } from "livekit-server-sdk";
 import type { CompositionLayout } from "./layout.js";
 import type { EgressClient, EgressHandle, RecordingConfig, StartEgressInput } from "./egress.js";
+
+const log = createLogger({ component: "media-composer" });
 
 /** LiveKit Egress API の最小サブセット (livekit-server-sdk が満たす形)。 */
 export interface LiveKitEgressApi {
@@ -218,7 +221,7 @@ export function attachComposerToPresentation(
     notify(state) {
       void composer.onPresentationChanged(state).catch((err) => {
         if (options.onError) options.onError(err);
-        else console.error("composer.onPresentationChanged failed", err);
+        else log.error("composer.onPresentationChanged failed", { err });
       });
     },
   };
