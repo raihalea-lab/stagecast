@@ -53,6 +53,17 @@ export class StageController {
   }
 
   /**
+   * 一時的な回線断の自動再接続を UI へ通知する。完全切断 (onDisconnected) と違い
+   * セッションは維持され、復帰すれば publish もそのまま続く。
+   */
+  onReconnecting(handler: () => void): void {
+    this.room.onReconnecting(handler);
+  }
+  onReconnected(handler: () => void): void {
+    this.room.onReconnected(handler);
+  }
+
+  /**
    * 招待トークンで入室し、SFU へ接続する。
    * 連打/二重呼び出しでも SFU 接続は 1 回に保つ (in-flight を共有 + 入室済みは再接続しない)。
    */

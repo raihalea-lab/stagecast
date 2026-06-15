@@ -13,7 +13,7 @@ export interface SlideMessage {
   page: number;
 }
 
-export type RoomState = "idle" | "connected" | "disconnected";
+export type RoomState = "idle" | "connected" | "reconnecting" | "disconnected";
 
 export interface RoomConnector {
   readonly state: RoomState;
@@ -28,6 +28,10 @@ export interface RoomConnector {
   sendSlide(message: SlideMessage): Promise<void>;
   /** SFU から切断されたとき (回線断・サーバ都合) に呼ばれるハンドラを登録する。 */
   onDisconnected(handler: () => void): void;
+  /** 一時的な回線断で自動再接続を試行中に呼ばれるハンドラを登録する (セッションは維持)。 */
+  onReconnecting(handler: () => void): void;
+  /** 自動再接続が成功し配信が復帰したときに呼ばれるハンドラを登録する。 */
+  onReconnected(handler: () => void): void;
   disconnect(): Promise<void>;
 }
 
@@ -41,6 +45,8 @@ export class FakeRoomConnector implements RoomConnector {
   camera = false;
   screenShare = false;
   private disconnectHandler?: () => void;
+  private reconnectingHandler?: () => void;
+  private reconnectedHandler?: () => void;
 
   async connect(url: string, _token: string): Promise<void> {
     this.calls.push(`connect:${url}`);
@@ -49,10 +55,25 @@ export class FakeRoomConnector implements RoomConnector {
   onDisconnected(handler: () => void): void {
     this.disconnectHandler = handler;
   }
+  onReconnecting(handler: () => void): void {
+    this.reconnectingHandler = handler;
+  }
+  onReconnected(handler: () => void): void {
+    this.reconnectedHandler = handler;
+  }
   /** テストから切断を発火する。 */
   emitDisconnect(): void {
     this.state = "disconnected";
     this.disconnectHandler?.();
+  }
+  /** テストから一時的な再接続中/復帰を発火する。 */
+  emitReconnecting(): void {
+    this.state = "reconnecting";
+    this.reconnectingHandler?.();
+  }
+  emitReconnected(): void {
+    this.state = "connected";
+    this.reconnectedHandler?.();
   }
   setPreferredDevices(prefs: PreferredDevices): void {
     this.preferredDevices = prefs;
