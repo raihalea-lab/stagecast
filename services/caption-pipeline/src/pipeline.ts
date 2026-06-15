@@ -50,8 +50,16 @@ export class CaptionPipeline {
       metrics?.observeCaption(caption);
       store?.ingest(caption);
       for (const sink of sinks) {
-        // 一過性失敗はバックオフ再試行。全滅したら計測+ログのみで握る (字幕は best-effort)。
-        const p = withRetry(() => sink.deliver(caption), this.deps.sinkRetry).catch((err) => {
+        // 一過性失敗はバックオフ再試行。再試行は計測し、全滅したら計測+ログのみで握る
+        // (字幕は best-effort)。caller の onRetry も保持する。
+        const retryOpts: RetryOptions = {
+          ...this.deps.sinkRetry,
+          onRetry: (err, attempt, delayMs) => {
+            metrics?.observeSinkRetry(sink.kind);
+            this.deps.sinkRetry?.onRetry?.(err, attempt, delayMs);
+          },
+        };
+        const p = withRetry(() => sink.deliver(caption), retryOpts).catch((err) => {
           metrics?.observeSinkError(sink.kind);
           log.error("sink delivery failed after retries", { sink: sink.kind, err });
         });

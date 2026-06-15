@@ -102,7 +102,16 @@ export class CaptionMetricsCollector {
     });
   }
 
-  /** Sink 配信エラーを記録する。 */
+  /** Sink 配信の再試行を記録する (一過性失敗の傾向把握用)。 */
+  observeSinkRetry(sinkKind: string): void {
+    this.sink.emit({
+      namespace: this.namespace,
+      metrics: [{ name: "SinkDeliveryRetries", unit: "Count", value: 1 }],
+      dimensions: { EventId: this.eventId, Sink: sinkKind },
+    });
+  }
+
+  /** Sink 配信エラー (全リトライ失敗) を記録する。 */
   observeSinkError(sinkKind: string): void {
     this.sink.emit({
       namespace: this.namespace,
