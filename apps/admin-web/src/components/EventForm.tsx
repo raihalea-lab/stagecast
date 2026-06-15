@@ -14,7 +14,7 @@ import {
 } from "../lib/event-form.js";
 import type { CreateEventInput } from "@stagecast/control-api";
 
-export function EventForm(props: { onCreate: (input: CreateEventInput) => void }) {
+export function EventForm(props: { onCreate: (input: CreateEventInput) => void; busy?: boolean }) {
   const [values, setValues] = useState<EventFormValues>(defaultFormValues());
   const [errors, setErrors] = useState<string[]>([]);
 
@@ -127,7 +127,9 @@ export function EventForm(props: { onCreate: (input: CreateEventInput) => void }
         />
       </label>
 
-      <button type="submit">イベントを作成</button>
+      <button type="submit" disabled={props.busy}>
+        {props.busy ? "作成中…" : "イベントを作成"}
+      </button>
     </form>
   );
 }

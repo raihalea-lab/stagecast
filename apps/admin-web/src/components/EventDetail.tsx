@@ -23,14 +23,18 @@ export function EventDetail(props: {
   const [invites, setInvites] = useState<IssuedInvite[]>([]);
   const [artifactList, setArtifactList] = useState<Artifact[] | undefined>();
   const [error, setError] = useState<string | undefined>();
+  const [busy, setBusy] = useState(false);
 
-  // 操作を共通ラップ: 失敗を握り潰さずエラーバナーに出す (admin-web 全体と統一)。
+  // 操作を共通ラップ: 失敗をエラーバナーに出し、実行中は busy で連打を防ぐ (admin-web 全体と統一)。
   const guard = (fn: () => Promise<void>) => async () => {
     setError(undefined);
+    setBusy(true);
     try {
       await fn();
     } catch (err) {
       setError(toErrorMessage(err));
+    } finally {
+      setBusy(false);
     }
   };
 
@@ -75,10 +79,14 @@ export function EventDetail(props: {
 
       <div className="lifecycle">
         {event.status === "draft" && (
-          <button onClick={() => changeStatus("live")}>配信開始 (live)</button>
+          <button onClick={() => changeStatus("live")} disabled={busy}>
+            配信開始 (live)
+          </button>
         )}
         {event.status === "live" && (
-          <button onClick={() => changeStatus("ended")}>配信終了 (ended)</button>
+          <button onClick={() => changeStatus("ended")} disabled={busy}>
+            配信終了 (ended)
+          </button>
         )}
       </div>
 
@@ -88,14 +96,19 @@ export function EventDetail(props: {
         <input
           type="file"
           accept="image/*"
+          disabled={busy}
           onChange={(e) => e.target.files?.[0] && uploadQr(e.target.files[0])}
         />
       </label>
       {event.qrAsset && <p>登録済み QR: {event.qrAsset.key}</p>}
 
       <h3>招待 URL</h3>
-      <button onClick={() => issue("moderator")}>モデレーター招待を発行</button>
-      <button onClick={() => issue("speaker")}>登壇者招待を発行</button>
+      <button onClick={() => issue("moderator")} disabled={busy}>
+        モデレーター招待を発行
+      </button>
+      <button onClick={() => issue("speaker")} disabled={busy}>
+        登壇者招待を発行
+      </button>
       <ul>
         {invites.map((inv) => (
           <li key={inv.jti}>
@@ -105,7 +118,9 @@ export function EventDetail(props: {
       </ul>
 
       <h3>成果物 (録画 / 字幕)</h3>
-      <button onClick={loadArtifacts}>一覧を更新</button>
+      <button onClick={loadArtifacts} disabled={busy}>
+        一覧を更新
+      </button>
       {artifactList && (
         <ul className="artifacts">
           {artifactList.map((a) => (
