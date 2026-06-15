@@ -183,6 +183,47 @@ describe("CaptionPipeline end-to-end (DESIGN.md 6 章)", () => {
     expect(errors).toEqual([]); // 最終的に成功 → エラー計測なし
   });
 
+  it("固まった Sink は sinkTimeoutMs で打ち切られ drain がハングしない (耐ハング)", async () => {
+    // deliver が永遠に解決しない Sink。タイムアウトが無ければ pushAudio/drain が固まる。
+    class HangingSink implements CaptionSink {
+      readonly kind = "hanging";
+      async start(): Promise<void> {}
+      async stop(): Promise<void> {}
+      async deliver(): Promise<void> {
+        return new Promise<void>(() => {}); // 決して解決しない
+      }
+    }
+    const errors: string[] = [];
+    const metrics = {
+      observeCaption() {},
+      observeSinkRetry() {},
+      observeSinkError(kind: string) {
+        errors.push(kind);
+      },
+    } as unknown as import("./metrics.js").CaptionMetricsCollector;
+    const engine = new TranscribeStreamingEngine(
+      new FakeAsrAdapter("en", [{ startMs: 0, endMs: 500, text: "hi", isFinal: true }]),
+      new FakeTranslator(),
+      { sourceLanguage: "en", targetLanguages: ["en"], eventId: "evt-h" },
+    );
+    const pipeline = new CaptionPipeline({
+      bus: new InProcessCaptionBus(),
+      engine,
+      sinks: [new HangingSink()],
+      metrics,
+      sinkTimeoutMs: 5,
+      sinkRetry: { retries: 1, sleep: async () => {} },
+    });
+
+    await pipeline.start();
+    // タイムアウトが効くので pushAudio は固まらずに返る。
+    await pipeline.pushAudio(chunk);
+    await pipeline.stop();
+
+    // 初回 + 1 再試行ともタイムアウト → 最終的に observeSinkError を 1 回計上。
+    expect(errors).toEqual(["hanging"]);
+  });
+
   it("sink is swappable: dropping the custom sink leaves only the YouTube path", async () => {
     const youtube = new FakeYouTubeCaptionPublisher();
     const engine = new TranscribeStreamingEngine(

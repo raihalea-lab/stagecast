@@ -9,6 +9,7 @@
 import {
   createLogger,
   withRetry,
+  withTimeout,
   type AudioChunk,
   type CaptionBus,
   type CaptionEngine,
@@ -32,7 +33,15 @@ export interface CaptionPipelineDeps {
    * 全リトライ失敗後も字幕は best-effort としてパイプラインは止めない (DESIGN.md 6, N-2)。
    */
   sinkRetry?: RetryOptions;
+  /**
+   * 1 回の Sink 配信に対するタイムアウト (ms, 既定 10000)。応答しない Sink が
+   * drain() を止めて音声取り込み全体をハングさせるのを防ぐ。0 以下で無効。
+   */
+  sinkTimeoutMs?: number;
 }
+
+/** Sink 配信のタイムアウト既定値。YouTube ingest 等の固まりからパイプラインを守る (N-2)。 */
+const DEFAULT_SINK_TIMEOUT_MS = 10_000;
 
 export class CaptionPipeline {
   private pending: Promise<unknown>[] = [];
@@ -59,7 +68,16 @@ export class CaptionPipeline {
             this.deps.sinkRetry?.onRetry?.(err, attempt, delayMs);
           },
         };
-        const p = withRetry(() => sink.deliver(caption), retryOpts).catch((err) => {
+        // 各試行にタイムアウトを掛ける。固まった配信は TimeoutError になり、リトライ対象になる。
+        const timeoutMs = this.deps.sinkTimeoutMs ?? DEFAULT_SINK_TIMEOUT_MS;
+        const p = withRetry(
+          () =>
+            withTimeout(() => sink.deliver(caption), {
+              timeoutMs,
+              message: `sink ${sink.kind} delivery timed out`,
+            }),
+          retryOpts,
+        ).catch((err) => {
           metrics?.observeSinkError(sink.kind);
           log.error("sink delivery failed after retries", { sink: sink.kind, err });
         });
