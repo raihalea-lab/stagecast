@@ -31,6 +31,29 @@ describe("caption store formatting (DESIGN.md 6.4)", () => {
     expect(vtt.startsWith("WEBVTT")).toBe(true);
     expect(vtt).toContain("00:00:00.000 --> 00:00:01.500\nおはよう");
   });
+
+  it("VTT は & < > をエスケープし、SRT は生のまま (字幕崩れ防止)", () => {
+    const c: CaptionEvent[] = [
+      { startMs: 0, endMs: 1000, language: "en", text: "Q&A: a < b > c", status: "final" },
+    ];
+    expect(toVtt(c)).toContain("Q&amp;A: a &lt; b &gt; c");
+    // SRT には標準エスケープが無いので生テキストのまま。
+    expect(toSrt(c)).toContain("Q&A: a < b > c");
+  });
+
+  it("キュー内の空行/CRLF を除去してキュー境界の崩れを防ぐ", () => {
+    const c: CaptionEvent[] = [
+      {
+        startMs: 0,
+        endMs: 1000,
+        language: "en",
+        text: "line1\r\n\r\n  \nline2\n",
+        status: "final",
+      },
+    ];
+    expect(toSrt(c)).toContain("00:00:00,000 --> 00:00:01,000\nline1\nline2\n");
+    expect(toVtt(c)).toContain("00:00:00.000 --> 00:00:01.000\nline1\nline2");
+  });
 });
 
 describe("CaptionStore", () => {

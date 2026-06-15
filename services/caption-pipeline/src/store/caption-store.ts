@@ -30,11 +30,30 @@ function formatTime(ms: number, msSep: "," | "."): string {
   return `${pad(h)}:${pad(m)}:${pad(s)}${msSep}${pad(millis, 3)}`;
 }
 
+/**
+ * キュー内テキストを正規化する。CR/LF を統一し **空行を除去**する
+ * (空行は SRT エントリ / VTT キューの境界になり、以降の字幕がずれるため)。
+ */
+export function normalizeCueText(text: string): string {
+  return text
+    .replace(/\r\n?/g, "\n")
+    .split("\n")
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0)
+    .join("\n");
+}
+
+/** WebVTT 用に `&` `<` `>` をエスケープする (VTT は HTML ライクなエスケープを要求)。 */
+function escapeVtt(text: string): string {
+  return text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+
 /** 確定字幕の配列から SRT を生成する。 */
 export function toSrt(captions: CaptionEvent[]): string {
   return captions
     .map((c, i) => {
-      return `${i + 1}\n${formatSrtTime(c.startMs)} --> ${formatSrtTime(c.endMs)}\n${c.text}\n`;
+      const text = normalizeCueText(c.text);
+      return `${i + 1}\n${formatSrtTime(c.startMs)} --> ${formatSrtTime(c.endMs)}\n${text}\n`;
     })
     .join("\n");
 }
@@ -42,7 +61,10 @@ export function toSrt(captions: CaptionEvent[]): string {
 /** 確定字幕の配列から WebVTT を生成する。 */
 export function toVtt(captions: CaptionEvent[]): string {
   const cues = captions
-    .map((c) => `${formatVttTime(c.startMs)} --> ${formatVttTime(c.endMs)}\n${c.text}`)
+    .map((c) => {
+      const text = escapeVtt(normalizeCueText(c.text));
+      return `${formatVttTime(c.startMs)} --> ${formatVttTime(c.endMs)}\n${text}`;
+    })
     .join("\n\n");
   return `WEBVTT\n\n${cues}\n`;
 }
