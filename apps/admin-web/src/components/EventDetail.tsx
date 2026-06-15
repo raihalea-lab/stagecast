@@ -10,6 +10,7 @@ import type {
   ControlApiClient,
   IssuedInvite,
 } from "../api/types.js";
+import { toErrorMessage } from "../lib/errors.js";
 
 export function EventDetail(props: {
   event: EventDefinition;
@@ -21,43 +22,56 @@ export function EventDetail(props: {
   const { event, client, assets, artifacts, onChanged } = props;
   const [invites, setInvites] = useState<IssuedInvite[]>([]);
   const [artifactList, setArtifactList] = useState<Artifact[] | undefined>();
-  const [artifactError, setArtifactError] = useState<string | undefined>();
+  const [error, setError] = useState<string | undefined>();
 
-  const loadArtifacts = async () => {
-    setArtifactError(undefined);
+  // 操作を共通ラップ: 失敗を握り潰さずエラーバナーに出す (admin-web 全体と統一)。
+  const guard = (fn: () => Promise<void>) => async () => {
+    setError(undefined);
     try {
-      setArtifactList(await artifacts.list(event.id));
+      await fn();
     } catch (err) {
-      setArtifactError(err instanceof Error ? err.message : "取得に失敗しました");
+      setError(toErrorMessage(err));
     }
   };
 
-  const uploadQr = async (file: File) => {
-    const bytes = new Uint8Array(await file.arrayBuffer());
-    const ref = await assets.upload(event.id, {
-      name: file.name,
-      contentType: file.type,
-      bytes,
-    });
-    await client.updateEvent(event.id, { qrAsset: ref });
-    onChanged();
-  };
+  const loadArtifacts = guard(async () => {
+    setArtifactList(await artifacts.list(event.id));
+  });
 
-  const issue = async (role: InvitedRole) => {
-    const invite = await client.issueInvite(event.id, role, 60 * 60 * 12);
-    setInvites((prev) => [...prev, invite]);
-  };
+  const uploadQr = (file: File) =>
+    guard(async () => {
+      const bytes = new Uint8Array(await file.arrayBuffer());
+      const ref = await assets.upload(event.id, {
+        name: file.name,
+        contentType: file.type,
+        bytes,
+      });
+      await client.updateEvent(event.id, { qrAsset: ref });
+      onChanged();
+    })();
 
-  const changeStatus = async (status: EventDefinition["status"]) => {
-    await client.setStatus(event.id, status);
-    onChanged();
-  };
+  const issue = (role: InvitedRole) =>
+    guard(async () => {
+      const invite = await client.issueInvite(event.id, role, 60 * 60 * 12);
+      setInvites((prev) => [...prev, invite]);
+    })();
+
+  const changeStatus = (status: EventDefinition["status"]) =>
+    guard(async () => {
+      await client.setStatus(event.id, status);
+      onChanged();
+    })();
 
   return (
     <section className="event-detail">
       <h2>
         {event.title} <span className={`status status-${event.status}`}>{event.status}</span>
       </h2>
+      {error && (
+        <p className="error" role="alert">
+          {error} <button onClick={() => setError(undefined)}>×</button>
+        </p>
+      )}
 
       <div className="lifecycle">
         {event.status === "draft" && (
@@ -92,7 +106,6 @@ export function EventDetail(props: {
 
       <h3>成果物 (録画 / 字幕)</h3>
       <button onClick={loadArtifacts}>一覧を更新</button>
-      {artifactError && <p className="error">{artifactError}</p>}
       {artifactList && (
         <ul className="artifacts">
           {artifactList.map((a) => (
