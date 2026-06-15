@@ -152,11 +152,16 @@ describe("EventMediaStack (DESIGN.md 7.1/7.3, N-5)", () => {
   });
 
   it("CloudWatch アラーム/メトリクスフィルタ/ダッシュボードを定義する (T9, ADR 0003)", () => {
-    // タスク異常 3 + 字幕遅延 1 + RTMP 切断 1 = 5 アラーム
-    template.resourceCountIs("AWS::CloudWatch::Alarm", 5);
+    // タスク異常 3 + 字幕遅延 1 + RTMP 切断 1 + Sink エラー 2 (youtube/custom-api) = 7 アラーム
+    template.resourceCountIs("AWS::CloudWatch::Alarm", 7);
     template.resourceCountIs("AWS::Logs::MetricFilter", 1);
     template.resourceCountIs("AWS::CloudWatch::Dashboard", 1);
     template.resourceCountIs("AWS::SNS::Topic", 1);
+    // 字幕 Sink 配信失敗アラーム (D8/N3)。
+    template.hasResourceProperties("AWS::CloudWatch::Alarm", {
+      MetricName: "SinkDeliveryErrors",
+      Namespace: "Stagecast/CaptionPipeline",
+    });
     // 字幕遅延の閾値は 3 秒 (N-2 目標)
     template.hasResourceProperties("AWS::CloudWatch::Alarm", {
       Threshold: 3000,

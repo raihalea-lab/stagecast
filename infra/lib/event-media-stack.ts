@@ -361,6 +361,31 @@ export class EventMediaStack extends Stack {
     });
     rtmpAlarm.addAlarmAction(new cwActions.SnsAction(alarmTopic));
 
+    // 字幕 Sink 配信失敗アラーム (D8/N3)。全リトライ失敗 (SinkDeliveryErrors) が継続する Sink を検知。
+    // Sink 種別は caption-pipeline の sink.kind と一致させる ("youtube" / "custom-api")。
+    const captionSinkKinds: { kind: string; id: string }[] = [
+      { kind: "youtube", id: "Youtube" },
+      { kind: "custom-api", id: "CustomApi" },
+    ];
+    for (const { kind, id } of captionSinkKinds) {
+      const sinkAlarm = new cloudwatch.Alarm(this, `SinkErrorAlarm${id}`, {
+        alarmName: `stagecast-${props.eventId}-sink-${kind}-errors`,
+        alarmDescription: `字幕 Sink (${kind}) の配信失敗が直近 5 分で継続 (D8/N3)`,
+        metric: new cloudwatch.Metric({
+          namespace: "Stagecast/CaptionPipeline",
+          metricName: "SinkDeliveryErrors",
+          dimensionsMap: { EventId: props.eventId, Sink: kind },
+          statistic: "Sum",
+          period: Duration.minutes(5),
+        }),
+        threshold: 5,
+        comparisonOperator: cloudwatch.ComparisonOperator.GREATER_THAN_OR_EQUAL_TO_THRESHOLD,
+        evaluationPeriods: 1,
+        treatMissingData: cloudwatch.TreatMissingData.NOT_BREACHING,
+      });
+      sinkAlarm.addAlarmAction(new cwActions.SnsAction(alarmTopic));
+    }
+
     // 統合ダッシュボード。
     const dashboard = new cloudwatch.Dashboard(this, "EventDashboard", {
       dashboardName: `stagecast-${props.eventId}`,
@@ -399,6 +424,27 @@ export class EventMediaStack extends Stack {
             label: "RTMP disconnects/5min",
           }),
         ],
+      }),
+      new cloudwatch.GraphWidget({
+        title: "字幕 Sink 配信エラー / 再試行",
+        left: captionSinkKinds.flatMap(({ kind }) => [
+          new cloudwatch.Metric({
+            namespace: "Stagecast/CaptionPipeline",
+            metricName: "SinkDeliveryErrors",
+            dimensionsMap: { EventId: props.eventId, Sink: kind },
+            statistic: "Sum",
+            period: Duration.minutes(5),
+            label: `${kind} errors/5min`,
+          }),
+          new cloudwatch.Metric({
+            namespace: "Stagecast/CaptionPipeline",
+            metricName: "SinkDeliveryRetries",
+            dimensionsMap: { EventId: props.eventId, Sink: kind },
+            statistic: "Sum",
+            period: Duration.minutes(5),
+            label: `${kind} retries/5min`,
+          }),
+        ]),
       }),
     );
 
