@@ -161,4 +161,22 @@ describe("CloudFormationMediaStackProvisioner (DESIGN.md 7.1)", () => {
     await p.provision(spec("evt-r5b"));
     expect(captured?.RoleARN).toBeUndefined();
   });
+
+  it("describeStacks の一過性失敗は再試行で回復する (D8 横展開)", async () => {
+    let calls = 0;
+    const cfn = new FakeCfn(() => {
+      calls += 1;
+      if (calls === 1) throw new Error("Throttling");
+      return { Stacks: [{ StackStatus: "CREATE_COMPLETE", Outputs: [] }] };
+    });
+    const p = new CloudFormationMediaStackProvisioner({
+      cfn,
+      renderTemplate: () => "{}",
+      stackName,
+      delay: noDelay,
+    });
+    const handle = await p.provision(spec("evt-retry"));
+    expect(handle.status).toBe("running");
+    expect(calls).toBeGreaterThanOrEqual(2); // 初回 throw → 再試行で COMPLETE
+  });
 });

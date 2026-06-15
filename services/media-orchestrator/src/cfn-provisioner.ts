@@ -8,6 +8,7 @@
  * テンプレートは EventMediaStack を `cdk synth` で生成したものを renderTemplate で供給する
  * (eventId 等をパラメータ化)。
  */
+import { withRetry, type RetryOptions } from "@stagecast/shared";
 import type { EventMediaSpec, MediaStackHandle, MediaStackProvisioner } from "./provisioner.js";
 
 export interface StackOutput {
@@ -44,6 +45,11 @@ export interface CfnProvisionerConfig {
   maxPolls?: number | undefined;
   /** 待機関数 (テストで差し替え可能)。 */
   delay?: ((ms: number) => Promise<void>) | undefined;
+  /**
+   * describeStacks の一過性失敗 (CFN スロットリング等) に対するリトライ設定。
+   * 既定では provisioner の `delay` を sleep に使い、テストは実時間を待たない。
+   */
+  describeRetry?: RetryOptions | undefined;
 }
 
 const COMPLETE = /COMPLETE$/;
@@ -64,8 +70,13 @@ export class CloudFormationMediaStackProvisioner implements MediaStackProvisione
     const delay = this.config.delay ?? ((ms: number) => new Promise((r) => setTimeout(r, ms)));
     const maxPolls = this.config.maxPolls ?? 60;
     const interval = this.config.pollIntervalMs ?? 5000;
+    // describeStacks の一過性失敗は 1 tick を諦めず短く再試行する (sleep は delay を流用)。
+    const describeRetry: RetryOptions = { sleep: delay, ...this.config.describeRetry };
     for (let i = 0; i < maxPolls; i++) {
-      const res = await this.config.cfn.describeStacks({ StackName: stackName });
+      const res = await withRetry(
+        () => this.config.cfn.describeStacks({ StackName: stackName }),
+        describeRetry,
+      );
       const status = res.Stacks?.[0]?.StackStatus ?? "";
       if (FAILED.test(status)) throw new Error(`stack ${stackName} failed: ${status}`);
       if (COMPLETE.test(status)) return this.outputs(res);
