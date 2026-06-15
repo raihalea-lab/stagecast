@@ -138,6 +138,13 @@ LiveKit SDK 追加に合わせて `livekit` グループ (`livekit-server-sdk` /
 reconcile Lambda 自身は `cloudformation:*` (スタック操作) + `iam:PassRole` (当該ロール限定) のみに縮小。
 副次的に、R1 で追加した NLB 作成に必要な `elasticloadbalancing:*` も CFN ロールへ付与し権限不足を解消。
 
+### D8. 配信経路のレジリエンス (一過性エラー耐性)
+
+- ✅ 共通 `withRetry` (指数バックオフ, `@stagecast/shared`) を追加。字幕 Sink 配信を
+  バックオフ再試行し、全滅しても **パイプラインを止めず計測+ログのみ** (best-effort, N-2)
+- 残: エンジン側 (Transcribe/Translate/Bedrock) の一過性エラー再試行は二重字幕回避を考慮しつつ別途。
+  reconcile→CFN や YouTube ingest など他の外部呼び出しにも `withRetry` を横展開
+
 ---
 
 ## N: Nice-to-have (UX / DX 改善・遠い未来)

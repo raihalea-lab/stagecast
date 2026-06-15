@@ -6,9 +6,19 @@
  *
  *   engine.onCaption → bus.publish → bus.subscribe → 各 Sink.deliver / CaptionStore.ingest
  */
-import type { AudioChunk, CaptionBus, CaptionEngine, CaptionSink } from "@stagecast/shared";
+import {
+  createLogger,
+  withRetry,
+  type AudioChunk,
+  type CaptionBus,
+  type CaptionEngine,
+  type CaptionSink,
+  type RetryOptions,
+} from "@stagecast/shared";
 import type { CaptionStore } from "./store/caption-store.js";
 import type { CaptionMetricsCollector } from "./metrics.js";
+
+const log = createLogger({ component: "caption-pipeline" });
 
 export interface CaptionPipelineDeps {
   bus: CaptionBus;
@@ -17,6 +27,11 @@ export interface CaptionPipelineDeps {
   store?: CaptionStore;
   /** CloudWatch メトリクス送信 (T9, ADR 0003)。省略時は計測なし。 */
   metrics?: CaptionMetricsCollector;
+  /**
+   * Sink 配信の一過性失敗に対するリトライ設定 (省略時は既定の指数バックオフ)。
+   * 全リトライ失敗後も字幕は best-effort としてパイプラインは止めない (DESIGN.md 6, N-2)。
+   */
+  sinkRetry?: RetryOptions;
 }
 
 export class CaptionPipeline {
@@ -35,9 +50,10 @@ export class CaptionPipeline {
       metrics?.observeCaption(caption);
       store?.ingest(caption);
       for (const sink of sinks) {
-        const p = sink.deliver(caption).catch((err) => {
+        // 一過性失敗はバックオフ再試行。全滅したら計測+ログのみで握る (字幕は best-effort)。
+        const p = withRetry(() => sink.deliver(caption), this.deps.sinkRetry).catch((err) => {
           metrics?.observeSinkError(sink.kind);
-          throw err;
+          log.error("sink delivery failed after retries", { sink: sink.kind, err });
         });
         this.pending.push(p);
       }
