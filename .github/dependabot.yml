@@ -23,6 +23,10 @@ updates:
       types:
         patterns:
           - "@types/*"
+      livekit:
+        patterns:
+          - "livekit-server-sdk"
+          - "@livekit/*"
 
   # GitHub Actions のバージョンも週 1 で更新を提案。
   - package-ecosystem: github-actions

@@ -109,10 +109,9 @@ aws-cdk-lib 全体をバンドルしてしまう。Lambda 上限 (250 MB) は越
 
 着手するなら **(a) が一番節約効果が大きい** (推定 -30 MB)。R4 と同じ PR でまとめても良い。
 
-### D2. `infra/bin/app.ts` の file mode が 100755 になっている
+### D2. `infra/bin/app.ts` の file mode が 100755 になっている ✅ 対応済み
 
-PR #9 マージ時に実行ビットが付いたままコミットされた。tsx 実行時に付与されたものと推測。
-影響は無いが、`chmod 644` で戻して別 commit で plumb する。
+~~PR #9 マージ時に実行ビットが付いたままコミットされた~~ → `chmod 644` で 100644 に戻した。
 
 ### D3. LiveKit SDK 側の API 検証 ✅ (`claude/livekit-stage3` で対応)
 
@@ -135,11 +134,10 @@ PR #9 マージ時に実行ビットが付いたままコミットされた。ts
 ヘルパで eventId の sha256 short hash を末尾に付与し、40 文字に収めつつ衝突を回避
 (クリップ後に prefix が衝突しても全体は一意)。単体テスト追加済み。
 
-### D6. `pnpm-lock.yaml` に AWS SDK 子パッケージ追加で diff が出やすい
+### D6. `pnpm-lock.yaml` に AWS SDK 子パッケージ追加で diff が出やすい ✅ 対応済み
 
-T8 統合テスト追加時に `@aws-sdk/client-secrets-manager` などを足したため diff が増えた。
-Dependabot で AWS SDK のバージョン bump が頻発するので、**dependabot.yml で AWS SDK を
-group 化** すると PR 数が減る。
+`dependabot.yml` で `aws-sdk` / `aws-cdk` / `vite-plus` / `types` をグループ化済み。
+LiveKit SDK 追加に合わせて `livekit` グループ (`livekit-server-sdk` / `@livekit/*`) も追加した。
 
 ### D7. reconcile Lambda IAM が広い (`ec2:* / ecs:* / iam:*`)
 
