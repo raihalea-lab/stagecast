@@ -46,6 +46,14 @@ describe("CaptionMetricsCollector (T9)", () => {
     expect(sink.records[0]?.dimensions.Sink).toBe("youtube");
   });
 
+  it("observeTranslateError は TranslateErrors を言語 dimension 付きで発行", () => {
+    const sink = new InMemoryMetricsSink();
+    const collector = new CaptionMetricsCollector({ eventId: "e", sink });
+    collector.observeTranslateError("en");
+    expect(sink.records[0]?.metrics[0]?.name).toBe("TranslateErrors");
+    expect(sink.records[0]?.dimensions).toEqual({ EventId: "e", Language: "en" });
+  });
+
   it("ConsoleEmfMetricsSink は EMF JSON を 1 行で書き出す", () => {
     const lines: string[] = [];
     const sink = new ConsoleEmfMetricsSink((l) => lines.push(l));

@@ -152,8 +152,8 @@ describe("EventMediaStack (DESIGN.md 7.1/7.3, N-5)", () => {
   });
 
   it("CloudWatch アラーム/メトリクスフィルタ/ダッシュボードを定義する (T9, ADR 0003)", () => {
-    // タスク異常 3 + 字幕遅延 1 + RTMP 切断 1 + Sink エラー 2 (youtube/custom-api) = 7 アラーム
-    template.resourceCountIs("AWS::CloudWatch::Alarm", 7);
+    // タスク異常 3 + 字幕遅延 1 + RTMP 切断 1 + Sink エラー 2 (youtube/custom-api) + 翻訳失敗 1 = 8
+    template.resourceCountIs("AWS::CloudWatch::Alarm", 8);
     template.resourceCountIs("AWS::Logs::MetricFilter", 1);
     template.resourceCountIs("AWS::CloudWatch::Dashboard", 1);
     template.resourceCountIs("AWS::SNS::Topic", 1);
@@ -167,6 +167,14 @@ describe("EventMediaStack (DESIGN.md 7.1/7.3, N-5)", () => {
       Threshold: 3000,
       Namespace: "Stagecast/CaptionPipeline",
       MetricName: "CaptionLatencyMs",
+    });
+    // 翻訳失敗アラーム (N-2)。言語次元を SEARCH 式で合算する。
+    template.hasResourceProperties("AWS::CloudWatch::Alarm", {
+      Metrics: Match.arrayWith([
+        Match.objectLike({
+          Expression: Match.stringLikeRegexp('SEARCH.*MetricName="TranslateErrors"'),
+        }),
+      ]),
     });
   });
 });

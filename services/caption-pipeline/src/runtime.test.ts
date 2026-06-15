@@ -11,6 +11,7 @@ import { FakeAsrAdapter, FakeLlmAdapter, FakeTranslator } from "./engines/fakes.
 import { FakeYouTubeCaptionPublisher } from "./sinks/youtube-sink.js";
 import { FakeCaptionBroadcaster } from "./sinks/custom-api-sink.js";
 import { InMemoryObjectStorage } from "./store/caption-store.js";
+import { CaptionMetricsCollector, InMemoryMetricsSink } from "./metrics.js";
 import { attachConnection, type WebSocketLike } from "./sinks/ws-server.js";
 import type { ServerMessage } from "./sinks/caption-hub.js";
 
@@ -84,6 +85,38 @@ describe("caption runtime assembly (DESIGN.md 6 章, 8 章)", () => {
     expect(youtube.published.map((c) => c.text)).toEqual(["こんにちは"]); // 確定 ja
     expect(broadcaster.messages.find((m) => m.language === "en")?.text).toBe("Hello");
     expect(saved).toContain("captions/evt-1/ja.srt");
+  });
+
+  it("注入したメトリクスで字幕件数と翻訳失敗を計測する (T9)", async () => {
+    const sink = new InMemoryMetricsSink();
+    const metrics = new CaptionMetricsCollector({ eventId: "evt-1", sink, now: () => 0 });
+    const failingTranslator = {
+      translate: async (_t: string, _s: string, _target: string): Promise<string> => {
+        throw new Error("translate down");
+      },
+    };
+    const pipeline = assembleCaptionPipeline(
+      { ...baseConfig, youtubeLanguage: undefined, customApiEnabled: false },
+      {
+        asr: new FakeAsrAdapter("ja", [{ startMs: 0, endMs: 1000, text: "やあ", isFinal: true }]),
+        translator: failingTranslator,
+        metrics,
+      },
+    );
+
+    await pipeline.start();
+    await pipeline.pushAudio(chunk);
+    await pipeline.stop();
+
+    // ソース ja は発行され計測、en は全リトライ失敗で TranslateErrors を計上。
+    const published = sink.records.filter((r) =>
+      r.metrics.some((m) => m.name === "CaptionsPublished"),
+    );
+    expect(published.map((r) => r.dimensions.Language)).toEqual(["ja"]);
+    const translateErrors = sink.records.filter((r) =>
+      r.metrics.some((m) => m.name === "TranslateErrors"),
+    );
+    expect(translateErrors.map((r) => r.dimensions.Language)).toEqual(["en"]);
   });
 
   it("CaptionWorker delivers captions to a WebSocket client via the hub (end-to-end)", async () => {
