@@ -3,16 +3,34 @@
  */
 import { useState } from "react";
 import type { EventDefinition, InvitedRole } from "@stagecast/shared";
-import type { AssetService, ControlApiClient, IssuedInvite } from "../api/types.js";
+import type {
+  Artifact,
+  ArtifactService,
+  AssetService,
+  ControlApiClient,
+  IssuedInvite,
+} from "../api/types.js";
 
 export function EventDetail(props: {
   event: EventDefinition;
   client: ControlApiClient;
   assets: AssetService;
+  artifacts: ArtifactService;
   onChanged: () => void;
 }) {
-  const { event, client, assets, onChanged } = props;
+  const { event, client, assets, artifacts, onChanged } = props;
   const [invites, setInvites] = useState<IssuedInvite[]>([]);
+  const [artifactList, setArtifactList] = useState<Artifact[] | undefined>();
+  const [artifactError, setArtifactError] = useState<string | undefined>();
+
+  const loadArtifacts = async () => {
+    setArtifactError(undefined);
+    try {
+      setArtifactList(await artifacts.list(event.id));
+    } catch (err) {
+      setArtifactError(err instanceof Error ? err.message : "取得に失敗しました");
+    }
+  };
 
   const uploadQr = async (file: File) => {
     const bytes = new Uint8Array(await file.arrayBuffer());
@@ -71,6 +89,26 @@ export function EventDetail(props: {
           </li>
         ))}
       </ul>
+
+      <h3>成果物 (録画 / 字幕)</h3>
+      <button onClick={loadArtifacts}>一覧を更新</button>
+      {artifactError && <p className="error">{artifactError}</p>}
+      {artifactList && (
+        <ul className="artifacts">
+          {artifactList.map((a) => (
+            <li key={a.key}>
+              <span className={`artifact-kind artifact-${a.kind}`}>
+                {a.kind === "recording" ? "録画" : "字幕"}
+              </span>
+              :{" "}
+              <a href={a.downloadUrl} download={a.name} rel="noreferrer">
+                {a.name}
+              </a>
+            </li>
+          ))}
+          {artifactList.length === 0 && <li>(成果物なし / 配信終了後に表示されます)</li>}
+        </ul>
+      )}
     </section>
   );
 }

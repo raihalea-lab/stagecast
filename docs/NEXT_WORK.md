@@ -142,11 +142,13 @@ reconcile Lambda 自身は `cloudformation:*` (スタック操作) + `iam:PassRo
 
 ## N: Nice-to-have (UX / DX 改善・遠い未来)
 
-### N1. 配信後の成果物 UI
+### N1. 配信後の成果物 UI ✅ 対応済み
 
-- 録画 (S3) と確定字幕 (SRT/VTT) を admin-web からダウンロードできる UI
-- イベント詳細ページに「録画」「字幕 ja/en」のダウンロードリンク
-- `S3AssetUploadSigner` を流用して presigned GET URL を発行
+- control-api: `GET /events/{id}/artifacts` を追加。`S3ArtifactStore` が `recordings/{id}/` と
+  `captions/{id}/` を列挙し presigned GET URL を返す (`createArtifactDownloadService`)
+- admin-web: `EventDetail` に「成果物 (録画 / 字幕)」セクション + ダウンロードリンク
+  (`ArtifactService` 抽象 + `HttpArtifactService` / `InMemoryArtifactService`)
+- 実 DL 確認は配信終了後 (S3 に成果物が出てから)。S3 未設定時は 503 → UI は空表示
 
 ### N2. ローカル開発用 docker-compose
 

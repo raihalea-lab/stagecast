@@ -18,6 +18,7 @@ import type { createInviteService } from "../usecases/invites.js";
 import type { createPresentationService } from "../usecases/presentation.js";
 import { ServiceUnavailableError, type createJoinService } from "../usecases/join.js";
 import type { createAssetUploadService } from "../assets/asset-upload.js";
+import type { createArtifactDownloadService } from "../assets/artifact-download.js";
 
 export interface HttpRequest {
   method: string;
@@ -35,6 +36,7 @@ type InviteService = ReturnType<typeof createInviteService>;
 type PresentationService = ReturnType<typeof createPresentationService>;
 type JoinService = ReturnType<typeof createJoinService>;
 type AssetUploadService = ReturnType<typeof createAssetUploadService>;
+type ArtifactDownloadService = ReturnType<typeof createArtifactDownloadService>;
 
 export interface AppDeps {
   auth: AdminAuthVerifier;
@@ -44,12 +46,14 @@ export interface AppDeps {
   join: JoinService;
   /** 素材アップロード署名サービス (S3 未設定なら省略され 503)。 */
   assets?: AssetUploadService;
+  /** 成果物ダウンロードサービス (S3 未設定なら省略され 503)。 */
+  artifacts?: ArtifactDownloadService;
 }
 
 const json = (status: number, body: unknown): HttpResponse => ({ status, body });
 
 export function createApp(deps: AppDeps) {
-  const { auth, events, invites, presentation, join, assets } = deps;
+  const { auth, events, invites, presentation, join, assets, artifacts } = deps;
 
   async function requireAdmin(req: HttpRequest): Promise<void> {
     await auth.verify(req.headers["authorization"] ?? req.headers["Authorization"]);
@@ -141,6 +145,10 @@ export function createApp(deps: AppDeps) {
             String(body.contentType ?? "application/octet-stream"),
           ),
         );
+      } else if (segments[2] === "artifacts" && segments.length === 3 && req.method === "GET") {
+        // 配信成果物 (録画 / 確定字幕) のダウンロード URL 一覧 (N1)。
+        if (!artifacts) throw new ServiceUnavailableError("asset storage not configured");
+        return json(200, await artifacts.listArtifacts(eventId));
       }
     }
 
