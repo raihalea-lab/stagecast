@@ -6,6 +6,38 @@
  */
 import type { PresentationState, SlideSource, SpeakerVisibility } from "@stagecast/shared";
 import type { PresentationRepository } from "../repo/types.js";
+import { ValidationError } from "./events.js";
+
+/** 不正な値を保存して合成 (composer) が壊れるのを防ぐ (不正入力は 400)。 */
+function validateSpeakerId(value: unknown): string {
+  if (typeof value !== "string" || !value.trim()) {
+    throw new ValidationError("speakerId is required");
+  }
+  return value;
+}
+
+function validateVisibility(value: unknown): SpeakerVisibility {
+  if (value !== "live" && value !== "standby") {
+    throw new ValidationError("visibility must be 'live' or 'standby'");
+  }
+  return value;
+}
+
+function validateSlideSource(value: unknown): SlideSource | undefined {
+  if (value === undefined || value === null) return undefined;
+  if (value !== "screen-share" && value !== "uploaded") {
+    throw new ValidationError("slideSource must be 'screen-share' or 'uploaded'");
+  }
+  return value;
+}
+
+function validateSlidePage(value: unknown): number | undefined {
+  if (value === undefined || value === null) return undefined;
+  if (typeof value !== "number" || !Number.isInteger(value) || value < 1) {
+    throw new ValidationError("slidePage must be a positive integer");
+  }
+  return value;
+}
 
 export function createPresentationService(deps: {
   repo: PresentationRepository;
@@ -22,7 +54,9 @@ export function createPresentationService(deps: {
     speakerId: string,
     visibility: SpeakerVisibility,
   ): Promise<PresentationState> {
-    return repo.setSpeakerVisibility(eventId, speakerId, visibility, now());
+    const id = validateSpeakerId(speakerId);
+    const vis = validateVisibility(visibility);
+    return repo.setSpeakerVisibility(eventId, id, vis, now());
   }
 
   async function setSlide(
@@ -30,7 +64,9 @@ export function createPresentationService(deps: {
     slideSource: SlideSource | undefined,
     slidePage?: number,
   ): Promise<PresentationState> {
-    return repo.setSlide(eventId, { slideSource, slidePage });
+    const source = validateSlideSource(slideSource);
+    const page = validateSlidePage(slidePage);
+    return repo.setSlide(eventId, { slideSource: source, slidePage: page });
   }
 
   return { getState, setSpeakerVisibility, setSlide };
