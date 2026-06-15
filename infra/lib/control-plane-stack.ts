@@ -21,6 +21,10 @@ import {
   aws_secretsmanager as secretsmanager,
   aws_events as events,
   aws_events_targets as eventsTargets,
+  aws_logs as logs,
+  aws_cloudwatch as cloudwatch,
+  aws_cloudwatch_actions as cwActions,
+  aws_sns as sns,
 } from "aws-cdk-lib";
 import type { Construct } from "constructs";
 
@@ -427,7 +431,14 @@ export class ControlPlaneStack extends Stack {
     // --- 調整ループ Lambda + EventBridge スケジュール (T4, ADR 0003 D-2) ---
     // 60 秒ごとに live イベント集合 (DynamoDB) と CFN スタック集合を照合し、収束させる。
     // テンプレート生成は RenderTemplateFunction に分離したため本体は軽量 (D1)。
+    // 明示の LogGroup を与える (デフォルトの LogRetention カスタムリソース Lambda を増やさないため)。
+    // メトリクスフィルタ (下の stale 検知) もこの LogGroup に張る。
+    const reconcileLogGroup = new logs.LogGroup(this, "ReconcileLogs", {
+      retention: logs.RetentionDays.ONE_MONTH,
+      removalPolicy: RemovalPolicy.DESTROY,
+    });
     const reconcileFn = new lambdaNodejs.NodejsFunction(this, "ReconcileFunction", {
+      logGroup: reconcileLogGroup,
       entry: path.join(
         __dirname,
         "..",
@@ -490,7 +501,38 @@ export class ControlPlaneStack extends Stack {
       targets: [new eventsTargets.LambdaFunction(reconcileFn)],
     });
 
+    // reconcile が出す「stale event-media stack」警告 (24h 超残存) をメトリクス化してアラート
+    // する。終了し忘れた live イベントの課金暴走を早期検知する (L3, N-1)。通知先 (Slack/メール)
+    // は EventMediaStack のアラームトピックと同様、デプロイ後に subscribe する想定。
+    const orchestratorAlarmTopic = new sns.Topic(this, "OrchestratorAlarmTopic", {
+      displayName: "Stagecast orchestrator alarms",
+    });
+    new logs.MetricFilter(this, "StaleStackFilter", {
+      logGroup: reconcileLogGroup,
+      metricNamespace: "Stagecast/Orchestrator",
+      metricName: "StaleEventMediaStacks",
+      // 構造化ログ (createLogger) の JSON から msg で絞り込む。
+      filterPattern: logs.FilterPattern.literal('{ $.msg = "stale event-media stack" }'),
+      metricValue: "1",
+    });
+    const staleStackAlarm = new cloudwatch.Alarm(this, "StaleStackAlarm", {
+      alarmName: "stagecast-stale-event-media-stack",
+      alarmDescription: "24h を超えて残存するイベントスタックを検知 (コスト暴走の疑い, L3)",
+      metric: new cloudwatch.Metric({
+        namespace: "Stagecast/Orchestrator",
+        metricName: "StaleEventMediaStacks",
+        statistic: "Sum",
+        period: Duration.minutes(5),
+      }),
+      threshold: 1,
+      comparisonOperator: cloudwatch.ComparisonOperator.GREATER_THAN_OR_EQUAL_TO_THRESHOLD,
+      evaluationPeriods: 1,
+      treatMissingData: cloudwatch.TreatMissingData.NOT_BREACHING,
+    });
+    staleStackAlarm.addAlarmAction(new cwActions.SnsAction(orchestratorAlarmTopic));
+
     new CfnOutput(this, "ReconcileFunctionName", { value: reconcileFn.functionName });
+    new CfnOutput(this, "OrchestratorAlarmTopicArn", { value: orchestratorAlarmTopic.topicArn });
   }
 
   /** SPA 用 S3 バケットの共通設定 (private + KMS なしの S3 管理暗号化)。 */

@@ -56,6 +56,24 @@ describe("ControlPlaneStack", () => {
     template.resourceCountIs("AWS::Events::Rule", 1);
   });
 
+  it("stale スタック警告ログをメトリクス化しアラート + SNS する (L3, N-1)", () => {
+    template.hasResourceProperties("AWS::Logs::MetricFilter", {
+      FilterPattern: '{ $.msg = "stale event-media stack" }',
+      MetricTransformations: Match.arrayWith([
+        Match.objectLike({
+          MetricNamespace: "Stagecast/Orchestrator",
+          MetricName: "StaleEventMediaStacks",
+        }),
+      ]),
+    });
+    template.hasResourceProperties("AWS::CloudWatch::Alarm", {
+      MetricName: "StaleEventMediaStacks",
+      Namespace: "Stagecast/Orchestrator",
+      AlarmActions: Match.anyValue(),
+    });
+    template.resourceCountIs("AWS::SNS::Topic", 1);
+  });
+
   it("API Gateway に Cognito JWT オーソライザが定義されている (T5, F-12)", () => {
     template.resourceCountIs("AWS::ApiGatewayV2::Authorizer", 1);
     template.hasResourceProperties("AWS::ApiGatewayV2::Authorizer", {
