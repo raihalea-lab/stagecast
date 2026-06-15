@@ -139,6 +139,50 @@ describe("CaptionPipeline end-to-end (DESIGN.md 6 章)", () => {
     expect(broken.delivered).toHaveLength(0);
   });
 
+  it("一過性失敗は observeSinkRetry、全滅は observeSinkError を計測する (可観測性)", async () => {
+    class FlakySink implements CaptionSink {
+      readonly kind = "flaky";
+      private failuresLeft = 2;
+      async start(): Promise<void> {}
+      async stop(): Promise<void> {}
+      async deliver(): Promise<void> {
+        if (this.failuresLeft > 0) {
+          this.failuresLeft -= 1;
+          throw new Error("transient");
+        }
+      }
+    }
+    const retries: string[] = [];
+    const errors: string[] = [];
+    const metrics = {
+      observeCaption() {},
+      observeSinkRetry(kind: string) {
+        retries.push(kind);
+      },
+      observeSinkError(kind: string) {
+        errors.push(kind);
+      },
+    } as unknown as import("./metrics.js").CaptionMetricsCollector;
+    const engine = new TranscribeStreamingEngine(
+      new FakeAsrAdapter("en", [{ startMs: 0, endMs: 500, text: "hi", isFinal: true }]),
+      new FakeTranslator(),
+      { sourceLanguage: "en", targetLanguages: ["en"], eventId: "evt-m" },
+    );
+    const pipeline = new CaptionPipeline({
+      bus: new InProcessCaptionBus(),
+      engine,
+      sinks: [new FlakySink()],
+      metrics,
+      sinkRetry: { sleep: async () => {} },
+    });
+    await pipeline.start();
+    await pipeline.pushAudio(chunk);
+    await pipeline.stop();
+
+    expect(retries).toEqual(["flaky", "flaky"]); // 2 回再試行で回復
+    expect(errors).toEqual([]); // 最終的に成功 → エラー計測なし
+  });
+
   it("sink is swappable: dropping the custom sink leaves only the YouTube path", async () => {
     const youtube = new FakeYouTubeCaptionPublisher();
     const engine = new TranscribeStreamingEngine(
