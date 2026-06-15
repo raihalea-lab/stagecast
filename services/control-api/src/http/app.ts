@@ -123,6 +123,8 @@ export function createApp(deps: AppDeps) {
           );
         }
       } else if (segments[2] === "invites" && req.method === "POST") {
+        // 存在しないイベントへの招待発行を防ぐ (無ければ NotFound → 404)。
+        await events.get(eventId);
         return json(
           201,
           await invites.issue({
