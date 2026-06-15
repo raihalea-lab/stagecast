@@ -37,6 +37,26 @@ export interface CreateEventInput {
 
 export type EventService = ReturnType<typeof createEventService>;
 
+/** タイトル最大長 (DynamoDB 項目肥大と UI 崩れの防止)。 */
+export const MAX_TITLE_LENGTH = 200;
+
+/** 文字列・非空・長さ上限を検証する (不正な型は 500 でなく 400 にする)。 */
+function validateTitle(value: unknown): string {
+  if (typeof value !== "string" || !value.trim()) throw new ValidationError("title is required");
+  if (value.length > MAX_TITLE_LENGTH) {
+    throw new ValidationError(`title must be <= ${MAX_TITLE_LENGTH} chars`);
+  }
+  return value;
+}
+
+/** ISO datetime としてパース可能な文字列を検証する。 */
+function validateTimestamp(field: string, value: unknown): string {
+  if (typeof value !== "string" || !value.trim() || Number.isNaN(Date.parse(value))) {
+    throw new ValidationError(`${field} must be an ISO datetime`);
+  }
+  return value;
+}
+
 export function createEventService(deps: {
   repo: EventRepository;
   newId: () => string;
@@ -45,16 +65,24 @@ export function createEventService(deps: {
   const { repo, newId, now } = deps;
 
   async function create(input: CreateEventInput): Promise<EventDefinition> {
-    if (!input.title.trim()) throw new ValidationError("title is required");
+    const title = validateTitle(input.title);
+    const startsAt = validateTimestamp("startsAt", input.startsAt);
+    let endsAt: string | undefined;
+    if (input.endsAt !== undefined) {
+      endsAt = validateTimestamp("endsAt", input.endsAt);
+      if (Date.parse(endsAt) < Date.parse(startsAt)) {
+        throw new ValidationError("endsAt must be at or after startsAt");
+      }
+    }
     if (!isValidCaptionSettings(input.caption)) {
       throw new ValidationError("youtubeLanguage must be one of caption.languages");
     }
     const ts = now();
     const event: EventDefinition = {
       id: newId(),
-      title: input.title,
-      startsAt: input.startsAt,
-      endsAt: input.endsAt,
+      title,
+      startsAt,
+      endsAt,
       status: "draft",
       caption: input.caption,
       qrAsset: input.qrAsset,
@@ -83,7 +111,13 @@ export function createEventService(deps: {
     patch: Partial<CreateEventInput>,
   ): Promise<EventDefinition> {
     const e = await get(eventId);
+    if (patch.title !== undefined) validateTitle(patch.title);
+    if (patch.startsAt !== undefined) validateTimestamp("startsAt", patch.startsAt);
+    if (patch.endsAt !== undefined) validateTimestamp("endsAt", patch.endsAt);
     const next: EventDefinition = { ...e, ...patch, updatedAtMs: now() };
+    if (Date.parse(next.endsAt ?? next.startsAt) < Date.parse(next.startsAt)) {
+      throw new ValidationError("endsAt must be at or after startsAt");
+    }
     if (next.caption && !isValidCaptionSettings(next.caption)) {
       throw new ValidationError("youtubeLanguage must be one of caption.languages");
     }
