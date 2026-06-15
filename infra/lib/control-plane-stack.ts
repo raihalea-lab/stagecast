@@ -309,6 +309,43 @@ export class ControlPlaneStack extends Stack {
     new CfnOutput(this, "LiveKitSecretArn", { value: livekitSecret.secretArn });
     new CfnOutput(this, "YouTubeSecretArn", { value: youtubeSecret.secretArn });
 
+    // --- EventMediaStack 作成用 CloudFormation サービスロール (R5, ADR 0005 D-5) ---
+    // 広い権限 (ec2/ecs/elasticache/elbv2/iam/logs/cw/sns) はこのロールに集約し、
+    // cloudformation.amazonaws.com からのみ assume 可能にする。reconcile Lambda 自身は
+    // これらを直接持たず、CFN にロールを渡す (iam:PassRole) だけにして攻撃面を絞る。
+    const eventMediaCfnRole = new iam.Role(this, "EventMediaCfnExecRole", {
+      assumedBy: new iam.ServicePrincipal("cloudformation.amazonaws.com"),
+      description: "EventMediaStack を CFN が作成/破棄するための実行ロール (ADR 0005 D-5)",
+    });
+    eventMediaCfnRole.addToPolicy(
+      new iam.PolicyStatement({
+        actions: [
+          "ec2:*",
+          "ecs:*",
+          "elasticache:*",
+          "elasticloadbalancing:*", // R1 で追加した NLB の作成に必要。
+          "logs:*",
+          "cloudwatch:*",
+          "sns:*",
+          "iam:CreateRole",
+          "iam:DeleteRole",
+          "iam:PassRole",
+          "iam:AttachRolePolicy",
+          "iam:DetachRolePolicy",
+          "iam:PutRolePolicy",
+          "iam:DeleteRolePolicy",
+          "iam:CreateServiceLinkedRole",
+          "iam:GetRole",
+          "iam:GetRolePolicy",
+          "iam:ListRolePolicies",
+          "iam:ListAttachedRolePolicies",
+          "iam:TagRole",
+          "iam:UntagRole",
+        ],
+        resources: ["*"],
+      }),
+    );
+
     // --- 調整ループ Lambda + EventBridge スケジュール (T4, ADR 0003 D-2) ---
     // 60 秒ごとに live イベント集合 (DynamoDB) と CFN スタック集合を照合し、収束させる。
     // CDK synth を伴うため bundle が大きい (CDK 同梱)。常時稼働ではなく 60s tick なので OK。
@@ -341,11 +378,13 @@ export class ControlPlaneStack extends Stack {
         // render-template が EventMediaStack の caption-worker イメージに使う (R4)。
         // `latest` タグを参照し、再起動時に必ず最新版を引く (ADR 0005 D-3)。
         CAPTION_WORKER_IMAGE: `${captionWorkerRepo.repositoryUri}:latest`,
+        // CFN に渡す実行ロール ARN (R5)。reconcile は CreateStack 時に RoleARN として渡す。
+        CFN_EXEC_ROLE_ARN: eventMediaCfnRole.roleArn,
       },
     });
     metadataTable.grantReadData(reconcileFn);
-    // CFN スタックの作成・削除・参照に必要な権限。本来はスタック ARN で絞りたいが、
-    // 動的に作るので * とする。スタック名 prefix `StagecastEventMedia-` で実質スコープされる。
+    // reconcile 自身は「スタック操作」と「CFN ロールを渡す」権限のみ持つ (R5, ADR 0005 D-5)。
+    // 実リソース作成権限は eventMediaCfnRole に集約し、Lambda には付与しない。
     reconcileFn.addToRolePolicy(
       new iam.PolicyStatement({
         actions: [
@@ -358,32 +397,15 @@ export class ControlPlaneStack extends Stack {
         resources: ["*"],
       }),
     );
-    // EventMediaStack はネットワーク/ECS/ElastiCache/IAM を作るため、それらの権限も必要。
-    // CDK の bootstrap で作られる cdk-* file asset bucket への書き込みも必要 (synth 結果)。
+    // CFN サービスロールを CloudFormation にのみ渡せるよう PassRole を限定する。
     reconcileFn.addToRolePolicy(
       new iam.PolicyStatement({
-        actions: [
-          "ec2:*",
-          "ecs:*",
-          "elasticache:*",
-          "iam:CreateRole",
-          "iam:DeleteRole",
-          "iam:PassRole",
-          "iam:AttachRolePolicy",
-          "iam:DetachRolePolicy",
-          "iam:PutRolePolicy",
-          "iam:DeleteRolePolicy",
-          "iam:CreateServiceLinkedRole",
-          "iam:GetRole",
-          "iam:TagRole",
-          "iam:UntagRole",
-          "logs:*",
-          "s3:GetObject",
-          "s3:PutObject",
-        ],
-        resources: ["*"],
+        actions: ["iam:PassRole"],
+        resources: [eventMediaCfnRole.roleArn],
+        conditions: { StringEquals: { "iam:PassedToService": "cloudformation.amazonaws.com" } },
       }),
     );
+    new CfnOutput(this, "EventMediaCfnExecRoleArn", { value: eventMediaCfnRole.roleArn });
 
     new events.Rule(this, "ReconcileSchedule", {
       description: "media-orchestrator の reconcile を 60 秒ごとに起動 (ADR 0003 D-2)",

@@ -21,15 +21,15 @@
 > 詳細・決定背景は [ADR 0005](./decisions/0005-media-layer-rollout.md) を参照。
 > 5 Stage に分けて段階的にロールアウト。各 Stage 完了まで次に進まない。
 
-| ID     | Stage | スコープ                                                           | 想定 PR                                    | 完了基準                                                  |
-| ------ | ----- | ------------------------------------------------------------------ | ------------------------------------------ | --------------------------------------------------------- |
-| **R1** | S3    | LiveKit Server の config.yaml + Valkey 接続 + UDP ポート公開 (NLB) | `claude/livekit-stage3` (IaC 完)           | stage-web から実 LiveKit に接続できる (deploy は別)       |
-| **R2** | S3    | LiveKit Egress の Chrome ヘッドレス設定 + Egress テンプレ URL      | `claude/livekit-stage3` (IaC 完)           | RoomComposite Egress で合成映像が RTMP に出る             |
-| **R3** | S3    | stage-web → 実 LiveKit E2E (Playwright)                            | `claude/stage-web-livekit-e2e`             | 雛形 (`describe.skip`) のみ。Playwright 実装は別 PR       |
-| **R4** | S4    | 字幕ワーカー Docker 化 + ECR Repository + GHA build/push           | `claude/caption-worker-docker` (IaC/CI 完) | Dockerfile + ECR + GHA build 完。実 push/疎通は deploy 後 |
-| **R5** | S5    | reconcile Lambda IAM 最小化 (CFN Service Role + PassRole)          | `claude/reconcile-iam-min`                 | Lambda IAM が `iam:PassRole` 1 個に絞られる               |
-| **R6** | S5    | Cognito 管理者 Custom Resource + CloudFront カスタムドメイン + ACM | `claude/cognito-admin-bootstrap`           | 初期管理者 1 名が IaC でデプロイされる                    |
-| **R7** | S5    | 統合テスト CI workflow + YouTube ingestion URL 自動取得            | `claude/integration-ci-youtube`            | 1 イベントを実 YouTube Live に配信、SLO 観測              |
+| ID     | Stage | スコープ                                                           | 想定 PR                                    | 完了基準                                                                   |
+| ------ | ----- | ------------------------------------------------------------------ | ------------------------------------------ | -------------------------------------------------------------------------- |
+| **R1** | S3    | LiveKit Server の config.yaml + Valkey 接続 + UDP ポート公開 (NLB) | `claude/livekit-stage3` (IaC 完)           | stage-web から実 LiveKit に接続できる (deploy は別)                        |
+| **R2** | S3    | LiveKit Egress の Chrome ヘッドレス設定 + Egress テンプレ URL      | `claude/livekit-stage3` (IaC 完)           | RoomComposite Egress で合成映像が RTMP に出る                              |
+| **R3** | S3    | stage-web → 実 LiveKit E2E (Playwright)                            | `claude/stage-web-livekit-e2e`             | 雛形 (`describe.skip`) のみ。Playwright 実装は別 PR                        |
+| **R4** | S4    | 字幕ワーカー Docker 化 + ECR Repository + GHA build/push           | `claude/caption-worker-docker` (IaC/CI 完) | Dockerfile + ECR + GHA build 完。実 push/疎通は deploy 後                  |
+| **R5** | S5    | reconcile Lambda IAM 最小化 (CFN Service Role + PassRole)          | `claude/reconcile-iam-min` (完)            | reconcile は cloudformation:\* + iam:PassRole のみ (実権限は CFN ロールへ) |
+| **R6** | S5    | Cognito 管理者 Custom Resource + CloudFront カスタムドメイン + ACM | `claude/cognito-admin-bootstrap`           | 初期管理者 1 名が IaC でデプロイされる                                     |
+| **R7** | S5    | 統合テスト CI workflow + YouTube ingestion URL 自動取得            | `claude/integration-ci-youtube`            | 1 イベントを実 YouTube Live に配信、SLO 観測                               |
 
 ---
 
@@ -139,9 +139,11 @@ aws-cdk-lib 全体をバンドルしてしまう。Lambda 上限 (250 MB) は越
 `dependabot.yml` で `aws-sdk` / `aws-cdk` / `vite-plus` / `types` をグループ化済み。
 LiveKit SDK 追加に合わせて `livekit` グループ (`livekit-server-sdk` / `@livekit/*`) も追加した。
 
-### D7. reconcile Lambda IAM が広い (`ec2:* / ecs:* / iam:*`)
+### D7. reconcile Lambda IAM が広い (`ec2:* / ecs:* / iam:*`) ✅ R5 で対応
 
-承知の上で広めに振っている (D-5 で対処予定)。R5 で最小化する。
+`EventMediaCfnExecRole` (CloudFormation サービスロール) に実リソース作成権限を集約し、
+reconcile Lambda 自身は `cloudformation:*` (スタック操作) + `iam:PassRole` (当該ロール限定) のみに縮小。
+副次的に、R1 で追加した NLB 作成に必要な `elasticloadbalancing:*` も CFN ロールへ付与し権限不足を解消。
 
 ---
 

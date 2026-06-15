@@ -149,4 +149,53 @@ describe("ControlPlaneStack", () => {
       },
     });
   });
+
+  it("EventMediaStack 作成用の CFN サービスロールを持つ (R5, ADR 0005 D-5)", () => {
+    template.hasResourceProperties("AWS::IAM::Role", {
+      AssumeRolePolicyDocument: {
+        Statement: Match.arrayWith([
+          Match.objectLike({
+            Action: "sts:AssumeRole",
+            Principal: { Service: "cloudformation.amazonaws.com" },
+          }),
+        ]),
+      },
+    });
+    // 広い実リソース作成権限はこのロール側に集約される (elbv2 含む)。
+    template.hasResourceProperties("AWS::IAM::Policy", {
+      PolicyDocument: {
+        Statement: Match.arrayWith([
+          Match.objectLike({
+            Action: Match.arrayWith(["ec2:*", "ecs:*", "elasticloadbalancing:*"]),
+          }),
+        ]),
+      },
+    });
+  });
+
+  it("reconcile Lambda 自身は ec2/ecs を直接持たず PassRole に絞る (R5)", () => {
+    const policies = template.findResources("AWS::IAM::Policy");
+    // reconcile Lambda のロールに紐づくポリシーを特定する。
+    const reconcilePolicy = Object.values(policies).find((p) => {
+      const stmts = JSON.stringify(
+        (p.Properties as { PolicyDocument: { Statement: unknown } }).PolicyDocument.Statement,
+      );
+      return stmts.includes("cloudformation:CreateStack");
+    });
+    expect(reconcilePolicy).toBeDefined();
+    const text = JSON.stringify(reconcilePolicy);
+    // 実リソース作成権限 (ec2:* / ecs:*) は reconcile からは消えている。
+    expect(text).not.toContain('"ec2:*"');
+    expect(text).not.toContain('"ecs:*"');
+    // PassRole は持つ (CFN ロールを渡すため)。
+    expect(text).toContain("iam:PassRole");
+  });
+
+  it("reconcile Lambda に CFN_EXEC_ROLE_ARN を env で渡す (R5)", () => {
+    template.hasResourceProperties("AWS::Lambda::Function", {
+      Environment: {
+        Variables: Match.objectLike({ CFN_EXEC_ROLE_ARN: Match.anyValue() }),
+      },
+    });
+  });
 });

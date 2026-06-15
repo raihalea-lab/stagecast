@@ -32,12 +32,14 @@ export class AwsCloudFormationClient implements CloudFormationLike {
     StackName: string;
     TemplateBody: string;
     Capabilities?: string[] | undefined;
+    RoleARN?: string | undefined;
   }): Promise<{ StackId?: string | undefined }> {
     const res = await this.client.send(
       new CreateStackCommand({
         StackName: input.StackName,
         TemplateBody: input.TemplateBody,
         Capabilities: input.Capabilities as never,
+        ...(input.RoleARN ? { RoleARN: input.RoleARN } : {}),
       }),
     );
     return { StackId: res.StackId };
@@ -65,6 +67,8 @@ export interface AwsProvisionerConfig {
   cfn?: CloudFormationLike;
   pollIntervalMs?: number;
   maxPolls?: number;
+  /** CFN サービスロール ARN (R5)。createStack の RoleARN に渡す。 */
+  roleArn?: string | undefined;
 }
 
 /**
@@ -80,5 +84,6 @@ export function createAwsMediaStackProvisioner(
     stackName: eventMediaStackName,
     pollIntervalMs: config.pollIntervalMs,
     maxPolls: config.maxPolls,
+    roleArn: config.roleArn,
   });
 }

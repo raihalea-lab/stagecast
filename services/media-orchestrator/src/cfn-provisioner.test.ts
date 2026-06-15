@@ -93,4 +93,49 @@ describe("CloudFormationMediaStackProvisioner (DESIGN.md 7.1)", () => {
     await p.destroy(handle);
     expect(cfn.deleted).toEqual(["StagecastEventMedia-evt-d"]);
   });
+
+  it("roleArn 指定時は createStack に RoleARN を渡す (R5)", async () => {
+    let captured: { RoleARN?: string } | undefined;
+    const cfn: CloudFormationLike = {
+      async createStack(input) {
+        captured = input;
+        return { StackId: "id" };
+      },
+      async deleteStack() {},
+      async describeStacks() {
+        return { Stacks: [{ StackStatus: "CREATE_COMPLETE", Outputs: [] }] };
+      },
+    };
+    const p = new CloudFormationMediaStackProvisioner({
+      cfn,
+      renderTemplate: () => "{}",
+      stackName,
+      delay: noDelay,
+      roleArn: "arn:aws:iam::111111111111:role/EventMediaCfnExecRole",
+    });
+    await p.provision(spec("evt-r5"));
+    expect(captured?.RoleARN).toBe("arn:aws:iam::111111111111:role/EventMediaCfnExecRole");
+  });
+
+  it("roleArn 未指定時は RoleARN を渡さない", async () => {
+    let captured: { RoleARN?: string } | undefined;
+    const cfn: CloudFormationLike = {
+      async createStack(input) {
+        captured = input;
+        return { StackId: "id" };
+      },
+      async deleteStack() {},
+      async describeStacks() {
+        return { Stacks: [{ StackStatus: "CREATE_COMPLETE", Outputs: [] }] };
+      },
+    };
+    const p = new CloudFormationMediaStackProvisioner({
+      cfn,
+      renderTemplate: () => "{}",
+      stackName,
+      delay: noDelay,
+    });
+    await p.provision(spec("evt-r5b"));
+    expect(captured?.RoleARN).toBeUndefined();
+  });
 });
