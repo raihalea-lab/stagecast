@@ -5,7 +5,7 @@
  * 1 言語だけ送出する。暫定字幕や他言語は送らない。
  */
 import type { CaptionEvent, CaptionSink, LanguageCode } from "@stagecast/shared";
-import { isFinalCaption } from "@stagecast/shared";
+import { CAPTION_SINK_KINDS, isFinalCaption } from "@stagecast/shared";
 
 /** YouTube の字幕取り込みエンドポイントへ POST する下位アダプタ。 */
 export interface YouTubeCaptionPublisher {
@@ -14,7 +14,7 @@ export interface YouTubeCaptionPublisher {
 }
 
 export class YouTubeCaptionSink implements CaptionSink {
-  readonly kind = "youtube";
+  readonly kind = CAPTION_SINK_KINDS.youtube;
 
   constructor(
     private readonly publisher: YouTubeCaptionPublisher,
