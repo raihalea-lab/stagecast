@@ -130,6 +130,8 @@ function makeExecutor(): ReconcileExecutor {
         pollIntervalMs: 5000,
         // reconcile は次回 tick (60s 後) で続きを見るため waitForComplete は短く打ち切る。
         maxPolls: 1,
+        // CFN にリソース作成権限を委譲する実行ロール (R5, ADR 0005 D-5)。
+        roleArn: process.env.CFN_EXEC_ROLE_ARN,
       });
     })();
     return provisionerPromise;

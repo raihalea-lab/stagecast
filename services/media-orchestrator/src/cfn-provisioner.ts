@@ -24,6 +24,8 @@ export interface CloudFormationLike {
     StackName: string;
     TemplateBody: string;
     Capabilities?: string[] | undefined;
+    /** CFN サービスロール ARN (R5)。指定時 CFN はこのロールでリソースを作成する。 */
+    RoleARN?: string | undefined;
   }): Promise<{ StackId?: string | undefined }>;
   deleteStack(input: { StackName: string }): Promise<void>;
   describeStacks(input: { StackName: string }): Promise<DescribeResult>;
@@ -35,6 +37,8 @@ export interface CfnProvisionerConfig {
   renderTemplate: (spec: EventMediaSpec) => string;
   /** イベント ID → スタック名 (infra の eventMediaStackName と一致させる)。 */
   stackName: (eventId: string) => string;
+  /** CFN サービスロール ARN (R5)。createStack の RoleARN に渡す。 */
+  roleArn?: string | undefined;
   /** 完了待ちのポーリング間隔・最大回数 (テストでは 0/1)。 */
   pollIntervalMs?: number | undefined;
   maxPolls?: number | undefined;
@@ -76,6 +80,7 @@ export class CloudFormationMediaStackProvisioner implements MediaStackProvisione
       StackName: stackName,
       TemplateBody: this.config.renderTemplate(spec),
       Capabilities: ["CAPABILITY_IAM", "CAPABILITY_NAMED_IAM"],
+      ...(this.config.roleArn ? { RoleARN: this.config.roleArn } : {}),
     });
     const outputs = await this.waitForComplete(stackName);
     return {
