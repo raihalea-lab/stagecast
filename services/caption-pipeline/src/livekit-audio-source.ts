@@ -8,8 +8,10 @@
  * 本番では `livekit-rtc-node` (または egress 経由) を渡し、テストでは fake を渡して
  * 外部接続なしに pipeline を検証する。
  */
-import type { AudioChunk } from "@stagecast/shared";
+import { createLogger, type AudioChunk } from "@stagecast/shared";
 import type { AudioSource } from "./bootstrap.js";
+
+const log = createLogger({ component: "caption-audio-source" });
 
 /** SFU 上の音声フレーム (LiveKit RTC が吐く生 PCM チャンク)。 */
 export interface RawAudioFrame {
@@ -76,7 +78,7 @@ export class LiveKitAudioSource implements AudioSource {
         };
         // pipeline 側のエラーは握り、配信全体を止めない (字幕は best-effort)。
         void Promise.resolve(onChunk(chunk)).catch((err) => {
-          console.error("LiveKitAudioSource: pushAudio failed", err);
+          log.error("pushAudio failed", { err });
         });
       },
     );
@@ -221,6 +223,6 @@ async function pumpAudioStream(
       });
     }
   } catch (err) {
-    console.error("LiveKitAudioSource: audio stream read failed", err);
+    log.error("audio stream read failed", { err });
   }
 }

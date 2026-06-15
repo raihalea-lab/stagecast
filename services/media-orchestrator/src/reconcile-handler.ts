@@ -10,8 +10,11 @@
  * Lambda 内では実 AWS SDK を直接使うが、ロジックは純粋関数 + インターフェース注入で
  * 単体テスト可能にしている (reconcile.ts / fetchDesired / fetchActual)。
  */
+import { createLogger } from "@stagecast/shared";
 import type { ScheduledEvent, Context } from "aws-lambda";
 import { eventMediaStackName, createAwsMediaStackProvisioner } from "./aws-cfn.js";
+
+const log = createLogger({ component: "reconcile" });
 import {
   executePlan,
   planReconcile,
@@ -172,9 +175,9 @@ export async function handler(
   return executePlan(plan, d.executor, {
     log: (e) => {
       const id = e.action.type === "provision" ? e.action.spec.eventId : e.action.eventId;
-      const msg = `reconcile ${e.status} ${e.action.type} ${id}`;
-      if (e.status === "error") console.error(msg, e.err);
-      else console.log(msg);
+      const fields = { action: e.action.type, eventId: id, status: e.status };
+      if (e.status === "error") log.error("reconcile step", { ...fields, err: e.err });
+      else log.info("reconcile step", fields);
     },
   });
 }

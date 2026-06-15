@@ -2,16 +2,22 @@
  * 字幕ワーカープロセスのエントリ (EventMediaStack の caption-worker コンテナ)。
  * 環境変数から CaptionService を起動し、SIGTERM/SIGINT でグレースフルに停止する。
  */
+import { createLogger } from "@stagecast/shared";
 import { runFromEnv, type CaptionService } from "./bootstrap.js";
+
+const log = createLogger({
+  component: "caption-worker",
+  ...(process.env.STAGECAST_EVENT_ID ? { eventId: process.env.STAGECAST_EVENT_ID } : {}),
+});
 
 async function main(): Promise<void> {
   const service: CaptionService = await runFromEnv();
-  console.log(`caption worker started (ws port: ${service.wsPort ?? "n/a"})`);
+  log.info("caption worker started", { wsPort: service.wsPort ?? null });
 
   const shutdown = async (signal: string): Promise<void> => {
-    console.log(`received ${signal}, shutting down...`);
+    log.info("shutting down", { signal });
     const keys = await service.stop();
-    console.log(`saved caption artifacts: ${keys.join(", ") || "(none)"}`);
+    log.info("saved caption artifacts", { keys });
     process.exit(0);
   };
 
@@ -20,6 +26,6 @@ async function main(): Promise<void> {
 }
 
 main().catch((err) => {
-  console.error("caption worker failed to start:", err);
+  log.error("caption worker failed to start", { err });
   process.exit(1);
 });
