@@ -19,10 +19,14 @@ export interface RenderEventMediaSpec {
 export function renderEventMediaTemplate(spec: RenderEventMediaSpec): string {
   const app = new App();
   const stackName = eventMediaStackName(spec.eventId);
+  // reconcile Lambda が ECR の caption-worker イメージ URI を env で渡す (R4)。未設定なら
+  // EventMediaStack 既定の node:24-alpine プレースホルダにフォールバックする。
+  const captionWorkerImage = process.env.CAPTION_WORKER_IMAGE;
   new EventMediaStack(app, stackName, {
     eventId: spec.eventId,
     captionEngine: spec.captionEngine,
     customCaptionApi: spec.customCaptionApi,
+    ...(captionWorkerImage ? { images: { captionWorker: captionWorkerImage } } : {}),
   });
   const assembly = app.synth();
   const template = assembly.getStackByName(stackName).template as unknown;

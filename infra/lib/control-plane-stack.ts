@@ -7,6 +7,7 @@ import {
   CfnOutput,
   SecretValue,
   aws_s3 as s3,
+  aws_ecr as ecr,
   aws_cloudfront as cloudfront,
   aws_cloudfront_origins as origins,
   aws_dynamodb as dynamodb,
@@ -79,6 +80,20 @@ export class ControlPlaneStack extends Stack {
             { storageClass: s3.StorageClass.GLACIER, transitionAfter: Duration.days(90) },
           ],
         },
+      ],
+    });
+
+    // --- ECR: 字幕ワーカーのコンテナイメージ置き場 (R4, ADR 0005 D-3) ---
+    // EventMediaStack の caption-worker が pull する。常時稼働ではないが、レジストリ自体は
+    // 制御層に常設して GHA build/push の宛先を固定する (イメージ実体はイベント時のみ pull)。
+    const captionWorkerRepo = new ecr.Repository(this, "CaptionWorkerRepo", {
+      repositoryName: "stagecast/caption-worker",
+      imageScanOnPush: true,
+      imageTagMutability: ecr.TagMutability.MUTABLE, // `latest` を上書きするため
+      removalPolicy: RemovalPolicy.RETAIN,
+      lifecycleRules: [
+        // 直近 10 イメージのみ保持してストレージ費を抑える。
+        { description: "keep last 10 images", maxImageCount: 10 },
       ],
     });
 
@@ -275,6 +290,10 @@ export class ControlPlaneStack extends Stack {
     });
     new CfnOutput(this, "MetadataTableName", { value: metadataTable.tableName });
     new CfnOutput(this, "AssetsBucketName", { value: assetsBucket.bucketName });
+    new CfnOutput(this, "CaptionWorkerRepoUri", {
+      value: captionWorkerRepo.repositoryUri,
+      description: "字幕ワーカーイメージの ECR リポジトリ URI (GHA build/push の宛先)",
+    });
     new CfnOutput(this, "AdminWebBucketName", { value: adminWebBucket.bucketName });
     new CfnOutput(this, "StageWebBucketName", { value: stageWebBucket.bucketName });
     new CfnOutput(this, "AdminWebDistributionId", { value: adminWebDistribution.distributionId });
@@ -319,6 +338,9 @@ export class ControlPlaneStack extends Stack {
         METADATA_TABLE_NAME: metadataTable.tableName,
         CDK_DEFAULT_ACCOUNT: this.account,
         CDK_DEFAULT_REGION: this.region,
+        // render-template が EventMediaStack の caption-worker イメージに使う (R4)。
+        // `latest` タグを参照し、再起動時に必ず最新版を引く (ADR 0005 D-3)。
+        CAPTION_WORKER_IMAGE: `${captionWorkerRepo.repositoryUri}:latest`,
       },
     });
     metadataTable.grantReadData(reconcileFn);

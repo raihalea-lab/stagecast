@@ -127,4 +127,26 @@ describe("ControlPlaneStack", () => {
     template.resourceCountIs("AWS::ECS::Cluster", 0);
     template.resourceCountIs("AWS::ElastiCache::ServerlessCache", 0);
   });
+
+  it("字幕ワーカー用 ECR リポジトリを持つ (R4, ADR 0005 D-3)", () => {
+    template.resourceCountIs("AWS::ECR::Repository", 1);
+    template.hasResourceProperties("AWS::ECR::Repository", {
+      RepositoryName: "stagecast/caption-worker",
+      ImageScanningConfiguration: { ScanOnPush: true },
+      // 直近 10 イメージのみ保持。
+      LifecyclePolicy: {
+        LifecyclePolicyText: Match.stringLikeRegexp('"countNumber":10'),
+      },
+    });
+  });
+
+  it("reconcile Lambda に caption-worker イメージ URI を env で渡す (R4)", () => {
+    template.hasResourceProperties("AWS::Lambda::Function", {
+      Environment: {
+        Variables: Match.objectLike({
+          CAPTION_WORKER_IMAGE: Match.anyValue(),
+        }),
+      },
+    });
+  });
 });

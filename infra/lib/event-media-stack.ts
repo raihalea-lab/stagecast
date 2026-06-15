@@ -158,6 +158,26 @@ export class EventMediaStack extends Stack {
         memoryLimitMiB: 2048,
         taskRole: opts.taskRole,
       });
+      // ECR プライベートイメージ (R4) は実行ロールに pull 権限が要る。
+      // fromRegistry は自動付与しないため、ECR URI のときだけ最小権限を足す。
+      if (isEcrImage(image)) {
+        taskDef.addToExecutionRolePolicy(
+          new iam.PolicyStatement({
+            actions: ["ecr:GetAuthorizationToken"],
+            resources: ["*"], // GetAuthorizationToken はリソース指定不可。
+          }),
+        );
+        taskDef.addToExecutionRolePolicy(
+          new iam.PolicyStatement({
+            actions: [
+              "ecr:BatchCheckLayerAvailability",
+              "ecr:GetDownloadUrlForLayer",
+              "ecr:BatchGetImage",
+            ],
+            resources: [ecrRepositoryArnFromUri(image, this.partition)],
+          }),
+        );
+      }
       const container = taskDef.addContainer(`${name}Container`, {
         image: ecs.ContainerImage.fromRegistry(image),
         logging: ecs.LogDrivers.awsLogs({ streamPrefix: name, logGroup }),
@@ -400,6 +420,25 @@ export class EventMediaStack extends Stack {
 /** イベント ID から決定的なスタック名を作る (orchestrator と共有する規約)。 */
 export function eventMediaStackName(eventId: string): string {
   return `StagecastEventMedia-${eventId}`;
+}
+
+/** イメージ参照が ECR プライベートレジストリの URI かどうか (R4)。 */
+export function isEcrImage(image: string): boolean {
+  return /\.dkr\.ecr\.[^/]+\.amazonaws\.com\//.test(image);
+}
+
+/**
+ * ECR イメージ URI からリポジトリ ARN を導出する (R4)。
+ * URI: `<account>.dkr.ecr.<region>.amazonaws.com/<repo>[:tag]`
+ * ARN: `arn:<partition>:ecr:<region>:<account>:repository/<repo>`
+ */
+export function ecrRepositoryArnFromUri(image: string, partition: string): string {
+  const slash = image.indexOf("/");
+  const host = image.slice(0, slash);
+  const pathWithTag = image.slice(slash + 1);
+  const repo = pathWithTag.split(":")[0]!; // タグ部分を除去 (repo 名にコロンは入らない)。
+  const [account, , , region] = host.split(".");
+  return `arn:${partition}:ecr:${region}:${account}:repository/${repo}`;
 }
 
 /**
