@@ -26,6 +26,8 @@ export interface LlmEngineConfig {
    * 全リトライ失敗時はその言語をスキップし、ソース字幕と他言語は流す (翻訳は best-effort, N-2)。
    */
   translateRetry?: RetryOptions;
+  /** 翻訳が全リトライ失敗しその言語を諦めたときの通知 (メトリクス計測用)。 */
+  onTranslateError?: (target: LanguageCode, err: unknown) => void;
 }
 
 export class LLMEngine implements CaptionEngine {
@@ -80,6 +82,7 @@ export class LLMEngine implements CaptionEngine {
           ...(this.config.eventId ? { eventId: this.config.eventId } : {}),
           err,
         });
+        this.config.onTranslateError?.(target, err);
       }
     }
   }

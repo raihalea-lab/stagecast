@@ -388,6 +388,24 @@ export class EventMediaStack extends Stack {
       sinkAlarm.addAlarmAction(new cwActions.SnsAction(alarmTopic));
     }
 
+    // 翻訳失敗アラーム (N-2)。言語次元は動的なので SEARCH で全言語を合算して 1 系列にする。
+    const translateErrorMetric = new cloudwatch.MathExpression({
+      expression: `SUM(SEARCH('{Stagecast/CaptionPipeline,EventId,Language} MetricName="TranslateErrors" EventId="${props.eventId}"', 'Sum', 300))`,
+      label: "TranslateErrors (all languages)",
+      period: Duration.minutes(5),
+      usingMetrics: {},
+    });
+    const translateAlarm = new cloudwatch.Alarm(this, "TranslateErrorAlarm", {
+      alarmName: `stagecast-${props.eventId}-translate-errors`,
+      alarmDescription: "翻訳の全リトライ失敗が直近 5 分で継続 (N-2 品質劣化)",
+      metric: translateErrorMetric,
+      threshold: 5,
+      comparisonOperator: cloudwatch.ComparisonOperator.GREATER_THAN_OR_EQUAL_TO_THRESHOLD,
+      evaluationPeriods: 1,
+      treatMissingData: cloudwatch.TreatMissingData.NOT_BREACHING,
+    });
+    translateAlarm.addAlarmAction(new cwActions.SnsAction(alarmTopic));
+
     // 統合ダッシュボード。
     const dashboard = new cloudwatch.Dashboard(this, "EventDashboard", {
       dashboardName: `stagecast-${props.eventId}`,
@@ -447,6 +465,10 @@ export class EventMediaStack extends Stack {
             label: `${kind} retries/5min`,
           }),
         ]),
+      }),
+      new cloudwatch.GraphWidget({
+        title: "翻訳失敗 (全言語合算)",
+        left: [translateErrorMetric],
       }),
     );
 

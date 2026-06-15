@@ -23,6 +23,7 @@ import { YouTubeCaptionSink, type YouTubeCaptionPublisher } from "./sinks/youtub
 import { CustomCaptionApiSink, type CaptionBroadcaster } from "./sinks/custom-api-sink.js";
 import { CaptionStore, type ObjectStorage } from "./store/caption-store.js";
 import { CaptionConnectionHub, HubCaptionBroadcaster } from "./sinks/caption-hub.js";
+import type { CaptionMetricsCollector } from "./metrics.js";
 import type { AudioChunk } from "@stagecast/shared";
 
 export interface CaptionRuntimeConfig {
@@ -50,6 +51,8 @@ export interface CaptionRuntimeProviders {
   bus?: CaptionBus;
   /** Valkey クライアント (省略可、bus 未指定で valkeyStreamClient を渡せばここから組み立てる)。 */
   valkeyStreamClient?: CaptionStreamClient;
+  /** CloudWatch メトリクス収集 (T9, ADR 0003)。省略時は計測なし (本番は bootstrap で注入)。 */
+  metrics?: CaptionMetricsCollector;
 }
 
 /** 設定とプロバイダからエンジンを選択する (F-8, 6.2)。 */
@@ -57,10 +60,15 @@ export function selectEngine(
   config: CaptionRuntimeConfig,
   providers: CaptionRuntimeProviders,
 ): CaptionEngine {
+  const metrics = providers.metrics;
   const common = {
     sourceLanguage: config.sourceLanguage,
     targetLanguages: config.languages,
     eventId: config.eventId,
+    // 翻訳の取りこぼしをメトリクス化する (N-2 品質劣化検知)。self-hosted は翻訳を持たず無視する。
+    onTranslateError: metrics
+      ? (target: LanguageCode) => metrics.observeTranslateError(target)
+      : undefined,
   };
   switch (config.engine) {
     case "transcribe":
@@ -118,7 +126,7 @@ export function assembleCaptionPipeline(
           client: providers.valkeyStreamClient,
         })
       : new InProcessCaptionBus());
-  return new CaptionPipeline({ bus, engine, sinks, store });
+  return new CaptionPipeline({ bus, engine, sinks, store, metrics: providers.metrics });
 }
 
 /**

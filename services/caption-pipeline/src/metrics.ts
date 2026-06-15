@@ -119,4 +119,13 @@ export class CaptionMetricsCollector {
       dimensions: { EventId: this.eventId, Sink: sinkKind },
     });
   }
+
+  /** 翻訳の全リトライ失敗 (その言語をスキップした) を記録する。N-2 の品質劣化検知用。 */
+  observeTranslateError(language: string): void {
+    this.sink.emit({
+      namespace: this.namespace,
+      metrics: [{ name: "TranslateErrors", unit: "Count", value: 1 }],
+      dimensions: { EventId: this.eventId, Language: language },
+    });
+  }
 }

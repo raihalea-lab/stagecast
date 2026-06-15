@@ -128,8 +128,12 @@ export async function realProvidersFromEnv(
     ]);
   const { S3ObjectStorage } = await import("./aws/s3-storage.js");
   const { HttpYouTubeCaptionPublisher } = await import("./sinks/youtube-publisher.js");
+  const { CaptionMetricsCollector } = await import("./metrics.js");
 
-  const providers: CaptionRuntimeProviders = {};
+  // 本番では遅延・件数・失敗を EMF (stdout) で計測する。テスト/フェイク経路では注入しない。
+  const providers: CaptionRuntimeProviders = {
+    metrics: new CaptionMetricsCollector({ eventId: config.eventId }),
+  };
   if (config.engine === "transcribe") {
     providers.asr = new TranscribeStreamingAsrAdapter(config.sourceLanguage);
     providers.translator = new AmazonTranslateTranslator();
