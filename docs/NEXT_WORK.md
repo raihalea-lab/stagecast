@@ -302,14 +302,24 @@ D / L / N は R を進めながら **思い出した時に PR を切る** のが
 - SRT/VTT キュー本文サニタイズ (VTT エスケープ + 空行除去)
 - 字幕 Sink 種別を `CAPTION_SINK_KINDS` / `CaptionSinkKind` に集約 (重複解消)
 
+### 継続改善ループ 第 2 弾 (#40〜#44)
+
+- **#40** admin-web の作成/操作ボタンを処理中 disabled (連打防止)
+- **#41** stage-web 再接続中バナー (livekit-client `Reconnecting`/`Reconnected` を反映, N7)
+- **#42** 字幕メトリクスを runtime に配線 (本番でデッドコードだった collector を実体化) +
+  翻訳失敗メトリクス `TranslateErrors` + EventMediaStack アラーム/ダッシュボード (T9, N-2)
+- **#43** 共通 `withTimeout` を追加し Sink 配信をタイムアウト化 (固まった Sink が drain/音声取り込みを
+  止めるのを防ぐ, N-2)
+- **#44** エンジン翻訳呼び出しを `withTimeout` 化 (transcribe 8s / llm 20s 既定)。固まった翻訳が
+  pushAudio を止めるのを防ぐ。`onTranslateError` も発火し計測 (N-2)
+
 ## 次の改善候補 (deploy 不要で着手可能)
 
-- エンジン側 (Transcribe/Translate/Bedrock) の一過性エラー再試行 (二重字幕回避を設計)
-- stage-web 自動再接続 UI (livekit-client の reconnecting を反映) / カメラライブプレビュー
-- admin-web のローディングスケルトン / ボタン連打防止 (操作中 disabled)
-- YouTube ingest 呼び出しへの `withRetry` 横展開
-- `media-composer` の多人数レイアウト (speakerColumn の負値クランプ) の堅牢化
-- 招待 `eventId` の実在チェック / 招待レート制限
+- エンジン ASR 経路 (Transcribe streaming) の一過性エラー再試行 (二重字幕回避を設計)
+- stage-web カメラライブプレビュー / セッション中のデバイス切替 / Audio only フォールバック
+- admin-web のローディングスケルトン (一覧取得中の skeleton 表示)
+- 招待レート制限 (発行回数の上限・スロットリング)
+- `reconcile` の stale stack タイムアウト destroy (ended 後 24h で強制破棄, L3)
 
 ## デプロイ/外部依存が必要 (ループ対象外)
 
