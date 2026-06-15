@@ -90,7 +90,7 @@ describe("control-api integration (in-memory)", () => {
           method: "POST",
           path: "/events",
           headers: adminAuth,
-          body: { title: "E", startsAt: "x", caption },
+          body: { title: "E", startsAt: "2026-07-01T09:00:00Z", caption },
         }),
       )
     ).body as { id: string };
@@ -123,7 +123,7 @@ describe("control-api integration (in-memory)", () => {
           method: "POST",
           path: "/events",
           headers: adminAuth,
-          body: { title: "E", startsAt: "x", caption },
+          body: { title: "E", startsAt: "2026-07-01T09:00:00Z", caption },
         }),
       )
     ).body as { id: string };
@@ -226,5 +226,35 @@ describe("control-api integration (in-memory)", () => {
     });
     const res = await app2.handle(req({ method: "GET", path: "/events/evt-9/artifacts" }));
     expect(res.status).toBe(401);
+  });
+
+  // 入力バリデーション強化 (公開境界の堅牢化)。不正入力は 500 でなく 400 を返す。
+  const createBody = (extra: Record<string, unknown>) =>
+    req({
+      method: "POST",
+      path: "/events",
+      headers: adminAuth,
+      body: { title: "OK", startsAt: "2026-07-01T09:00:00Z", caption, ...extra },
+    });
+
+  it("空タイトル/非文字列タイトルは 400 (500 でなく)", async () => {
+    expect((await app.handle(createBody({ title: "  " }))).status).toBe(400);
+    expect((await app.handle(createBody({ title: 123 }))).status).toBe(400);
+  });
+
+  it("長すぎるタイトルは 400", async () => {
+    expect((await app.handle(createBody({ title: "x".repeat(201) }))).status).toBe(400);
+  });
+
+  it("不正な startsAt は 400", async () => {
+    expect((await app.handle(createBody({ startsAt: "not-a-date" }))).status).toBe(400);
+    expect((await app.handle(createBody({ startsAt: 0 }))).status).toBe(400);
+  });
+
+  it("endsAt が startsAt より前なら 400", async () => {
+    const res = await app.handle(
+      createBody({ startsAt: "2026-07-01T10:00:00Z", endsAt: "2026-07-01T09:00:00Z" }),
+    );
+    expect(res.status).toBe(400);
   });
 });
