@@ -302,6 +302,9 @@ D / L / N は R を進めながら **思い出した時に PR を切る** のが
 - SRT/VTT キュー本文サニタイズ (VTT エスケープ + 空行除去)
 - 字幕 Sink 種別を `CAPTION_SINK_KINDS` / `CaptionSinkKind` に集約 (重複解消)
 
+> 字幕パイプラインの呼び出しレジリエンス方針 (best-effort 配信 / リトライ / タイムアウト / 計測) は
+> [ADR 0007](./decisions/0007-caption-resilience.md) に集約。
+
 ### 継続改善ループ 第 2 弾 (#40〜#44)
 
 - **#40** admin-web の作成/操作ボタンを処理中 disabled (連打防止)
