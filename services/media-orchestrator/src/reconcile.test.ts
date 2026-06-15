@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   executePlan,
+  findStaleStacks,
   planReconcile,
   type ActualStack,
   type DesiredEvent,
@@ -65,6 +66,32 @@ describe("planReconcile (T4, ADR 0003 D-2)", () => {
     );
     const types = plan.actions.map((a) => a.type).sort();
     expect(types).toEqual(["destroy", "destroy", "provision"]);
+  });
+});
+
+describe("findStaleStacks (L3 コスト暴走検知)", () => {
+  const hour = 60 * 60 * 1000;
+
+  it("maxAgeMs 超過のスタックを抽出し desired 判定を付ける", () => {
+    const actual: ActualStack[] = [
+      { eventId: "runaway", kind: "running", ageMs: 25 * hour },
+      { eventId: "fresh", kind: "running", ageMs: 1 * hour },
+      { eventId: "stuck", kind: "failed", ageMs: 30 * hour },
+    ];
+    const stale = findStaleStacks(actual, [desired("runaway")], { maxAgeMs: 24 * hour });
+    expect(stale).toEqual([
+      { eventId: "runaway", ageMs: 25 * hour, desired: true, kind: "running" },
+      { eventId: "stuck", ageMs: 30 * hour, desired: false, kind: "failed" },
+    ]);
+  });
+
+  it("削除中・年齢不明・閾値以下は対象外", () => {
+    const actual: ActualStack[] = [
+      { eventId: "deleting", kind: "deleting", ageMs: 99 * hour },
+      { eventId: "unknown-age", kind: "running" },
+      { eventId: "young", kind: "running", ageMs: 23 * hour },
+    ];
+    expect(findStaleStacks(actual, [], { maxAgeMs: 24 * hour })).toEqual([]);
   });
 });
 

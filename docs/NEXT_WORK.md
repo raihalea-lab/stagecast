@@ -337,8 +337,9 @@ D / L / N は R を進めながら **思い出した時に PR を切る** のが
 - admin-web のローディングスケルトン (一覧取得中の skeleton 表示)
 - エンジン ASR 経路 (Transcribe streaming) の一過性エラー再試行 (二重字幕回避を設計)
 - 招待レート制限 (発行回数の上限・スロットリング) ※ /invites は admin 認可済みで優先度低
-- `reconcile` の stale stack 検知 (非 desired で長時間残る stack を**アラート**。強制 destroy は
-  毎 tick 実施済みなので「検知/通知」が主目的, L3)
+- `reconcile` の stale stack: 検知 + 構造化警告ログは実装済み (`findStaleStacks`, 既定 24h)。
+  残: 制御層に SNS Topic + メトリクスフィルタ + アラームを足して通知化 (常時稼働リソース増を伴うため
+  N-1 と要相談, L3)
 
 ## デプロイ/外部依存が必要 (ループ対象外)
 
