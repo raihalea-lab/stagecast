@@ -15,7 +15,10 @@ export interface RetryOptions {
   factor?: number;
   /** バックオフ上限 (ms, 既定 2000)。 */
   maxDelayMs?: number;
-  /** false を返すと即座に throw (恒久的エラーを無駄に再試行しない)。 */
+  /**
+   * false を返すと即座に throw (恒久的エラーを無駄に再試行しない)。
+   * 未指定時は、エラーが `retryable: false` を持つ場合のみ再試行を打ち切る (それ以外は再試行)。
+   */
   shouldRetry?: (err: unknown, attempt: number) => boolean;
   /** 再試行直前のフック (ログ等)。 */
   onRetry?: (err: unknown, attempt: number, delayMs: number) => void;
@@ -33,6 +36,24 @@ const defaultSleep = (ms: number): Promise<void> =>
   });
 
 /**
+ * エラーが恒久的 (再試行しても無駄) であることを示すマーカー。
+ * 外部呼び出し側 (例: HTTP 4xx) はこれを実装して即時打ち切りを促せる。
+ */
+export interface RetryableError {
+  retryable: boolean;
+}
+
+/** エラーが `retryable: false` を明示しているか。明示が無ければ再試行可 (既定維持)。 */
+function isExplicitlyNonRetryable(err: unknown): boolean {
+  return (
+    typeof err === "object" &&
+    err !== null &&
+    "retryable" in err &&
+    (err as RetryableError).retryable === false
+  );
+}
+
+/**
  * `fn` を成功するまで最大 `retries` 回再試行する。全試行が失敗したら最後のエラーを throw。
  */
 export async function withRetry<T>(fn: () => Promise<T>, options: RetryOptions = {}): Promise<T> {
@@ -47,7 +68,9 @@ export async function withRetry<T>(fn: () => Promise<T>, options: RetryOptions =
     try {
       return await fn();
     } catch (err) {
-      const canRetry = attempt < retries && (options.shouldRetry?.(err, attempt + 1) ?? true);
+      const canRetry =
+        attempt < retries &&
+        (options.shouldRetry?.(err, attempt + 1) ?? !isExplicitlyNonRetryable(err));
       if (!canRetry) throw err;
       const delay = Math.min(maxDelay, base * factor ** attempt);
       options.onRetry?.(err, attempt + 1, delay);

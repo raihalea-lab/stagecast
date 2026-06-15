@@ -1,6 +1,10 @@
 import { describe, expect, it, vi } from "vitest";
 import type { CaptionEvent } from "@stagecast/shared";
-import { HttpYouTubeCaptionPublisher, formatYouTubeTimestamp } from "./youtube-publisher.js";
+import {
+  CaptionIngestionError,
+  HttpYouTubeCaptionPublisher,
+  formatYouTubeTimestamp,
+} from "./youtube-publisher.js";
 
 const final: CaptionEvent = {
   startMs: 1500,
@@ -41,5 +45,15 @@ describe("HttpYouTubeCaptionPublisher (DESIGN.md 6.3.1)", () => {
       fetchFn,
     });
     await expect(pub.publish(final)).rejects.toThrow(/403/);
+  });
+
+  it("4xx は retryable=false、5xx/429 は retryable=true で分類する (ADR 0007)", async () => {
+    // 恒久エラー (4xx) は再試行しても無駄なので即断念させる。
+    expect(new CaptionIngestionError(403).retryable).toBe(false);
+    expect(new CaptionIngestionError(400).retryable).toBe(false);
+    // 一過性 (5xx / スロットリング / タイムアウト) は再試行する。
+    expect(new CaptionIngestionError(503).retryable).toBe(true);
+    expect(new CaptionIngestionError(429).retryable).toBe(true);
+    expect(new CaptionIngestionError(408).retryable).toBe(true);
   });
 });

@@ -40,6 +40,36 @@ describe("withRetry", () => {
     expect(fn).toHaveBeenCalledTimes(1);
   });
 
+  it("retryable: false を持つエラーは再試行しない (恒久エラー)", async () => {
+    const fn = vi.fn(async () => {
+      throw Object.assign(new Error("forbidden"), { retryable: false });
+    });
+    await expect(withRetry(fn, { retries: 5, sleep: noSleep })).rejects.toThrow("forbidden");
+    expect(fn).toHaveBeenCalledTimes(1);
+  });
+
+  it("retryable: true のエラーは通常どおり再試行する", async () => {
+    let calls = 0;
+    const fn = vi.fn(async () => {
+      calls += 1;
+      if (calls < 2) throw Object.assign(new Error("503"), { retryable: true });
+      return "ok";
+    });
+    expect(await withRetry(fn, { retries: 5, sleep: noSleep })).toBe("ok");
+    expect(fn).toHaveBeenCalledTimes(2);
+  });
+
+  it("明示 shouldRetry は retryable マーカーより優先される", async () => {
+    const fn = vi.fn(async () => {
+      throw Object.assign(new Error("permanent"), { retryable: false });
+    });
+    // shouldRetry が true を返すので retryable:false を無視して再試行する。
+    await expect(
+      withRetry(fn, { retries: 2, sleep: noSleep, shouldRetry: () => true }),
+    ).rejects.toThrow("permanent");
+    expect(fn).toHaveBeenCalledTimes(3);
+  });
+
   it("指数バックオフで待機し onRetry に遅延を渡す", async () => {
     const delays: number[] = [];
     let calls = 0;
