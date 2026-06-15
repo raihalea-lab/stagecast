@@ -7,6 +7,35 @@
 import type { InvitedRole } from "@stagecast/shared";
 import type { InviteTokenRepository } from "../repo/types.js";
 import { signInviteToken, verifyInviteToken } from "../invite/token.js";
+import { ValidationError } from "./events.js";
+
+/** 招待 TTL の許容範囲 (1 分〜7 日)。短すぎ/長すぎる招待 URL を防ぐ。 */
+export const MIN_TTL_SEC = 60;
+export const MAX_TTL_SEC = 7 * 24 * 60 * 60;
+
+function validateRole(role: unknown): InvitedRole {
+  if (role !== "moderator" && role !== "speaker") {
+    throw new ValidationError("role must be 'moderator' or 'speaker'");
+  }
+  return role;
+}
+
+function validateTtlSec(ttlSec: unknown): number {
+  if (typeof ttlSec !== "number" || !Number.isFinite(ttlSec) || !Number.isInteger(ttlSec)) {
+    throw new ValidationError("ttlSec must be an integer (seconds)");
+  }
+  if (ttlSec < MIN_TTL_SEC || ttlSec > MAX_TTL_SEC) {
+    throw new ValidationError(`ttlSec must be between ${MIN_TTL_SEC} and ${MAX_TTL_SEC}`);
+  }
+  return ttlSec;
+}
+
+function validateEventId(eventId: unknown): string {
+  if (typeof eventId !== "string" || !eventId.trim()) {
+    throw new ValidationError("eventId is required");
+  }
+  return eventId;
+}
 
 export interface IssuedInvite {
   jti: string;
@@ -46,33 +75,28 @@ export function createInviteService(deps: {
     role: InvitedRole;
     ttlSec: number;
   }): Promise<IssuedInvite> {
+    const eventId = validateEventId(input.eventId);
+    const role = validateRole(input.role);
+    const ttlSec = validateTtlSec(input.ttlSec);
     const jti = newJti();
     const version = 1;
     const issuedAtSec = Math.floor(now() / 1000);
-    await repo.put({
-      jti,
-      eventId: input.eventId,
-      role: input.role,
-      currentVersion: version,
-      revoked: false,
-    });
-    const token = signInviteToken(
-      { eventId: input.eventId, role: input.role, jti, issuedAtSec, ttlSec: input.ttlSec, version },
-      secret,
-    );
+    await repo.put({ jti, eventId, role, currentVersion: version, revoked: false });
+    const token = signInviteToken({ eventId, role, jti, issuedAtSec, ttlSec, version }, secret);
     return {
       jti,
       token,
       url: `${baseUrl}?token=${encodeURIComponent(token)}`,
-      role: input.role,
-      eventId: input.eventId,
-      expiresAtSec: issuedAtSec + input.ttlSec,
+      role,
+      eventId,
+      expiresAtSec: issuedAtSec + ttlSec,
       version,
     };
   }
 
   /** 既存トークンを失効させ、version を繰り上げて新トークンを再発行する。 */
-  async function reissue(jti: string, ttlSec: number): Promise<IssuedInvite> {
+  async function reissue(jti: string, ttlSecInput: number): Promise<IssuedInvite> {
+    const ttlSec = validateTtlSec(ttlSecInput);
     const record = await repo.get(jti);
     if (!record) throw new Error(`invite ${jti} not found`);
     const version = record.currentVersion + 1;
