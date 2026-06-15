@@ -4,9 +4,27 @@ import { DefaultLiveKitTokenMinter } from "../auth/livekit-minter.js";
 import type { App, HttpRequest } from "../http/app.js";
 
 const adminAuth = { authorization: "Bearer fake:admin-1:admin@example.com" };
+const caption = {
+  languages: ["ja"],
+  youtubeLanguage: "ja",
+  engine: "transcribe",
+  customApiEnabled: false,
+};
 
 function req(p: Partial<HttpRequest> & Pick<HttpRequest, "method" | "path">): HttpRequest {
   return { headers: {}, ...p };
+}
+
+async function makeEvent(target: App): Promise<string> {
+  const res = await target.handle(
+    req({
+      method: "POST",
+      path: "/events",
+      headers: adminAuth,
+      body: { title: "E", startsAt: "2026-07-01T09:00:00Z", caption },
+    }),
+  );
+  return (res.body as { id: string }).id;
 }
 
 describe("join (招待トークン → LiveKit トークン) (DESIGN.md 4.1, F-1)", () => {
@@ -26,20 +44,23 @@ describe("join (招待トークン → LiveKit トークン) (DESIGN.md 4.1, F-1
     });
   });
 
-  async function issueInvite(role: "speaker" | "moderator"): Promise<string> {
+  async function issueInvite(
+    role: "speaker" | "moderator",
+  ): Promise<{ token: string; eventId: string }> {
+    const eventId = await makeEvent(app);
     const res = await app.handle(
       req({
         method: "POST",
-        path: "/events/evt-1/invites",
+        path: `/events/${eventId}/invites`,
         headers: adminAuth,
         body: { role, ttlSec: 3600 },
       }),
     );
-    return (res.body as { token: string }).token;
+    return { token: (res.body as { token: string }).token, eventId };
   }
 
   it("mints a LiveKit token for a valid invite, scoping the room to the event", async () => {
-    const token = await issueInvite("speaker");
+    const { token, eventId } = await issueInvite("speaker");
     const res = await app.handle(req({ method: "POST", path: "/join", body: { token } }));
     expect(res.status).toBe(200);
     const body = res.body as {
@@ -52,7 +73,7 @@ describe("join (招待トークン → LiveKit トークン) (DESIGN.md 4.1, F-1
     expect(body).toMatchObject({
       ok: true,
       role: "speaker",
-      room: "evt-1",
+      room: eventId,
       livekitUrl: "wss://sfu.test",
     });
     expect(body.livekitToken.split(".")).toHaveLength(3); // JWT
@@ -66,10 +87,11 @@ describe("join (招待トークン → LiveKit トークン) (DESIGN.md 4.1, F-1
 
   it("returns 503 when LiveKit is not configured", async () => {
     const noMedia = buildControlApi({ inviteSecret: "test-secret", newId: () => "x" });
+    const eventId = await makeEvent(noMedia);
     const issued = await noMedia.handle(
       req({
         method: "POST",
-        path: "/events/evt-1/invites",
+        path: `/events/${eventId}/invites`,
         headers: adminAuth,
         body: { role: "speaker", ttlSec: 3600 },
       }),

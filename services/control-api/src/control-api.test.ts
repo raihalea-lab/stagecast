@@ -16,6 +16,19 @@ function req(partial: Partial<HttpRequest> & Pick<HttpRequest, "method" | "path"
   return { headers: {}, ...partial };
 }
 
+/** イベントを作成して id を返す (招待発行は存在するイベントが前提)。 */
+async function createEvent(app: App, title = "E"): Promise<string> {
+  const res = await app.handle(
+    req({
+      method: "POST",
+      path: "/events",
+      headers: adminAuth,
+      body: { title, startsAt: "2026-07-01T09:00:00Z", caption },
+    }),
+  );
+  return (res.body as { id: string }).id;
+}
+
 describe("control-api integration (in-memory)", () => {
   let app: App;
   let counter: number;
@@ -142,7 +155,7 @@ describe("control-api integration (in-memory)", () => {
   });
 
   it("issues, verifies, revokes and reissues invite tokens (4.1)", async () => {
-    const eventId = "evt-x";
+    const eventId = await createEvent(app);
     const issued = await app.handle(
       req({
         method: "POST",
@@ -259,8 +272,9 @@ describe("control-api integration (in-memory)", () => {
   });
 
   it("招待発行: 不正な role / 範囲外 ttlSec は 400", async () => {
+    const eventId = await createEvent(app);
     const issueBody = (body: Record<string, unknown>) =>
-      req({ method: "POST", path: "/events/evt-1/invites", headers: adminAuth, body });
+      req({ method: "POST", path: `/events/${eventId}/invites`, headers: adminAuth, body });
     expect((await app.handle(issueBody({ role: "admin", ttlSec: 3600 }))).status).toBe(400);
     expect((await app.handle(issueBody({ role: "speaker", ttlSec: 1 }))).status).toBe(400);
     expect((await app.handle(issueBody({ role: "speaker", ttlSec: 8 * 24 * 3600 }))).status).toBe(
@@ -269,5 +283,17 @@ describe("control-api integration (in-memory)", () => {
     expect((await app.handle(issueBody({ role: "speaker", ttlSec: "abc" }))).status).toBe(400);
     // 正常系は 201。
     expect((await app.handle(issueBody({ role: "speaker", ttlSec: 3600 }))).status).toBe(201);
+  });
+
+  it("存在しないイベントへの招待発行は 404", async () => {
+    const res = await app.handle(
+      req({
+        method: "POST",
+        path: "/events/does-not-exist/invites",
+        headers: adminAuth,
+        body: { role: "speaker", ttlSec: 3600 },
+      }),
+    );
+    expect(res.status).toBe(404);
   });
 });
