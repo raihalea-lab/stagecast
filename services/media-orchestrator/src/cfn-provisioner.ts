@@ -33,8 +33,8 @@ export interface CloudFormationLike {
 
 export interface CfnProvisionerConfig {
   cfn: CloudFormationLike;
-  /** イベント仕様 → CloudFormation テンプレート (JSON 文字列)。 */
-  renderTemplate: (spec: EventMediaSpec) => string;
+  /** イベント仕様 → CloudFormation テンプレート (JSON 文字列)。別 Lambda 呼び出しで async 可 (D1)。 */
+  renderTemplate: (spec: EventMediaSpec) => string | Promise<string>;
   /** イベント ID → スタック名 (infra の eventMediaStackName と一致させる)。 */
   stackName: (eventId: string) => string;
   /** CFN サービスロール ARN (R5)。createStack の RoleARN に渡す。 */
@@ -78,7 +78,7 @@ export class CloudFormationMediaStackProvisioner implements MediaStackProvisione
     const stackName = this.config.stackName(spec.eventId);
     const created = await this.config.cfn.createStack({
       StackName: stackName,
-      TemplateBody: this.config.renderTemplate(spec),
+      TemplateBody: await this.config.renderTemplate(spec),
       Capabilities: ["CAPABILITY_IAM", "CAPABILITY_NAMED_IAM"],
       ...(this.config.roleArn ? { RoleARN: this.config.roleArn } : {}),
     });

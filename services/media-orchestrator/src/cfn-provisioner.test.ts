@@ -117,6 +117,29 @@ describe("CloudFormationMediaStackProvisioner (DESIGN.md 7.1)", () => {
     expect(captured?.RoleARN).toBe("arn:aws:iam::111111111111:role/EventMediaCfnExecRole");
   });
 
+  it("renderTemplate が async (別 Lambda invoke 想定) でも待って TemplateBody に渡す (D1)", async () => {
+    let body: string | undefined;
+    const cfn: CloudFormationLike = {
+      async createStack(input) {
+        body = input.TemplateBody;
+        return { StackId: "id" };
+      },
+      async deleteStack() {},
+      async describeStacks() {
+        return { Stacks: [{ StackStatus: "CREATE_COMPLETE", Outputs: [] }] };
+      },
+    };
+    const p = new CloudFormationMediaStackProvisioner({
+      cfn,
+      // Promise を返す renderTemplate (Lambda invoke を模す)。
+      renderTemplate: async () => Promise.resolve('{"rendered":true}'),
+      stackName,
+      delay: noDelay,
+    });
+    await p.provision(spec("evt-async"));
+    expect(body).toBe('{"rendered":true}');
+  });
+
   it("roleArn 未指定時は RoleARN を渡さない", async () => {
     let captured: { RoleARN?: string } | undefined;
     const cfn: CloudFormationLike = {

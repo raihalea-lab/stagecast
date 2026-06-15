@@ -346,9 +346,42 @@ export class ControlPlaneStack extends Stack {
       }),
     );
 
+    // --- テンプレート生成 Lambda (D1) ---
+    // CDK synth (= aws-cdk-lib 同梱で ~34MB) は **この Lambda にのみ**閉じ込め、60s tick の
+    // reconcile 本体のバンドルを小さく保つ。reconcile からは invoke されるだけ。
+    const renderTemplateFn = new lambdaNodejs.NodejsFunction(this, "RenderTemplateFunction", {
+      entry: path.join(
+        __dirname,
+        "..",
+        "..",
+        "services",
+        "media-orchestrator",
+        "src",
+        "render-template-handler.ts",
+      ),
+      handler: "handler",
+      runtime: lambda.Runtime.NODEJS_24_X,
+      bundling: {
+        target: "node24",
+        minify: true,
+        format: lambdaNodejs.OutputFormat.ESM,
+        externalModules: ["@aws-sdk/*"],
+        banner:
+          "import{createRequire}from'node:module';const require=createRequire(import.meta.url);",
+      },
+      memorySize: 1024, // CDK synth ピーク用
+      timeout: Duration.minutes(1),
+      environment: {
+        CDK_DEFAULT_ACCOUNT: this.account,
+        CDK_DEFAULT_REGION: this.region,
+        // EventMediaStack の caption-worker イメージに使う (R4)。`latest` を参照。
+        CAPTION_WORKER_IMAGE: `${captionWorkerRepo.repositoryUri}:latest`,
+      },
+    });
+
     // --- 調整ループ Lambda + EventBridge スケジュール (T4, ADR 0003 D-2) ---
     // 60 秒ごとに live イベント集合 (DynamoDB) と CFN スタック集合を照合し、収束させる。
-    // CDK synth を伴うため bundle が大きい (CDK 同梱)。常時稼働ではなく 60s tick なので OK。
+    // テンプレート生成は RenderTemplateFunction に分離したため本体は軽量 (D1)。
     const reconcileFn = new lambdaNodejs.NodejsFunction(this, "ReconcileFunction", {
       entry: path.join(
         __dirname,
@@ -369,19 +402,18 @@ export class ControlPlaneStack extends Stack {
         banner:
           "import{createRequire}from'node:module';const require=createRequire(import.meta.url);",
       },
-      memorySize: 1024, // CDK synth + esbuild ピーク用
+      memorySize: 256,
       timeout: Duration.minutes(2),
       environment: {
         METADATA_TABLE_NAME: metadataTable.tableName,
-        CDK_DEFAULT_ACCOUNT: this.account,
-        CDK_DEFAULT_REGION: this.region,
-        // render-template が EventMediaStack の caption-worker イメージに使う (R4)。
-        // `latest` タグを参照し、再起動時に必ず最新版を引く (ADR 0005 D-3)。
-        CAPTION_WORKER_IMAGE: `${captionWorkerRepo.repositoryUri}:latest`,
         // CFN に渡す実行ロール ARN (R5)。reconcile は CreateStack 時に RoleARN として渡す。
         CFN_EXEC_ROLE_ARN: eventMediaCfnRole.roleArn,
+        // テンプレート生成 Lambda を invoke する (D1)。
+        RENDER_TEMPLATE_FUNCTION_NAME: renderTemplateFn.functionName,
       },
     });
+    // reconcile は RenderTemplateFunction を invoke できる。
+    renderTemplateFn.grantInvoke(reconcileFn);
     metadataTable.grantReadData(reconcileFn);
     // reconcile 自身は「スタック操作」と「CFN ロールを渡す」権限のみ持つ (R5, ADR 0005 D-5)。
     // 実リソース作成権限は eventMediaCfnRole に集約し、Lambda には付与しない。
