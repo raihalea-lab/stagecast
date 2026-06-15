@@ -305,7 +305,7 @@ D / L / N は R を進めながら **思い出した時に PR を切る** のが
 > 字幕パイプラインの呼び出しレジリエンス方針 (best-effort 配信 / リトライ / タイムアウト / 計測) は
 > [ADR 0007](./decisions/0007-caption-resilience.md) に集約。
 
-### 継続改善ループ 第 2 弾 (#40〜#44)
+### 継続改善ループ 第 2 弾 (#40〜#50)
 
 - **#40** admin-web の作成/操作ボタンを処理中 disabled (連打防止)
 - **#41** stage-web 再接続中バナー (livekit-client `Reconnecting`/`Reconnected` を反映, N7)
@@ -315,14 +315,30 @@ D / L / N は R を進めながら **思い出した時に PR を切る** のが
   止めるのを防ぐ, N-2)
 - **#44** エンジン翻訳呼び出しを `withTimeout` 化 (transcribe 8s / llm 20s 既定)。固まった翻訳が
   pushAudio を止めるのを防ぐ。`onTranslateError` も発火し計測 (N-2)
+- **#46** [ADR 0007](./decisions/0007-caption-resilience.md) 字幕レジリエンス方針を明文化
+- **#47** `withRetry` に `retryable` マーカー (恒久エラーは即断念)。YouTube ingest の 4xx を
+  `CaptionIngestionError` で非再試行に分類 (ADR 0007 D-2)
+- **#48** スライド無しグリッド (`gridTiles`) のタイルも多人数で負値にならないようクランプ (#39 の対)
+- **#45** 存在しない招待の再発行を 404 に (500 回避)
+- **#49** 発表者状態/スライド入力を検証し不正値を 400 に (合成を壊さない)
+- **#50** 公開 /join の表示名を無害化 (制御文字除去・最大長 64)
+
+### レビュー済み・対応不要と判断 (再調査の無駄を避けるメモ)
+
+- `events.ts` … create/update とも検証済み、遷移ガード・live 削除ガードあり。良好
+- `caption-hub.ts` … バックログは言語ごと `backlogSize` (既定 20) で有界。リーク無し
+- `asset-upload.ts` … filename を `[^\w.-]→_` でサニタイズ済み (S3 キー traversal 不可)
+- `main.ts` … SIGTERM/SIGINT → `service.stop()` で S3 フラッシュ。グレースフル停止済み
 
 ## 次の改善候補 (deploy 不要で着手可能)
 
-- エンジン ASR 経路 (Transcribe streaming) の一過性エラー再試行 (二重字幕回避を設計)
+- stage-web の操作ボタン連打防止 (mic/camera/screen/slide/leave を処理中 disabled, admin #40 と統一)
 - stage-web カメラライブプレビュー / セッション中のデバイス切替 / Audio only フォールバック
 - admin-web のローディングスケルトン (一覧取得中の skeleton 表示)
-- 招待レート制限 (発行回数の上限・スロットリング)
-- `reconcile` の stale stack タイムアウト destroy (ended 後 24h で強制破棄, L3)
+- エンジン ASR 経路 (Transcribe streaming) の一過性エラー再試行 (二重字幕回避を設計)
+- 招待レート制限 (発行回数の上限・スロットリング) ※ /invites は admin 認可済みで優先度低
+- `reconcile` の stale stack 検知 (非 desired で長時間残る stack を**アラート**。強制 destroy は
+  毎 tick 実施済みなので「検知/通知」が主目的, L3)
 
 ## デプロイ/外部依存が必要 (ループ対象外)
 
