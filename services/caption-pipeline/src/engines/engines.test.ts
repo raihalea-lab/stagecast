@@ -4,6 +4,7 @@ import { TranscribeStreamingEngine } from "./transcribe-engine.js";
 import { LLMEngine } from "./llm-engine.js";
 import { SelfHostedAsrEngine } from "./self-hosted.js";
 import { FakeAsrAdapter, FakeLlmAdapter, FakeTranslator } from "./fakes.js";
+import type { LlmAdapter } from "./types.js";
 
 const chunk: AudioChunk = { data: new Uint8Array([0]), timestampMs: 0, sampleRate: 16000 };
 
@@ -90,6 +91,25 @@ describe("LLMEngine (品質重視経路)", () => {
 
     expect(out.find((c) => c.language === "en")?.text).toBe("good morning");
     expect(out.find((c) => c.language === "ja")?.text).toBe("おはよう");
+  });
+
+  it("翻訳が全リトライ失敗してもソース字幕は流れる (LLM, best-effort)", async () => {
+    const brokenLlm: LlmAdapter = {
+      async translate(): Promise<string> {
+        throw new Error("bedrock down");
+      },
+    };
+    const engine = new LLMEngine(brokenLlm, {
+      sourceLanguage: "ja",
+      targetLanguages: ["en"],
+      mode: "translate-only",
+      translateRetry: { sleep: async () => {} },
+    });
+    const out: CaptionEvent[] = [];
+    engine.onCaption((c) => out.push(c));
+    await engine.start();
+    await engine.pushText({ text: "やあ", startMs: 0, endMs: 500, isFinal: true });
+    expect(out.map((c) => c.language)).toEqual(["ja"]); // ソースのみ、en はスキップ
   });
 
   it("translate-only mode accepts finalized source text", async () => {
