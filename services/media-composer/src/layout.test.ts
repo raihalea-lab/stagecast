@@ -53,6 +53,28 @@ describe("computeLayout (DESIGN.md 5.1)", () => {
     expect(computeLayout(s).slide?.page).toBe(7);
   });
 
+  it("スライド無しグリッドに多人数いてもタイル矩形が常に有効 (0..1, 正の幅高)", () => {
+    const s = state({
+      speakers: Array.from({ length: 64 }, (_, i) => ({
+        speakerId: `g${i}`,
+        visibility: "live" as const,
+        updatedAtMs: 1,
+      })),
+    });
+    const layout = computeLayout(s);
+    expect(layout.slide).toBeNull();
+    expect(layout.speakers).toHaveLength(64);
+    for (const tile of layout.speakers) {
+      const r = tile.region;
+      expect(r.w).toBeGreaterThan(0);
+      expect(r.h).toBeGreaterThan(0);
+      expect(r.x).toBeGreaterThanOrEqual(0);
+      expect(r.y).toBeGreaterThanOrEqual(0);
+      expect(r.x + r.w).toBeLessThanOrEqual(1.0001);
+      expect(r.y + r.h).toBeLessThanOrEqual(1.0001);
+    }
+  });
+
   it("スライド右カラムに多人数いてもタイル矩形が常に有効 (0..1, 正の高さ)", () => {
     const s = state({
       slideSource: "screen-share",
