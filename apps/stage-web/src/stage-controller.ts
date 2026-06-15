@@ -38,6 +38,17 @@ export class StageController {
     this.room.setPreferredDevices(prefs);
   }
 
+  /**
+   * SFU 切断時に呼ばれるハンドラを登録する。切断ではセッションを無効化し、
+   * UI は入室画面に戻して再入室を促す。
+   */
+  onDisconnected(handler: () => void): void {
+    this.room.onDisconnected(() => {
+      this.session = undefined;
+      handler();
+    });
+  }
+
   /** 招待トークンで入室し、SFU へ接続する。 */
   async join(token: string, displayName?: string): Promise<JoinResponse> {
     const res = await this.client.join(token, displayName);

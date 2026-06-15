@@ -81,4 +81,18 @@ describe("StageController (DESIGN.md 4.1, F-1, F-3)", () => {
     ctrl.setPreferredDevices({ microphoneId: "mic-2", cameraId: "cam-1" });
     expect(room.preferredDevices).toEqual({ microphoneId: "mic-2", cameraId: "cam-1" });
   });
+
+  it("SFU 切断でセッションを無効化し onDisconnected を呼ぶ", async () => {
+    const room = new FakeRoomConnector();
+    const ctrl = new StageController(new FakeStageClient(speakerJoin), room);
+    let notified = false;
+    ctrl.onDisconnected(() => {
+      notified = true;
+    });
+    await ctrl.join("t");
+    expect(ctrl.currentSession).toBeDefined();
+    room.emitDisconnect();
+    expect(notified).toBe(true);
+    expect(ctrl.currentSession).toBeUndefined();
+  });
 });

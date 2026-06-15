@@ -2,7 +2,7 @@
  * 登壇者・モデレーター用ステージ画面 (DESIGN.md 4.1, 5.2, F-1, F-3)。
  * 招待 URL のトークンで入室し、登壇者は映像音声・画面共有・スライド送りを操作する。
  */
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { HttpStageClient, type StageClient } from "./api/stage-client.js";
 import { LiveKitRoomConnector } from "./lib/livekit-room.js";
 import { BrowserMediaDevicesProvider } from "./lib/browser-devices.js";
@@ -46,6 +46,14 @@ export function App(props: {
   const [camera, setCamera] = useState(false);
   const [screen, setScreen] = useState(false);
   const [page, setPage] = useState(1);
+
+  // SFU 切断を検知したら入室画面へ戻し、再入室を促す。
+  useEffect(() => {
+    controller.onDisconnected(() => {
+      setSession(undefined);
+      setError("配信サーバから切断されました。もう一度入室してください。");
+    });
+  }, [controller]);
 
   const join = async () => {
     setError(undefined);

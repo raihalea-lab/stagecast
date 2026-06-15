@@ -26,6 +26,8 @@ export interface RoomConnector {
   setScreenShareEnabled(enabled: boolean): Promise<void>;
   /** スライドのページ送りを配信する (DESIGN.md 5.2 事前アップロード方式)。 */
   sendSlide(message: SlideMessage): Promise<void>;
+  /** SFU から切断されたとき (回線断・サーバ都合) に呼ばれるハンドラを登録する。 */
+  onDisconnected(handler: () => void): void;
   disconnect(): Promise<void>;
 }
 
@@ -38,10 +40,19 @@ export class FakeRoomConnector implements RoomConnector {
   mic = false;
   camera = false;
   screenShare = false;
+  private disconnectHandler?: () => void;
 
   async connect(url: string, _token: string): Promise<void> {
     this.calls.push(`connect:${url}`);
     this.state = "connected";
+  }
+  onDisconnected(handler: () => void): void {
+    this.disconnectHandler = handler;
+  }
+  /** テストから切断を発火する。 */
+  emitDisconnect(): void {
+    this.state = "disconnected";
+    this.disconnectHandler?.();
   }
   setPreferredDevices(prefs: PreferredDevices): void {
     this.preferredDevices = prefs;
