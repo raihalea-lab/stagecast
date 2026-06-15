@@ -7,7 +7,7 @@
 import type { InvitedRole } from "@stagecast/shared";
 import type { InviteTokenRepository } from "../repo/types.js";
 import { signInviteToken, verifyInviteToken } from "../invite/token.js";
-import { ValidationError } from "./events.js";
+import { NotFoundError, ValidationError } from "./events.js";
 
 /** 招待 TTL の許容範囲 (1 分〜7 日)。短すぎ/長すぎる招待 URL を防ぐ。 */
 export const MIN_TTL_SEC = 60;
@@ -98,7 +98,8 @@ export function createInviteService(deps: {
   async function reissue(jti: string, ttlSecInput: number): Promise<IssuedInvite> {
     const ttlSec = validateTtlSec(ttlSecInput);
     const record = await repo.get(jti);
-    if (!record) throw new Error(`invite ${jti} not found`);
+    // 存在しない jti の再発行は 404 にする (内部エラー 500 にしない, #35 と統一)。
+    if (!record) throw new NotFoundError(`invite ${jti} not found`);
     const version = record.currentVersion + 1;
     const issuedAtSec = Math.floor(now() / 1000);
     // 再発行は同じ jti を使い version だけ繰り上げる。古い version のトークンは stale-version で弾く。
