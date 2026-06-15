@@ -17,12 +17,16 @@ import { eventMediaStackName, createAwsMediaStackProvisioner } from "./aws-cfn.j
 const log = createLogger({ component: "reconcile" });
 import {
   executePlan,
+  findStaleStacks,
   planReconcile,
   type ActualStack,
   type ActualStackKind,
   type DesiredEvent,
   type ReconcileExecutor,
 } from "./reconcile.js";
+
+/** これ以上残存したら「暴走の疑い」として警告するスタック寿命 (既定 24h, L3)。 */
+const DEFAULT_STALE_STACK_MAX_AGE_MS = 24 * 60 * 60 * 1000;
 
 /** 環境変数 → 結線。Lambda の cold start で 1 度だけ評価する。 */
 interface HandlerDeps {
@@ -89,7 +93,8 @@ async function deps(): Promise<HandlerDeps> {
         for (const s of res.StackSummaries ?? []) {
           if (!s.StackName?.startsWith("StagecastEventMedia-")) continue;
           const eventId = s.StackName.slice("StagecastEventMedia-".length);
-          stacks.push({ eventId, kind: classifyStackStatus(s.StackStatus ?? "") });
+          const ageMs = s.CreationTime ? Date.now() - s.CreationTime.getTime() : undefined;
+          stacks.push({ eventId, kind: classifyStackStatus(s.StackStatus ?? ""), ageMs });
         }
         next = res.NextToken;
       } while (next);
@@ -185,6 +190,20 @@ export async function handler(
 ): Promise<{ done: number; errors: number; skipped: number }> {
   const d = await deps();
   const [desired, actual] = await Promise.all([d.fetchDesired(), d.fetchActual()]);
+
+  // 長時間残存しているスタックを検知して警告する (L3, N-1 コスト暴走の早期発見)。
+  const maxAgeMs = process.env.STALE_STACK_MAX_AGE_MS
+    ? Number(process.env.STALE_STACK_MAX_AGE_MS)
+    : DEFAULT_STALE_STACK_MAX_AGE_MS;
+  for (const s of findStaleStacks(actual, desired, { maxAgeMs })) {
+    log.warn("stale event-media stack", {
+      eventId: s.eventId,
+      ageMs: s.ageMs,
+      desired: s.desired,
+      kind: s.kind,
+    });
+  }
+
   const plan = planReconcile(desired, actual);
   return executePlan(plan, d.executor, {
     log: (e) => {

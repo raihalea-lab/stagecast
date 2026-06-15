@@ -29,6 +29,8 @@ export type ActualStackKind = "running" | "in_progress" | "failed" | "deleting";
 export interface ActualStack {
   eventId: string;
   kind: ActualStackKind;
+  /** スタック作成からの経過時間 (ms)。観測できないなら未設定。stale 検知に使う (L3)。 */
+  ageMs?: number;
 }
 
 /** reconcile が出すアクション (副作用なし)。 */
@@ -93,6 +95,44 @@ export function planReconcile(desired: DesiredEvent[], actual: ActualStack[]): R
   // desiredById は将来の拡張 (関連処理) で使うが今は参照のみ。
   void desiredById;
   return { actions };
+}
+
+/** 長時間残存しているスタックの検知結果 (L3 コスト暴走の早期発見)。 */
+export interface StaleStack {
+  eventId: string;
+  ageMs: number;
+  /** desired (live) なのに長時間残っている = 終了し忘れの暴走イベントの可能性。 */
+  desired: boolean;
+  kind: ActualStackKind;
+}
+
+/**
+ * 純粋関数: `maxAgeMs` を超えて存続しているスタックを抽出する (削除中は除く)。
+ *
+ * - desired=true: 終了操作され忘れた live イベントが課金され続けている可能性 (N-1)。
+ *   reconcile は running な desired を放置するため、これが唯一の検知シグナルになる。
+ * - desired=false: 破棄が継続失敗して残っている可能性 (DeleteStack が stuck)。
+ *
+ * 破棄や provision の判断 (planReconcile) は変えない。検知 (通知/可観測性) のみを担う。
+ */
+export function findStaleStacks(
+  actual: ActualStack[],
+  desired: DesiredEvent[],
+  opts: { maxAgeMs: number },
+): StaleStack[] {
+  const desiredIds = new Set(desired.map((d) => d.eventId));
+  const stale: StaleStack[] = [];
+  for (const a of actual) {
+    if (a.kind === "deleting") continue;
+    if (a.ageMs === undefined || a.ageMs <= opts.maxAgeMs) continue;
+    stale.push({
+      eventId: a.eventId,
+      ageMs: a.ageMs,
+      desired: desiredIds.has(a.eventId),
+      kind: a.kind,
+    });
+  }
+  return stale;
 }
 
 function toSpec(d: DesiredEvent): EventMediaSpec {
