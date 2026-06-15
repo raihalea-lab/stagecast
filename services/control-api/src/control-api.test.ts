@@ -204,6 +204,18 @@ describe("control-api integration (in-memory)", () => {
     expect(verifyOld.status).toBe(401);
   });
 
+  it("存在しない招待の再発行は 404 (内部エラーにしない)", async () => {
+    const res = await app.handle(
+      req({
+        method: "POST",
+        path: "/invites/does-not-exist/reissue",
+        headers: adminAuth,
+        body: { ttlSec: 3600 },
+      }),
+    );
+    expect(res.status).toBe(404);
+  });
+
   it("配信成果物のダウンロード URL を一覧する (N1)", async () => {
     const app2 = buildControlApi({
       inviteSecret: "test-secret",
