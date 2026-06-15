@@ -127,6 +127,20 @@ describe("StageController (DESIGN.md 4.1, F-1, F-3)", () => {
     expect(room.calls.filter((c) => c.startsWith("connect:"))).toHaveLength(1);
   });
 
+  it("leave は冪等: 二重退室で disconnect を重ねず、未入室では何もしない", async () => {
+    const room = new FakeRoomConnector();
+    const ctrl = new StageController(new FakeStageClient(speakerJoin), room);
+    // 未入室で leave しても disconnect を呼ばない。
+    await ctrl.leave();
+    expect(room.calls.filter((c) => c === "disconnect")).toHaveLength(0);
+
+    await ctrl.join("t");
+    await ctrl.leave();
+    await ctrl.leave(); // 二重退室
+    expect(room.calls.filter((c) => c === "disconnect")).toHaveLength(1);
+    expect(ctrl.currentSession).toBeUndefined();
+  });
+
   it("切断後は再 join で再接続できる", async () => {
     const room = new FakeRoomConnector();
     const ctrl = new StageController(new FakeStageClient(speakerJoin), room);
