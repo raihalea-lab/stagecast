@@ -170,7 +170,7 @@ export function App(props: {
       )}
       <div className="layout">
         <aside>
-          <EventForm onCreate={create} />
+          <EventForm onCreate={create} busy={busy} />
           <h2>イベント一覧</h2>
           <ul className="event-list">
             {events.map((e) => (
