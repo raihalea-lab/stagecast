@@ -195,8 +195,9 @@ reconcile Lambda 自身は `cloudformation:*` (スタック操作) + `iam:PassRo
   `lib/devices.ts` (純ロジック + `MediaDevicesProvider` 抽象 + Fake) / `browser-devices.ts`
   (navigator + AudioContext 実装) / `components/DeviceCheck.tsx`。選択は localStorage に保存し、
   `RoomConnector.setPreferredDevices` 経由で publish 時の capture device に反映
+- ✅ SFU 切断の検知 → 入室画面へ戻し再入室を促す (`RoomConnector.onDisconnected`)
 - 接続失敗時のフォールバック (Audio only モード) (未)
-- カメラのライブプレビュー / セッション中のデバイス切替 (未)
+- カメラのライブプレビュー / セッション中のデバイス切替 / 自動再接続 (未)
 
 ---
 

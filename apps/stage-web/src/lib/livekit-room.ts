@@ -3,7 +3,7 @@
  * livekit-client の Room を用いて WebRTC publish を行う。テストでは使わず、
  * 本番 (main.tsx) でのみ生成する。
  */
-import { Room } from "livekit-client";
+import { Room, RoomEvent } from "livekit-client";
 import type { PreferredDevices } from "./devices.js";
 import type { RoomConnector, RoomState, SlideMessage } from "./room.js";
 
@@ -19,6 +19,12 @@ export class LiveKitRoomConnector implements RoomConnector {
   }
   setPreferredDevices(prefs: PreferredDevices): void {
     this.prefs = prefs;
+  }
+  onDisconnected(handler: () => void): void {
+    this.room.on(RoomEvent.Disconnected, () => {
+      this.state = "disconnected";
+      handler();
+    });
   }
   async setMicrophoneEnabled(enabled: boolean): Promise<void> {
     // 入室前テストで選んだマイクを capture options で指定する (N7)。
