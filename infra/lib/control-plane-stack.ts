@@ -5,7 +5,9 @@ import {
   RemovalPolicy,
   Duration,
   CfnOutput,
+  CustomResource,
   SecretValue,
+  custom_resources as cr,
   aws_s3 as s3,
   aws_ecr as ecr,
   aws_cloudfront as cloudfront,
@@ -149,6 +151,49 @@ export class ControlPlaneStack extends Stack {
       generateSecret: false,
       preventUserExistenceErrors: true,
     });
+
+    // --- 初期管理者の自動投入 Custom Resource (R6, ADR 0005 D-4 案 A) ---
+    // `-c initialAdmins=a@x.com,b@y.com` を渡したときだけ作成する。未指定なら従来どおり
+    // 手動 admin-create-user (O4) を使う。冪等なのでスタック更新で再実行されても安全。
+    const initialAdmins = (this.node.tryGetContext("initialAdmins") as string | undefined)
+      ?.split(",")
+      .map((s) => s.trim())
+      .filter(Boolean);
+    if (initialAdmins && initialAdmins.length > 0) {
+      const adminBootstrapFn = new lambdaNodejs.NodejsFunction(this, "AdminBootstrapFunction", {
+        entry: path.join(
+          __dirname,
+          "..",
+          "..",
+          "services",
+          "control-api",
+          "src",
+          "admin-bootstrap-handler.ts",
+        ),
+        handler: "handler",
+        runtime: lambda.Runtime.NODEJS_24_X,
+        bundling: {
+          target: "node24",
+          minify: true,
+          format: lambdaNodejs.OutputFormat.ESM,
+          externalModules: ["@aws-sdk/*"],
+          banner:
+            "import{createRequire}from'node:module';const require=createRequire(import.meta.url);",
+        },
+        timeout: Duration.minutes(2),
+      });
+      adminUserPool.grant(adminBootstrapFn, "cognito-idp:AdminCreateUser");
+      const adminBootstrapProvider = new cr.Provider(this, "AdminBootstrapProvider", {
+        onEventHandler: adminBootstrapFn,
+      });
+      new CustomResource(this, "AdminBootstrap", {
+        serviceToken: adminBootstrapProvider.serviceToken,
+        properties: {
+          UserPoolId: adminUserPool.userPoolId,
+          InitialAdmins: initialAdmins,
+        },
+      });
+    }
 
     // --- Secrets Manager: 招待トークン署名鍵 / LiveKit / YouTube (ADR D-10, T7) ---
     // 招待トークン秘密は CDK 生成のランダム値。LiveKit / YouTube は運用者が後から値を更新する

@@ -199,6 +199,10 @@ describe("ControlPlaneStack", () => {
     });
   });
 
+  it("initialAdmins context 未指定なら管理者ブートストラップ CR を作らない (R6)", () => {
+    template.resourceCountIs("AWS::CloudFormation::CustomResource", 0);
+  });
+
   it("テンプレート生成を別 Lambda に分離し reconcile から invoke する (D1)", () => {
     // reconcile は RenderTemplateFunction 名を env で受け取り invoke する。
     template.hasResourceProperties("AWS::Lambda::Function", {
@@ -210,6 +214,32 @@ describe("ControlPlaneStack", () => {
       PolicyDocument: {
         Statement: Match.arrayWith([
           Match.objectLike({ Action: "lambda:InvokeFunction", Effect: "Allow" }),
+        ]),
+      },
+    });
+  });
+});
+
+describe("ControlPlaneStack 初期管理者ブートストラップ (R6, ADR 0005 D-4)", () => {
+  // synth は esbuild バンドルを伴い重いので describe スコープで 1 度だけ実行する。
+  const app = new App({ context: { initialAdmins: "a@x.com,b@y.com" } });
+  const stack = new ControlPlaneStack(app, "TestCPAdmins", {
+    env: { account: "111111111111", region: "ap-northeast-1" },
+  });
+  const t = Template.fromStack(stack);
+
+  it("context があれば管理者投入 Custom Resource を作る", () => {
+    t.resourceCountIs("AWS::CloudFormation::CustomResource", 1);
+    t.hasResourceProperties("AWS::CloudFormation::CustomResource", {
+      InitialAdmins: ["a@x.com", "b@y.com"],
+    });
+  });
+
+  it("ブートストラップ Lambda に AdminCreateUser 権限を付与する", () => {
+    t.hasResourceProperties("AWS::IAM::Policy", {
+      PolicyDocument: {
+        Statement: Match.arrayWith([
+          Match.objectLike({ Action: "cognito-idp:AdminCreateUser", Effect: "Allow" }),
         ]),
       },
     });
