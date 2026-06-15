@@ -29,6 +29,25 @@ export class ServiceUnavailableError extends Error {
   }
 }
 
+/** 表示名の最大長 (LiveKit participant name / JWT の肥大とレイアウト崩れを防ぐ)。 */
+export const MAX_DISPLAY_NAME_LENGTH = 64;
+
+/**
+ * 公開 /join に来る表示名を無害化する。制御文字 (改行・タブ等) を空白化し、空白を畳んで
+ * 最大長で切る。空なら undefined。/join は招待トークンで守られるが入力自体は untrusted。
+ */
+export function sanitizeDisplayName(name: string | undefined): string | undefined {
+  if (typeof name !== "string") return undefined;
+  let out = "";
+  for (const ch of name) {
+    const code = ch.codePointAt(0) ?? 0;
+    // C0 制御文字 + DEL は空白に置換 (改行混入での表示崩れ・ログ汚染を防ぐ)。
+    out += code < 0x20 || code === 0x7f ? " " : ch;
+  }
+  const collapsed = out.trim().replace(/\s+/g, " ");
+  return collapsed ? collapsed.slice(0, MAX_DISPLAY_NAME_LENGTH) : undefined;
+}
+
 export function createJoinService(deps: {
   invites: InviteService;
   minter?: LiveKitTokenMinter;
@@ -51,7 +70,7 @@ export function createJoinService(deps: {
       room,
       role: verified.role,
       ttlSec,
-      name: displayName,
+      name: sanitizeDisplayName(displayName),
     });
     return {
       ok: true,
