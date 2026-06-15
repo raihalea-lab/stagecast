@@ -31,6 +31,45 @@ describe("TranscribeStreamingEngine (常用・低遅延経路)", () => {
     expect(out.find((c) => c.language === "en")?.text).toBe("Hello");
     expect(out.every((c) => c.status === "final" && c.speakerId === "spk-1")).toBe(true);
   });
+
+  it("翻訳の一過性失敗は再試行で回復する (best-effort, N-2)", async () => {
+    let calls = 0;
+    const flakyTranslator = {
+      async translate(): Promise<string> {
+        calls += 1;
+        if (calls < 3) throw new Error("Throttling");
+        return "Hello";
+      },
+    };
+    const engine = new TranscribeStreamingEngine(
+      new FakeAsrAdapter("ja", [{ startMs: 0, endMs: 1000, text: "こんにちは", isFinal: true }]),
+      flakyTranslator,
+      { sourceLanguage: "ja", targetLanguages: ["en"], translateRetry: { sleep: async () => {} } },
+    );
+    const out: CaptionEvent[] = [];
+    engine.onCaption((c) => out.push(c));
+    await engine.start();
+    await engine.pushAudio(chunk);
+    expect(out.find((c) => c.language === "en")?.text).toBe("Hello");
+  });
+
+  it("翻訳が全リトライ失敗してもソース字幕は流れ pushAudio は壊れない", async () => {
+    const brokenTranslator = {
+      async translate(): Promise<string> {
+        throw new Error("translate down");
+      },
+    };
+    const engine = new TranscribeStreamingEngine(
+      new FakeAsrAdapter("ja", [{ startMs: 0, endMs: 1000, text: "やあ", isFinal: true }]),
+      brokenTranslator,
+      { sourceLanguage: "ja", targetLanguages: ["en"], translateRetry: { sleep: async () => {} } },
+    );
+    const out: CaptionEvent[] = [];
+    engine.onCaption((c) => out.push(c));
+    await engine.start();
+    await engine.pushAudio(chunk); // reject しない
+    expect(out.map((c) => c.language)).toEqual(["ja"]); // ソースのみ、en はスキップ
+  });
 });
 
 describe("LLMEngine (品質重視経路)", () => {

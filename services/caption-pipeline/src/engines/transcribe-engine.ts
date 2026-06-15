@@ -6,12 +6,20 @@
  * ソース言語の字幕もそのまま発行する。暫定/確定フラグは ASR の結果を引き継ぐ。
  */
 import type { AudioChunk, CaptionEngine, CaptionEvent, LanguageCode } from "@stagecast/shared";
+import { createLogger, withRetry, type RetryOptions } from "@stagecast/shared";
 import type { AsrAdapter, Translator, TranscriptSegment } from "./types.js";
+
+const log = createLogger({ component: "transcribe-engine" });
 
 export interface TranscribeEngineConfig {
   sourceLanguage: LanguageCode;
   targetLanguages: LanguageCode[];
   eventId?: string;
+  /**
+   * 翻訳呼び出しの一過性失敗に対するリトライ設定 (省略時は既定の指数バックオフ)。
+   * 全リトライ失敗時はその言語をスキップし、ソース字幕と他言語は流す (翻訳は best-effort, N-2)。
+   */
+  translateRetry?: RetryOptions;
 }
 
 export class TranscribeStreamingEngine implements CaptionEngine {
@@ -54,10 +62,22 @@ export class TranscribeStreamingEngine implements CaptionEngine {
     this.emit({ ...baseEvent, language: this.sourceLanguage, text: segment.text });
 
     // ターゲット言語へ翻訳して発行 (ソース言語と同一はスキップ)。
+    // 翻訳は一過性失敗をバックオフ再試行し、全滅したらその言語だけ諦める (best-effort, N-2)。
     for (const target of this.targetLanguages) {
       if (target === this.sourceLanguage) continue;
-      const text = await this.translator.translate(segment.text, this.sourceLanguage, target);
-      this.emit({ ...baseEvent, language: target, text });
+      try {
+        const text = await withRetry(
+          () => this.translator.translate(segment.text, this.sourceLanguage, target),
+          this.config.translateRetry,
+        );
+        this.emit({ ...baseEvent, language: target, text });
+      } catch (err) {
+        log.error("translate failed after retries", {
+          target,
+          ...(this.config.eventId ? { eventId: this.config.eventId } : {}),
+          err,
+        });
+      }
     }
   }
 
