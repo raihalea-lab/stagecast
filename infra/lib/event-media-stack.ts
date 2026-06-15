@@ -18,7 +18,7 @@ import {
   aws_cloudwatch_actions as cwActions,
 } from "aws-cdk-lib";
 import type { Construct } from "constructs";
-import type { CaptionEngineKind } from "@stagecast/shared";
+import type { CaptionEngineKind, CaptionSinkKind } from "@stagecast/shared";
 
 /** LiveKit / WebRTC が使うポート (ADR 0006 D-1)。NLB リスナと config.yaml で共有する。 */
 export const LIVEKIT_PORTS = {
@@ -363,7 +363,9 @@ export class EventMediaStack extends Stack {
 
     // 字幕 Sink 配信失敗アラーム (D8/N3)。全リトライ失敗 (SinkDeliveryErrors) が継続する Sink を検知。
     // Sink 種別は caption-pipeline の sink.kind と一致させる ("youtube" / "custom-api")。
-    const captionSinkKinds: { kind: string; id: string }[] = [
+    // 種別文字列は @stagecast/shared の CaptionSinkKind 型に束縛し、リネーム時にコンパイルで検知する
+    // (infra は bin/app.ts を tsx 直実行するため shared の値 import は避け、型のみ参照する)。
+    const captionSinkKinds: { kind: CaptionSinkKind; id: string }[] = [
       { kind: "youtube", id: "Youtube" },
       { kind: "custom-api", id: "CustomApi" },
     ];

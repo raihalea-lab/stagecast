@@ -10,6 +10,7 @@
  * CaptionBroadcaster 抽象を介して配信し、メッセージスキーマ (CaptionStreamMessage) を定義する。
  */
 import type { CaptionEvent, CaptionSink, LanguageCode } from "@stagecast/shared";
+import { CAPTION_SINK_KINDS } from "@stagecast/shared";
 
 /**
  * 独自字幕配信プロトコルのメッセージスキーマ (v1)。
@@ -44,7 +45,7 @@ export interface CustomCaptionApiSinkConfig {
 }
 
 export class CustomCaptionApiSink implements CaptionSink {
-  readonly kind = "custom-api";
+  readonly kind = CAPTION_SINK_KINDS.customApi;
 
   constructor(
     private readonly broadcaster: CaptionBroadcaster,
