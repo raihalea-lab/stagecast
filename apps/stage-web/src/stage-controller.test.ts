@@ -95,4 +95,30 @@ describe("StageController (DESIGN.md 4.1, F-1, F-3)", () => {
     expect(notified).toBe(true);
     expect(ctrl.currentSession).toBeUndefined();
   });
+
+  it("連打 (同時 join) でも SFU 接続は 1 回 (in-flight 共有)", async () => {
+    const room = new FakeRoomConnector();
+    const ctrl = new StageController(new FakeStageClient(speakerJoin), room);
+    const [a, b] = await Promise.all([ctrl.join("t"), ctrl.join("t")]);
+    expect(a.ok && b.ok).toBe(true);
+    expect(room.calls.filter((c) => c.startsWith("connect:"))).toHaveLength(1);
+  });
+
+  it("入室済みなら再 join で再接続しない", async () => {
+    const room = new FakeRoomConnector();
+    const ctrl = new StageController(new FakeStageClient(speakerJoin), room);
+    await ctrl.join("t");
+    await ctrl.join("t");
+    expect(room.calls.filter((c) => c.startsWith("connect:"))).toHaveLength(1);
+  });
+
+  it("切断後は再 join で再接続できる", async () => {
+    const room = new FakeRoomConnector();
+    const ctrl = new StageController(new FakeStageClient(speakerJoin), room);
+    ctrl.onDisconnected(() => {});
+    await ctrl.join("t");
+    room.emitDisconnect();
+    await ctrl.join("t");
+    expect(room.calls.filter((c) => c.startsWith("connect:"))).toHaveLength(2);
+  });
 });

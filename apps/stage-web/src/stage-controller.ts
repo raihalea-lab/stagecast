@@ -20,6 +20,8 @@ export interface StageSession {
 export class StageController {
   private session?: StageSession;
   private deck: SlideDeckState = { page: 1, totalPages: 1 };
+  private lastJoin?: JoinResponse;
+  private joinInFlight?: Promise<JoinResponse>;
 
   constructor(
     private readonly client: StageClient,
@@ -45,23 +47,37 @@ export class StageController {
   onDisconnected(handler: () => void): void {
     this.room.onDisconnected(() => {
       this.session = undefined;
+      this.lastJoin = undefined; // 再入室を可能にする。
       handler();
     });
   }
 
-  /** 招待トークンで入室し、SFU へ接続する。 */
+  /**
+   * 招待トークンで入室し、SFU へ接続する。
+   * 連打/二重呼び出しでも SFU 接続は 1 回に保つ (in-flight を共有 + 入室済みは再接続しない)。
+   */
   async join(token: string, displayName?: string): Promise<JoinResponse> {
-    const res = await this.client.join(token, displayName);
-    if (!res.ok) return res;
-    await this.room.connect(res.livekitUrl, res.livekitToken);
-    this.session = {
-      eventId: res.eventId,
-      role: res.role,
-      room: res.room,
-      // 登壇者のみ publish 可。モデレーターは進行補助 (subscribe 主体)。
-      canPublish: res.role === "speaker",
-    };
-    return res;
+    if (this.session && this.lastJoin) return this.lastJoin; // 入室済み: 再接続しない。
+    if (this.joinInFlight) return this.joinInFlight; // 同時呼び出しは 1 本にまとめる。
+    this.joinInFlight = (async () => {
+      const res = await this.client.join(token, displayName);
+      if (!res.ok) return res;
+      await this.room.connect(res.livekitUrl, res.livekitToken);
+      this.session = {
+        eventId: res.eventId,
+        role: res.role,
+        room: res.room,
+        // 登壇者のみ publish 可。モデレーターは進行補助 (subscribe 主体)。
+        canPublish: res.role === "speaker",
+      };
+      this.lastJoin = res;
+      return res;
+    })();
+    try {
+      return await this.joinInFlight;
+    } finally {
+      this.joinInFlight = undefined;
+    }
   }
 
   private requirePublish(): void {
