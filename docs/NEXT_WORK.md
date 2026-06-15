@@ -94,20 +94,13 @@ aws secretsmanager update-secret --secret-id stagecast/youtube \
 
 ## D: 技術的負債 (今回 PR #9 で残した宿題)
 
-### D1. reconcile Lambda の bundle が 34 MB (CDK 同梱)
+### D1. reconcile Lambda の bundle が 34 MB (CDK 同梱) ✅ 対応済み (案 b)
 
-**現状**: `infra/lib/render-template.ts` を runtime で動的 import するため、esbuild が
-aws-cdk-lib 全体をバンドルしてしまう。Lambda 上限 (250 MB) は越えないが cold start に影響。
-
-**対案** (どれか採用):
-
-- **(a) 事前レンダー + プレースホルダ置換**: ControlPlaneStack synth 時に EventMediaStack
-  テンプレートを `__EVENT_ID__` 等の placeholder で 1 回 render、S3 に保存。reconcile は
-  S3 から読んで string-replace するだけにする (bundle 数 MB に削減可)
-- **(b) 別 Lambda に切り出し**: `RenderTemplateFunction` を立て、reconcile はそれを invoke
-- **(c) 据え置き**: 60s tick の cold start は実害小、Lambda Reserved Concurrency=1 で warm 維持
-
-着手するなら **(a) が一番節約効果が大きい** (推定 -30 MB)。R4 と同じ PR でまとめても良い。
+~~`render-template.ts` を動的 import するため esbuild が aws-cdk-lib 全体をバンドル~~ →
+**案 (b) 別 Lambda 切り出し**を採用。`RenderTemplateFunction` (aws-cdk-lib 同梱 ~34MB) を
+新設し、reconcile はそれを invoke するだけにした。これにより **reconcile 本体のバンドルは
+34.4MB → 7.3KB** に縮小 (synth で確認)。`renderTemplate` を `string | Promise<string>` に
+拡張し Lambda invoke (async) に対応。案 (a) は D5 の short-hash 計算と競合するため不採用。
 
 ### D2. `infra/bin/app.ts` の file mode が 100755 になっている ✅ 対応済み
 

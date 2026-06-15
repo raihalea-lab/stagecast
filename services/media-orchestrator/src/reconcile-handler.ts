@@ -116,20 +116,34 @@ function makeExecutor(): ReconcileExecutor {
   async function getProv(): Promise<ReturnType<typeof createAwsMediaStackProvisioner>> {
     if (provisionerPromise) return provisionerPromise;
     provisionerPromise = (async () => {
-      const mod = (await import("@stagecast/infra/render-template")) as {
-        renderEventMediaTemplate: (spec: {
-          eventId: string;
-          captionEngine: DesiredEvent["captionEngine"];
-          customCaptionApi: boolean;
-        }) => string;
-      };
+      // テンプレート synth (= aws-cdk-lib バンドル) は別 Lambda に分離し、reconcile 本体の
+      // バンドルを軽く保つ (D1)。RenderTemplateFunction を invoke して JSON を得る。
+      const { LambdaClient, InvokeCommand } = await import("@aws-sdk/client-lambda");
+      const lambda = new LambdaClient({});
+      const fnName = process.env.RENDER_TEMPLATE_FUNCTION_NAME;
+      if (!fnName) throw new Error("RENDER_TEMPLATE_FUNCTION_NAME is required");
       return createAwsMediaStackProvisioner({
-        renderTemplate: (spec) =>
-          mod.renderEventMediaTemplate({
-            eventId: spec.eventId,
-            captionEngine: spec.captionEngine,
-            customCaptionApi: spec.customCaptionApi,
-          }),
+        renderTemplate: async (spec) => {
+          const res = await lambda.send(
+            new InvokeCommand({
+              FunctionName: fnName,
+              Payload: new TextEncoder().encode(
+                JSON.stringify({
+                  eventId: spec.eventId,
+                  captionEngine: spec.captionEngine,
+                  customCaptionApi: spec.customCaptionApi,
+                }),
+              ),
+            }),
+          );
+          if (res.FunctionError) {
+            throw new Error(`render template failed: ${res.FunctionError}`);
+          }
+          const text = res.Payload ? new TextDecoder().decode(res.Payload) : "";
+          const parsed = JSON.parse(text) as { template?: string };
+          if (!parsed.template) throw new Error("render template returned empty");
+          return parsed.template;
+        },
         pollIntervalMs: 5000,
         // reconcile は次回 tick (60s 後) で続きを見るため waitForComplete は短く打ち切る。
         maxPolls: 1,

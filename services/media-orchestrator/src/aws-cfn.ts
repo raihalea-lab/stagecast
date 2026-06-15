@@ -61,8 +61,8 @@ export class AwsCloudFormationClient implements CloudFormationLike {
 }
 
 export interface AwsProvisionerConfig {
-  /** infra の renderEventMediaTemplate を注入する。 */
-  renderTemplate: (spec: EventMediaSpec) => string;
+  /** infra の renderEventMediaTemplate を注入する (別 Lambda 呼び出しで async 可, D1)。 */
+  renderTemplate: (spec: EventMediaSpec) => string | Promise<string>;
   /** CloudFormationLike (省略時は AWS SDK 実装)。 */
   cfn?: CloudFormationLike;
   pollIntervalMs?: number;

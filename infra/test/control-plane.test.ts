@@ -41,8 +41,8 @@ describe("ControlPlaneStack", () => {
   });
 
   it("制御 API の Lambda + HTTP API がある (T5)", () => {
-    // control-api + reconcile lambda の 2 つ。
-    template.resourceCountIs("AWS::Lambda::Function", 2);
+    // control-api + reconcile + render-template lambda の 3 つ (D1 で分離)。
+    template.resourceCountIs("AWS::Lambda::Function", 3);
     template.hasResourceProperties("AWS::Lambda::Function", {
       Runtime: "nodejs24.x",
     });
@@ -195,6 +195,22 @@ describe("ControlPlaneStack", () => {
     template.hasResourceProperties("AWS::Lambda::Function", {
       Environment: {
         Variables: Match.objectLike({ CFN_EXEC_ROLE_ARN: Match.anyValue() }),
+      },
+    });
+  });
+
+  it("テンプレート生成を別 Lambda に分離し reconcile から invoke する (D1)", () => {
+    // reconcile は RenderTemplateFunction 名を env で受け取り invoke する。
+    template.hasResourceProperties("AWS::Lambda::Function", {
+      Environment: {
+        Variables: Match.objectLike({ RENDER_TEMPLATE_FUNCTION_NAME: Match.anyValue() }),
+      },
+    });
+    template.hasResourceProperties("AWS::IAM::Policy", {
+      PolicyDocument: {
+        Statement: Match.arrayWith([
+          Match.objectLike({ Action: "lambda:InvokeFunction", Effect: "Allow" }),
+        ]),
       },
     });
   });
