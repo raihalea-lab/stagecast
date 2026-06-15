@@ -8,6 +8,7 @@
 import { BedrockRuntimeClient, InvokeModelCommand } from "@aws-sdk/client-bedrock-runtime";
 import type { LanguageCode } from "@stagecast/shared";
 import type { LlmAdapter } from "../engines/types.js";
+import { tagAwsRetryable } from "./aws-errors.js";
 
 const LANGUAGE_NAMES: Record<LanguageCode, string> = { ja: "Japanese", en: "English" };
 
@@ -33,18 +34,24 @@ export class BedrockLlmAdapter implements LlmAdapter {
 
   async translate(text: string, source: LanguageCode, target: LanguageCode): Promise<string> {
     if (source === target) return text;
-    const res = await this.client.send(
-      new InvokeModelCommand({
-        modelId: this.config.modelId,
-        contentType: "application/json",
-        accept: "application/json",
-        body: JSON.stringify({
-          anthropic_version: "bedrock-2023-05-31",
-          max_tokens: this.config.maxTokens ?? 512,
-          messages: [{ role: "user", content: this.buildPrompt(text, source, target) }],
+    let res;
+    try {
+      res = await this.client.send(
+        new InvokeModelCommand({
+          modelId: this.config.modelId,
+          contentType: "application/json",
+          accept: "application/json",
+          body: JSON.stringify({
+            anthropic_version: "bedrock-2023-05-31",
+            max_tokens: this.config.maxTokens ?? 512,
+            messages: [{ role: "user", content: this.buildPrompt(text, source, target) }],
+          }),
         }),
-      }),
-    );
+      );
+    } catch (err) {
+      // 恒久エラー (アクセス拒否・バリデーション等) を withRetry が即断念できるように (ADR 0007)。
+      throw tagAwsRetryable(err);
+    }
     const decoded = JSON.parse(new TextDecoder().decode(res.body)) as {
       content?: { text?: string }[];
     };
