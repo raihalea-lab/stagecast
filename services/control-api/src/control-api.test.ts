@@ -257,4 +257,17 @@ describe("control-api integration (in-memory)", () => {
     );
     expect(res.status).toBe(400);
   });
+
+  it("招待発行: 不正な role / 範囲外 ttlSec は 400", async () => {
+    const issueBody = (body: Record<string, unknown>) =>
+      req({ method: "POST", path: "/events/evt-1/invites", headers: adminAuth, body });
+    expect((await app.handle(issueBody({ role: "admin", ttlSec: 3600 }))).status).toBe(400);
+    expect((await app.handle(issueBody({ role: "speaker", ttlSec: 1 }))).status).toBe(400);
+    expect((await app.handle(issueBody({ role: "speaker", ttlSec: 8 * 24 * 3600 }))).status).toBe(
+      400,
+    );
+    expect((await app.handle(issueBody({ role: "speaker", ttlSec: "abc" }))).status).toBe(400);
+    // 正常系は 201。
+    expect((await app.handle(issueBody({ role: "speaker", ttlSec: 3600 }))).status).toBe(201);
+  });
 });
