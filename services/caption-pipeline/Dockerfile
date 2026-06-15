@@ -19,9 +19,10 @@ COPY . .
 RUN pnpm install --frozen-lockfile
 
 # 依存ワークスペース (shared) と本体をビルドし、prod 依存だけの自己完結ディレクトリへ deploy。
+# pnpm 10+ は injected workspace でないと deploy を拒否するため --legacy で従来挙動を使う。
 RUN pnpm --filter @stagecast/shared build \
   && pnpm --filter @stagecast/caption-pipeline build \
-  && pnpm --filter @stagecast/caption-pipeline deploy --prod /app
+  && pnpm --filter @stagecast/caption-pipeline deploy --prod --legacy /app
 
 FROM node:24-slim AS runtime
 ENV NODE_ENV=production
