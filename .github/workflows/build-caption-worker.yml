@@ -1,0 +1,72 @@
+name: Build caption-worker image
+
+# R4: 字幕ワーカー (services/caption-pipeline) のコンテナイメージを build/push する。
+# - pull_request: Dockerfile の健全性確認のため **build のみ** (AWS 不要)。
+# - workflow_dispatch: OIDC で AWS Role を引き受け、ECR (stagecast/caption-worker) に push。
+#   実 push には環境側で AWS_DEPLOY_ROLE_ARN を用意しておく (ADR 0005 O2)。
+
+on:
+  pull_request:
+    paths:
+      - "services/caption-pipeline/**"
+      - "packages/shared/**"
+      - "pnpm-lock.yaml"
+      - ".github/workflows/build-caption-worker.yml"
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: "push 先環境 (dev 等)"
+        required: true
+        default: "dev"
+
+concurrency:
+  group: build-caption-worker-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  id-token: write # OIDC (push 時のみ使用)
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    environment: ${{ github.event.inputs.environment }}
+    env:
+      AWS_REGION: ${{ vars.AWS_REGION || 'ap-northeast-1' }}
+      # dispatch のときだけ ECR push する。
+      PUSH: ${{ github.event_name == 'workflow_dispatch' }}
+    steps:
+      - uses: actions/checkout@v6
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Configure AWS credentials (OIDC)
+        if: ${{ github.event_name == 'workflow_dispatch' }}
+        uses: aws-actions/configure-aws-credentials@v6
+        with:
+          role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Login to Amazon ECR
+        if: ${{ github.event_name == 'workflow_dispatch' }}
+        id: ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Compute tags
+        id: tags
+        run: |
+          if [ "${{ env.PUSH }}" = "true" ]; then
+            reg='${{ steps.ecr.outputs.registry }}'
+            echo "tags=${reg}/stagecast/caption-worker:latest,${reg}/stagecast/caption-worker:main-${GITHUB_SHA::8}" >> "$GITHUB_OUTPUT"
+          else
+            echo "tags=stagecast/caption-worker:pr" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Build (and push on dispatch)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: services/caption-pipeline/Dockerfile
+          push: ${{ env.PUSH == 'true' }}
+          tags: ${{ steps.tags.outputs.tags }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max

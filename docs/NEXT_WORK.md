@@ -21,15 +21,15 @@
 > 詳細・決定背景は [ADR 0005](./decisions/0005-media-layer-rollout.md) を参照。
 > 5 Stage に分けて段階的にロールアウト。各 Stage 完了まで次に進まない。
 
-| ID     | Stage | スコープ                                                           | 想定 PR                          | 完了基準                                            |
-| ------ | ----- | ------------------------------------------------------------------ | -------------------------------- | --------------------------------------------------- |
-| **R1** | S3    | LiveKit Server の config.yaml + Valkey 接続 + UDP ポート公開 (NLB) | `claude/livekit-stage3` (IaC 完) | stage-web から実 LiveKit に接続できる (deploy は別) |
-| **R2** | S3    | LiveKit Egress の Chrome ヘッドレス設定 + Egress テンプレ URL      | `claude/livekit-stage3` (IaC 完) | RoomComposite Egress で合成映像が RTMP に出る       |
-| **R3** | S3    | stage-web → 実 LiveKit E2E (Playwright)                            | `claude/stage-web-livekit-e2e`   | 雛形 (`describe.skip`) のみ。Playwright 実装は別 PR |
-| **R4** | S4    | 字幕ワーカー Docker 化 + ECR Repository + GHA build/push           | `claude/caption-worker-docker`   | 1 イベントで字幕が CaptionConnectionHub から流れる  |
-| **R5** | S5    | reconcile Lambda IAM 最小化 (CFN Service Role + PassRole)          | `claude/reconcile-iam-min`       | Lambda IAM が `iam:PassRole` 1 個に絞られる         |
-| **R6** | S5    | Cognito 管理者 Custom Resource + CloudFront カスタムドメイン + ACM | `claude/cognito-admin-bootstrap` | 初期管理者 1 名が IaC でデプロイされる              |
-| **R7** | S5    | 統合テスト CI workflow + YouTube ingestion URL 自動取得            | `claude/integration-ci-youtube`  | 1 イベントを実 YouTube Live に配信、SLO 観測        |
+| ID     | Stage | スコープ                                                           | 想定 PR                                    | 完了基準                                                  |
+| ------ | ----- | ------------------------------------------------------------------ | ------------------------------------------ | --------------------------------------------------------- |
+| **R1** | S3    | LiveKit Server の config.yaml + Valkey 接続 + UDP ポート公開 (NLB) | `claude/livekit-stage3` (IaC 完)           | stage-web から実 LiveKit に接続できる (deploy は別)       |
+| **R2** | S3    | LiveKit Egress の Chrome ヘッドレス設定 + Egress テンプレ URL      | `claude/livekit-stage3` (IaC 完)           | RoomComposite Egress で合成映像が RTMP に出る             |
+| **R3** | S3    | stage-web → 実 LiveKit E2E (Playwright)                            | `claude/stage-web-livekit-e2e`             | 雛形 (`describe.skip`) のみ。Playwright 実装は別 PR       |
+| **R4** | S4    | 字幕ワーカー Docker 化 + ECR Repository + GHA build/push           | `claude/caption-worker-docker` (IaC/CI 完) | Dockerfile + ECR + GHA build 完。実 push/疎通は deploy 後 |
+| **R5** | S5    | reconcile Lambda IAM 最小化 (CFN Service Role + PassRole)          | `claude/reconcile-iam-min`                 | Lambda IAM が `iam:PassRole` 1 個に絞られる               |
+| **R6** | S5    | Cognito 管理者 Custom Resource + CloudFront カスタムドメイン + ACM | `claude/cognito-admin-bootstrap`           | 初期管理者 1 名が IaC でデプロイされる                    |
+| **R7** | S5    | 統合テスト CI workflow + YouTube ingestion URL 自動取得            | `claude/integration-ci-youtube`            | 1 イベントを実 YouTube Live に配信、SLO 観測              |
 
 ---
 

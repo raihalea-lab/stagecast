@@ -3,7 +3,9 @@ import { App } from "aws-cdk-lib";
 import { Match, Template } from "aws-cdk-lib/assertions";
 import {
   EventMediaStack,
+  ecrRepositoryArnFromUri,
   eventMediaStackName,
+  isEcrImage,
   liveKitServerConfig,
   serverlessCacheName,
 } from "../lib/event-media-stack";
@@ -188,6 +190,54 @@ describe("serverlessCacheName (D5: short hash で衝突回避)", () => {
 
   it("同じ eventId には決定的に同じ名前を返す", () => {
     expect(serverlessCacheName("evt-a")).toBe(serverlessCacheName("evt-a"));
+  });
+});
+
+describe("ECR イメージ判定/ARN 導出 (R4)", () => {
+  const uri = "111111111111.dkr.ecr.ap-northeast-1.amazonaws.com/stagecast/caption-worker:latest";
+
+  it("ECR URI を判定する", () => {
+    expect(isEcrImage(uri)).toBe(true);
+    expect(isEcrImage("public.ecr.aws/docker/library/node:24-alpine")).toBe(false);
+    expect(isEcrImage("livekit/livekit-server:latest")).toBe(false);
+  });
+
+  it("URI からリポジトリ ARN を導出する (タグは除去)", () => {
+    expect(ecrRepositoryArnFromUri(uri, "aws")).toBe(
+      "arn:aws:ecr:ap-northeast-1:111111111111:repository/stagecast/caption-worker",
+    );
+  });
+});
+
+describe("EventMediaStack ECR pull 権限 (R4)", () => {
+  it("caption-worker が ECR イメージのとき実行ロールに pull 権限を付与する", () => {
+    const app = new App();
+    const uri = "111111111111.dkr.ecr.ap-northeast-1.amazonaws.com/stagecast/caption-worker:latest";
+    const stack = new EventMediaStack(app, eventMediaStackName("evt-ecr"), {
+      env: { account: "111111111111", region: "ap-northeast-1" },
+      eventId: "evt-ecr",
+      captionEngine: "transcribe",
+      customCaptionApi: false,
+      images: { captionWorker: uri },
+    });
+    const t = Template.fromStack(stack);
+    t.hasResourceProperties("AWS::IAM::Policy", {
+      PolicyDocument: {
+        Statement: Match.arrayWith([
+          Match.objectLike({ Action: "ecr:GetAuthorizationToken", Effect: "Allow" }),
+          Match.objectLike({
+            Action: Match.arrayWith(["ecr:BatchGetImage"]),
+            Effect: "Allow",
+          }),
+        ]),
+      },
+    });
+  });
+
+  it("既定 (非 ECR) イメージのときは ECR pull 権限を付与しない", () => {
+    const t = synth();
+    const policies = t.findResources("AWS::IAM::Policy");
+    expect(JSON.stringify(policies)).not.toContain("ecr:GetAuthorizationToken");
   });
 });
 

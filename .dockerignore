@@ -1,0 +1,10 @@
+# Docker ビルドコンテキストから除外 (R4)。install/build はコンテナ内で再実行するため、
+# ローカル成果物は持ち込まない。
+**/node_modules
+**/dist
+**/cdk.out
+**/*.tsbuildinfo
+.git
+.github
+**/.vite
+**/coverage
