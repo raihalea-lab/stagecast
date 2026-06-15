@@ -133,7 +133,10 @@ export class StageController {
   }
 
   async leave(): Promise<void> {
+    // 未入室なら何もしない。二重退室で disconnect を重ねて呼ばない (冪等)。
+    if (!this.session && !this.lastJoin) return;
     await this.room.disconnect();
     this.session = undefined;
+    this.lastJoin = undefined; // 退室後の再 join をクリーンにする。
   }
 }

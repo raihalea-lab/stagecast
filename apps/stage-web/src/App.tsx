@@ -47,6 +47,7 @@ export function App(props: {
   const [screen, setScreen] = useState(false);
   const [page, setPage] = useState(1);
   const [reconnecting, setReconnecting] = useState(false);
+  const [busy, setBusy] = useState(false);
 
   // SFU 切断を検知したら入室画面へ戻し、再入室を促す。
   // 一時的な回線断は自動再接続を試みるのでセッションは保ち、再接続中バナーだけ出す。
@@ -62,21 +63,30 @@ export function App(props: {
 
   const join = async () => {
     setError(undefined);
-    // 入室前テストで選んだマイク/カメラを publish に反映する (N7)。
-    controller.setPreferredDevices(prefs);
-    const res = await controller.join(token, name || undefined);
-    if (!res.ok) {
-      setError(`入室できません: ${res.reason}`);
-      return;
+    setBusy(true);
+    try {
+      // 入室前テストで選んだマイク/カメラを publish に反映する (N7)。
+      controller.setPreferredDevices(prefs);
+      const res = await controller.join(token, name || undefined);
+      if (!res.ok) {
+        setError(`入室できません: ${res.reason}`);
+        return;
+      }
+      setSession(controller.currentSession);
+    } finally {
+      setBusy(false);
     }
-    setSession(controller.currentSession);
   };
 
+  // 操作中は busy で連打を防ぐ (mic/camera/screen/slide/leave を一括で disabled に)。
   const wrap = (fn: () => Promise<unknown>) => async () => {
+    setBusy(true);
     try {
       await fn();
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(false);
     }
   };
 
@@ -94,8 +104,8 @@ export function App(props: {
           <input value={name} onChange={(e) => setName(e.target.value)} />
         </label>
         <DeviceCheck provider={deviceProvider} onChange={setPrefs} />
-        <button onClick={join} disabled={!token}>
-          入室する
+        <button onClick={join} disabled={!token || busy}>
+          {busy ? "入室中…" : "入室する"}
         </button>
       </main>
     );
@@ -116,6 +126,7 @@ export function App(props: {
       {session.canPublish ? (
         <section className="controls">
           <button
+            disabled={busy}
             onClick={wrap(async () => {
               await controller.toggleMic(!mic);
               setMic(!mic);
@@ -124,6 +135,7 @@ export function App(props: {
             マイク: {mic ? "ON" : "OFF"}
           </button>
           <button
+            disabled={busy}
             onClick={wrap(async () => {
               await controller.toggleCamera(!camera);
               setCamera(!camera);
@@ -132,6 +144,7 @@ export function App(props: {
             カメラ: {camera ? "ON" : "OFF"}
           </button>
           <button
+            disabled={busy}
             onClick={wrap(async () => {
               await controller.toggleScreenShare(!screen);
               setScreen(!screen);
@@ -141,9 +154,19 @@ export function App(props: {
           </button>
 
           <div className="slides">
-            <button onClick={wrap(async () => setPage(await controller.slidePrev()))}>◀ 前</button>
+            <button
+              disabled={busy}
+              onClick={wrap(async () => setPage(await controller.slidePrev()))}
+            >
+              ◀ 前
+            </button>
             <span>スライド {page}</span>
-            <button onClick={wrap(async () => setPage(await controller.slideNext()))}>次 ▶</button>
+            <button
+              disabled={busy}
+              onClick={wrap(async () => setPage(await controller.slideNext()))}
+            >
+              次 ▶
+            </button>
           </div>
         </section>
       ) : (
@@ -152,6 +175,7 @@ export function App(props: {
 
       <button
         className="leave"
+        disabled={busy}
         onClick={wrap(() => controller.leave().then(() => setSession(undefined)))}
       >
         退室
