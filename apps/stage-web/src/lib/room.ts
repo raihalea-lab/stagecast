@@ -5,6 +5,8 @@
  * はデータメッセージで配る。テストではブラウザ無しで動く Fake を注入する。
  */
 
+import type { PreferredDevices } from "./devices.js";
+
 /** スライド送りのデータメッセージ (事前アップロード方式・5.2)。 */
 export interface SlideMessage {
   type: "slide";
@@ -16,6 +18,8 @@ export type RoomState = "idle" | "connected" | "disconnected";
 export interface RoomConnector {
   readonly state: RoomState;
   connect(url: string, token: string): Promise<void>;
+  /** 入室前テストで選んだマイク/カメラを publish 時に使う (N7)。 */
+  setPreferredDevices(prefs: PreferredDevices): void;
   setMicrophoneEnabled(enabled: boolean): Promise<void>;
   setCameraEnabled(enabled: boolean): Promise<void>;
   /** 画面共有の開始/停止 (DESIGN.md 5.2 画面共有方式)。 */
@@ -30,6 +34,7 @@ export class FakeRoomConnector implements RoomConnector {
   state: RoomState = "idle";
   readonly calls: string[] = [];
   readonly slides: SlideMessage[] = [];
+  preferredDevices: PreferredDevices = {};
   mic = false;
   camera = false;
   screenShare = false;
@@ -37,6 +42,10 @@ export class FakeRoomConnector implements RoomConnector {
   async connect(url: string, _token: string): Promise<void> {
     this.calls.push(`connect:${url}`);
     this.state = "connected";
+  }
+  setPreferredDevices(prefs: PreferredDevices): void {
+    this.preferredDevices = prefs;
+    this.calls.push(`prefs:${prefs.microphoneId ?? "-"}/${prefs.cameraId ?? "-"}`);
   }
   async setMicrophoneEnabled(enabled: boolean): Promise<void> {
     this.mic = enabled;
