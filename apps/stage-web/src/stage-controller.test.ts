@@ -74,4 +74,11 @@ describe("StageController (DESIGN.md 4.1, F-1, F-3)", () => {
     expect(room.state).toBe("idle");
     expect(ctrl.currentSession).toBeUndefined();
   });
+
+  it("入室前に選んだデバイスを room に伝える (N7)", () => {
+    const room = new FakeRoomConnector();
+    const ctrl = new StageController(new FakeStageClient(speakerJoin), room);
+    ctrl.setPreferredDevices({ microphoneId: "mic-2", cameraId: "cam-1" });
+    expect(room.preferredDevices).toEqual({ microphoneId: "mic-2", cameraId: "cam-1" });
+  });
 });

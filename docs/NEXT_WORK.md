@@ -184,8 +184,12 @@ reconcile Lambda 自身は `cloudformation:*` (スタック操作) + `iam:PassRo
 
 ### N7. stage-web の入室体験改善
 
-- 招待 URL アクセス時の **デバイス事前テスト** (カメラ/マイクの選択 + 音量メーター)
-- 接続失敗時のフォールバック (Audio only モード)
+- ✅ 招待 URL アクセス時の **デバイス事前テスト** (カメラ/マイク選択 + マイク音量メーター)。
+  `lib/devices.ts` (純ロジック + `MediaDevicesProvider` 抽象 + Fake) / `browser-devices.ts`
+  (navigator + AudioContext 実装) / `components/DeviceCheck.tsx`。選択は localStorage に保存し、
+  `RoomConnector.setPreferredDevices` 経由で publish 時の capture device に反映
+- 接続失敗時のフォールバック (Audio only モード) (未)
+- カメラのライブプレビュー / セッション中のデバイス切替 (未)
 
 ---
 

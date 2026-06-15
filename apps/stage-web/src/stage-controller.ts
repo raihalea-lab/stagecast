@@ -6,6 +6,7 @@
  */
 import type { InvitedRole } from "@stagecast/shared";
 import type { JoinResponse, StageClient } from "./api/stage-client.js";
+import type { PreferredDevices } from "./lib/devices.js";
 import type { RoomConnector } from "./lib/room.js";
 import { goToPage, nextPage, prevPage, type SlideDeckState } from "./lib/slides.js";
 
@@ -30,6 +31,11 @@ export class StageController {
   }
   get slideDeck(): SlideDeckState {
     return this.deck;
+  }
+
+  /** 入室前テストで選んだマイク/カメラを SFU 接続に伝える (N7)。 */
+  setPreferredDevices(prefs: PreferredDevices): void {
+    this.room.setPreferredDevices(prefs);
   }
 
   /** 招待トークンで入室し、SFU へ接続する。 */
