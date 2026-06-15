@@ -52,4 +52,24 @@ describe("computeLayout (DESIGN.md 5.1)", () => {
     const s = state({ slideSource: "uploaded", slidePage: 7 });
     expect(computeLayout(s).slide?.page).toBe(7);
   });
+
+  it("スライド右カラムに多人数いてもタイル矩形が常に有効 (0..1, 正の高さ)", () => {
+    const s = state({
+      slideSource: "screen-share",
+      speakers: Array.from({ length: 30 }, (_, i) => ({
+        speakerId: `s${i}`,
+        visibility: "live" as const,
+        updatedAtMs: 1,
+      })),
+    });
+    const layout = computeLayout(s);
+    expect(layout.speakers).toHaveLength(30);
+    for (const tile of layout.speakers) {
+      const r = tile.region;
+      expect(r.h).toBeGreaterThan(0);
+      expect(r.y).toBeGreaterThanOrEqual(0);
+      expect(r.y + r.h).toBeLessThanOrEqual(1.0001);
+      expect(r.x).toBeGreaterThan(0.5);
+    }
+  });
 });

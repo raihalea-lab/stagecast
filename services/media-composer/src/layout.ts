@@ -42,10 +42,14 @@ function speakerColumn(count: number): Rect[] {
   const x = 0.72;
   const w = 0.26;
   const gap = 0.02;
-  const h = (1 - gap * (count + 1)) / count;
+  // 人数が多いとギャップ総量が全高を超え、高さが負になる。ギャップ総量に上限を設けて
+  // タイル高さが常に正に収まるようにする (少人数では従来と同じ値)。
+  const gapTotal = Math.min(gap * (count + 1), 0.5);
+  const effectiveGap = gapTotal / (count + 1);
+  const h = (1 - gapTotal) / count;
   return Array.from({ length: count }, (_, i) => ({
     x,
-    y: gap + i * (h + gap),
+    y: effectiveGap + i * (h + effectiveGap),
     w,
     h,
   }));
