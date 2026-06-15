@@ -6,8 +6,9 @@ StreamYard 型 YouTube ライブ配信プラットフォーム (`stagecast`) の
 ## 設計の正と意思決定
 
 - **`DESIGN.md`** が設計の唯一の正。要件・非機能 (N-1〜N-6)・コスト方針・アーキテクチャ図はここから引く。
-- **逸脱する変更は ADR を書いてから**。`docs/decisions/0001-tech-stack.md` 〜 `0005-media-layer-rollout.md` 参照。
-  新規 ADR は `0006-*.md` に。テンプレ: ステータス/日付/関連/コンテキスト/決定/影響・トレードオフ。
+- **逸脱する変更は ADR を書いてから**。`docs/decisions/0001-tech-stack.md` 〜 `0007-caption-resilience.md` 参照
+  (0006 LiveKit デプロイ / 0007 字幕レジリエンス)。新規 ADR は `0008-*.md` に。
+  テンプレ: ステータス/日付/関連/コンテキスト/決定/影響・トレードオフ。
 - 残作業ロードマップ:
   - `docs/REMAINING_WORK.md` (T1〜T10) … **完了** ✅
   - `docs/decisions/0005-media-layer-rollout.md` … メディア層実体化の意思決定 (R1〜R7)
