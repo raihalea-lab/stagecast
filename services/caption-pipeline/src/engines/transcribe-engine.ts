@@ -6,10 +6,13 @@
  * ソース言語の字幕もそのまま発行する。暫定/確定フラグは ASR の結果を引き継ぐ。
  */
 import type { AudioChunk, CaptionEngine, CaptionEvent, LanguageCode } from "@stagecast/shared";
-import { createLogger, withRetry, type RetryOptions } from "@stagecast/shared";
+import { createLogger, withRetry, withTimeout, type RetryOptions } from "@stagecast/shared";
 import type { AsrAdapter, Translator, TranscriptSegment } from "./types.js";
 
 const log = createLogger({ component: "transcribe-engine" });
+
+/** 翻訳 1 回のタイムアウト既定値 (ms)。固まった翻訳が pushAudio を止めるのを防ぐ (N-2)。 */
+const DEFAULT_TRANSLATE_TIMEOUT_MS = 8_000;
 
 export interface TranscribeEngineConfig {
   sourceLanguage: LanguageCode;
@@ -20,6 +23,8 @@ export interface TranscribeEngineConfig {
    * 全リトライ失敗時はその言語をスキップし、ソース字幕と他言語は流す (翻訳は best-effort, N-2)。
    */
   translateRetry?: RetryOptions;
+  /** 翻訳 1 回のタイムアウト (ms, 既定 8000)。応答しない翻訳が pushAudio を止めるのを防ぐ。0 以下で無効。 */
+  translateTimeoutMs?: number;
   /** 翻訳が全リトライ失敗しその言語を諦めたときの通知 (メトリクス計測用)。 */
   onTranslateError?: (target: LanguageCode, err: unknown) => void;
 }
@@ -69,7 +74,14 @@ export class TranscribeStreamingEngine implements CaptionEngine {
       if (target === this.sourceLanguage) continue;
       try {
         const text = await withRetry(
-          () => this.translator.translate(segment.text, this.sourceLanguage, target),
+          () =>
+            withTimeout(
+              () => this.translator.translate(segment.text, this.sourceLanguage, target),
+              {
+                timeoutMs: this.config.translateTimeoutMs ?? DEFAULT_TRANSLATE_TIMEOUT_MS,
+                message: `translate to ${target} timed out`,
+              },
+            ),
           this.config.translateRetry,
         );
         this.emit({ ...baseEvent, language: target, text });

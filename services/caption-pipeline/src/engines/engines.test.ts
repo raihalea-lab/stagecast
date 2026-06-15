@@ -54,6 +54,30 @@ describe("TranscribeStreamingEngine (常用・低遅延経路)", () => {
     expect(out.find((c) => c.language === "en")?.text).toBe("Hello");
   });
 
+  it("固まった翻訳は translateTimeoutMs で打ち切られ pushAudio がハングしない (耐ハング)", async () => {
+    const hangingTranslator = {
+      translate: () => new Promise<string>(() => {}), // 決して解決しない
+    };
+    const errors: string[] = [];
+    const engine = new TranscribeStreamingEngine(
+      new FakeAsrAdapter("ja", [{ startMs: 0, endMs: 1000, text: "やあ", isFinal: true }]),
+      hangingTranslator,
+      {
+        sourceLanguage: "ja",
+        targetLanguages: ["en"],
+        translateTimeoutMs: 5,
+        translateRetry: { retries: 0, sleep: async () => {} },
+        onTranslateError: (target) => errors.push(target),
+      },
+    );
+    const out: CaptionEvent[] = [];
+    engine.onCaption((c) => out.push(c));
+    await engine.start();
+    await engine.pushAudio(chunk); // タイムアウトで返る (ハングしない)
+    expect(out.map((c) => c.language)).toEqual(["ja"]); // ソースのみ
+    expect(errors).toEqual(["en"]); // 翻訳失敗を計測通知
+  });
+
   it("翻訳が全リトライ失敗してもソース字幕は流れ pushAudio は壊れない", async () => {
     const brokenTranslator = {
       async translate(): Promise<string> {

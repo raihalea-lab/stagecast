@@ -11,10 +11,13 @@
  *    (pushText で投入)。
  */
 import type { AudioChunk, CaptionEngine, CaptionEvent, LanguageCode } from "@stagecast/shared";
-import { createLogger, withRetry, type RetryOptions } from "@stagecast/shared";
+import { createLogger, withRetry, withTimeout, type RetryOptions } from "@stagecast/shared";
 import type { LlmAdapter } from "./types.js";
 
 const log = createLogger({ component: "llm-engine" });
+
+/** 翻訳 1 回のタイムアウト既定値 (ms)。品質重視の LLM 経路は遅めなので余裕をとる (N-2)。 */
+const DEFAULT_TRANSLATE_TIMEOUT_MS = 20_000;
 
 export interface LlmEngineConfig {
   sourceLanguage: LanguageCode;
@@ -26,6 +29,8 @@ export interface LlmEngineConfig {
    * 全リトライ失敗時はその言語をスキップし、ソース字幕と他言語は流す (翻訳は best-effort, N-2)。
    */
   translateRetry?: RetryOptions;
+  /** 翻訳 1 回のタイムアウト (ms, 既定 20000)。応答しない翻訳が pushAudio を止めるのを防ぐ。0 以下で無効。 */
+  translateTimeoutMs?: number;
   /** 翻訳が全リトライ失敗しその言語を諦めたときの通知 (メトリクス計測用)。 */
   onTranslateError?: (target: LanguageCode, err: unknown) => void;
 }
@@ -72,7 +77,11 @@ export class LLMEngine implements CaptionEngine {
       if (target === this.sourceLanguage) continue;
       try {
         const translated = await withRetry(
-          () => this.llm.translate(text, this.sourceLanguage, target),
+          () =>
+            withTimeout(() => this.llm.translate(text, this.sourceLanguage, target), {
+              timeoutMs: this.config.translateTimeoutMs ?? DEFAULT_TRANSLATE_TIMEOUT_MS,
+              message: `llm translate to ${target} timed out`,
+            }),
           this.config.translateRetry,
         );
         this.emit({ ...base, language: target, text: translated });
