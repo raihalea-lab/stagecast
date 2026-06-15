@@ -154,6 +154,49 @@ describe("control-api integration (in-memory)", () => {
     expect(state.speakers[0]).toMatchObject({ speakerId: "spk-1", visibility: "live" });
   });
 
+  it("不正な発表者状態/スライド入力は 400 (合成を壊さない)", async () => {
+    const { id } = (
+      await app.handle(
+        req({
+          method: "POST",
+          path: "/events",
+          headers: adminAuth,
+          body: { title: "E", startsAt: "2026-07-01T09:00:00Z", caption },
+        }),
+      )
+    ).body as { id: string };
+
+    const badVisibility = await app.handle(
+      req({
+        method: "POST",
+        path: `/events/${id}/presentation/speakers`,
+        headers: adminAuth,
+        body: { speakerId: "spk-1", visibility: "spotlight" },
+      }),
+    );
+    expect(badVisibility.status).toBe(400);
+
+    const badPage = await app.handle(
+      req({
+        method: "POST",
+        path: `/events/${id}/presentation/slide`,
+        headers: adminAuth,
+        body: { slideSource: "uploaded", slidePage: -2 },
+      }),
+    );
+    expect(badPage.status).toBe(400);
+
+    const badSource = await app.handle(
+      req({
+        method: "POST",
+        path: `/events/${id}/presentation/slide`,
+        headers: adminAuth,
+        body: { slideSource: "webcam" },
+      }),
+    );
+    expect(badSource.status).toBe(400);
+  });
+
   it("issues, verifies, revokes and reissues invite tokens (4.1)", async () => {
     const eventId = await createEvent(app);
     const issued = await app.handle(
