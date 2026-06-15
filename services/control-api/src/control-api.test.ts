@@ -190,4 +190,41 @@ describe("control-api integration (in-memory)", () => {
     );
     expect(verifyOld.status).toBe(401);
   });
+
+  it("配信成果物のダウンロード URL を一覧する (N1)", async () => {
+    const app2 = buildControlApi({
+      inviteSecret: "test-secret",
+      artifactStore: {
+        async list(prefix) {
+          return prefix.startsWith("recordings/") ? [{ key: `${prefix}rec.mp4`, size: 10 }] : [];
+        },
+        async presignGet(key) {
+          return `https://signed/${key}`;
+        },
+      },
+    });
+    const res = await app2.handle(
+      req({ method: "GET", path: "/events/evt-9/artifacts", headers: adminAuth }),
+    );
+    expect(res.status).toBe(200);
+    expect(res.body).toMatchObject({
+      artifacts: [{ kind: "recording", name: "rec.mp4", downloadUrl: expect.any(String) }],
+    });
+  });
+
+  it("成果物一覧も認証必須 (F-12)", async () => {
+    const app2 = buildControlApi({
+      inviteSecret: "test-secret",
+      artifactStore: {
+        async list() {
+          return [];
+        },
+        async presignGet() {
+          return "";
+        },
+      },
+    });
+    const res = await app2.handle(req({ method: "GET", path: "/events/evt-9/artifacts" }));
+    expect(res.status).toBe(401);
+  });
 });

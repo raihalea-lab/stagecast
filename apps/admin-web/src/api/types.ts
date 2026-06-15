@@ -58,3 +58,20 @@ export interface AssetService {
     file: { name: string; contentType: string; bytes: Uint8Array },
   ): Promise<AssetRef>;
 }
+
+/** 配信成果物 (録画 / 確定字幕) のダウンロード情報 (N1, DESIGN.md 6.4 / N-4)。 */
+export interface Artifact {
+  kind: "recording" | "caption";
+  key: string;
+  name: string;
+  downloadUrl: string;
+  size?: number;
+}
+
+/**
+ * 配信後の成果物ダウンロード (DESIGN.md 6.4)。
+ * 本番は control-api 経由で S3 署名付き GET URL を取得。ローカルはインメモリ。
+ */
+export interface ArtifactService {
+  list(eventId: string): Promise<Artifact[]>;
+}

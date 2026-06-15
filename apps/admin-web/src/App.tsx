@@ -10,7 +10,8 @@ import type { EventDefinition } from "@stagecast/shared";
 import type { CreateEventInput } from "@stagecast/control-api";
 import { HttpControlApiClient } from "./api/http-client.js";
 import { HttpAssetService } from "./api/http-asset-service.js";
-import type { ControlApiClient, AssetService } from "./api/types.js";
+import { HttpArtifactService } from "./api/http-artifact-service.js";
+import type { ControlApiClient, AssetService, ArtifactService } from "./api/types.js";
 import { EventForm } from "./components/EventForm.js";
 import { EventDetail } from "./components/EventDetail.js";
 import { CognitoAuthClient, configFromEnv } from "./auth/cognito.js";
@@ -35,11 +36,19 @@ interface AuthState {
   error?: string;
 }
 
-export function App(props: { client?: ControlApiClient; assets?: AssetService }) {
+export function App(props: {
+  client?: ControlApiClient;
+  assets?: AssetService;
+  artifacts?: ArtifactService;
+}) {
   const client = useMemo(() => props.client ?? defaultClient(), [props.client]);
   const assets = useMemo(
     () => props.assets ?? new HttpAssetService(apiBaseUrl(), getIdToken),
     [props.assets],
+  );
+  const artifacts = useMemo(
+    () => props.artifacts ?? new HttpArtifactService(apiBaseUrl(), getIdToken),
+    [props.artifacts],
   );
 
   const [auth, setAuth] = useState<AuthState>({ status: "loading" });
@@ -155,7 +164,13 @@ export function App(props: { client?: ControlApiClient; assets?: AssetService })
         </aside>
         <article>
           {selected ? (
-            <EventDetail event={selected} client={client} assets={assets} onChanged={refresh} />
+            <EventDetail
+              event={selected}
+              client={client}
+              assets={assets}
+              artifacts={artifacts}
+              onChanged={refresh}
+            />
           ) : (
             <p>イベントを選択してください。</p>
           )}

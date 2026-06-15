@@ -27,6 +27,11 @@ import {
   S3AssetUploadSigner,
   type AssetUploadSigner,
 } from "./assets/asset-upload.js";
+import {
+  createArtifactDownloadService,
+  S3ArtifactStore,
+  type ArtifactStore,
+} from "./assets/artifact-download.js";
 import { createApp } from "./http/app.js";
 
 export interface FactoryConfig {
@@ -40,6 +45,8 @@ export interface FactoryConfig {
   livekitMinter?: LiveKitTokenMinter;
   /** 素材アップロード署名器。未指定なら ASSETS_BUCKET_NAME があれば S3 実装を使う。 */
   assetSigner?: AssetUploadSigner;
+  /** 成果物ダウンロード用 S3 ストア。未指定なら ASSETS_BUCKET_NAME があれば S3 実装を使う。 */
+  artifactStore?: ArtifactStore;
   now?: () => number;
   newId?: () => string;
 }
@@ -95,6 +102,13 @@ export function buildControlApi(config: FactoryConfig = {}) {
     config.assetSigner ?? (assetsBucket ? new S3AssetUploadSigner(assetsBucket) : undefined);
   const assets = assetSigner ? createAssetUploadService({ signer: assetSigner, newId }) : undefined;
 
+  // 成果物ダウンロード: 注入 > ASSETS_BUCKET_NAME から S3 実装 > 無効 (503)。
+  const artifactStore =
+    config.artifactStore ?? (assetsBucket ? new S3ArtifactStore(assetsBucket) : undefined);
+  const artifacts = artifactStore
+    ? createArtifactDownloadService({ store: artifactStore })
+    : undefined;
+
   return createApp({
     auth: config.auth ?? new FakeAdminAuthVerifier(),
     events,
@@ -102,5 +116,6 @@ export function buildControlApi(config: FactoryConfig = {}) {
     presentation,
     join,
     assets,
+    artifacts,
   });
 }
