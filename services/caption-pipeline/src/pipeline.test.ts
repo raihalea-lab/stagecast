@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { AudioChunk } from "@stagecast/shared";
+import type { AudioChunk, CaptionEvent, CaptionSink } from "@stagecast/shared";
 import { InProcessCaptionBus } from "./bus.js";
 import { CaptionPipeline } from "./pipeline.js";
 import { TranscribeStreamingEngine } from "./engines/transcribe-engine.js";
@@ -87,6 +87,56 @@ describe("CaptionPipeline end-to-end (DESIGN.md 6 章)", () => {
     expect(youtube.published).toHaveLength(1);
     expect(youtube.published[0]?.text).toBe("おはよう");
     expect(broadcaster.messages.find((m) => m.language === "en")?.text).toBe("Good morning");
+  });
+
+  it("sink delivery is resilient: transient failures retry, permanent failures don't crash (N-2)", async () => {
+    class FlakySink implements CaptionSink {
+      readonly kind: string;
+      attempts = 0;
+      readonly delivered: CaptionEvent[] = [];
+      constructor(
+        kind: string,
+        private failuresLeft: number,
+      ) {
+        this.kind = kind;
+      }
+      async start(): Promise<void> {}
+      async stop(): Promise<void> {}
+      async deliver(caption: CaptionEvent): Promise<void> {
+        this.attempts += 1;
+        if (this.failuresLeft > 0) {
+          this.failuresLeft -= 1;
+          throw new Error("transient");
+        }
+        this.delivered.push(caption);
+      }
+    }
+    const recovering = new FlakySink("recovering", 2); // 2 回失敗 → 3 回目で成功
+    const broken = new FlakySink("broken", Number.POSITIVE_INFINITY); // 常に失敗
+    const engine = new TranscribeStreamingEngine(
+      new FakeAsrAdapter("en", [{ startMs: 0, endMs: 500, text: "hi", isFinal: true }]),
+      new FakeTranslator(),
+      { sourceLanguage: "en", targetLanguages: ["en"], eventId: "evt-r" },
+    );
+    const pipeline = new CaptionPipeline({
+      bus: new InProcessCaptionBus(),
+      engine,
+      sinks: [recovering, broken],
+      // テストは実時間を待たない。
+      sinkRetry: { retries: 3, sleep: async () => {} },
+    });
+
+    await pipeline.start();
+    // broken が全リトライ失敗しても pushAudio は reject しない (best-effort)。
+    await pipeline.pushAudio(chunk);
+    await pipeline.stop();
+
+    // recovering は再試行で最終的に 1 件配信。
+    expect(recovering.delivered).toHaveLength(1);
+    expect(recovering.attempts).toBe(3);
+    // broken は初回 + 3 再試行 = 4 回試行し、配信は 0。パイプラインは継続。
+    expect(broken.attempts).toBe(4);
+    expect(broken.delivered).toHaveLength(0);
   });
 
   it("sink is swappable: dropping the custom sink leaves only the YouTube path", async () => {
