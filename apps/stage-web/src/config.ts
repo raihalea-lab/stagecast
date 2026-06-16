@@ -9,15 +9,18 @@ export interface RuntimeConfig {
   controlApiUrl: string;
 }
 
-/** fetch した config.json (任意) と build-time env から最終設定を解決する (純粋関数・テスト対象)。 */
+/**
+ * fetch した config.json (任意) と build-time env のフォールバック値から最終設定を解決する。
+ * 純粋関数 (テスト対象)。`import.meta.env` の型に依存しないよう、env 値は呼び出し側で取り出して渡す。
+ */
 export function resolveRuntimeConfig(
   fetched: Partial<RuntimeConfig> | undefined,
-  env: { VITE_CONTROL_API_URL?: string },
+  fallbackApiUrl: string | undefined,
 ): RuntimeConfig {
-  return { controlApiUrl: fetched?.controlApiUrl ?? env.VITE_CONTROL_API_URL ?? "" };
+  return { controlApiUrl: fetched?.controlApiUrl ?? fallbackApiUrl ?? "" };
 }
 
-/** `/config.json` を読み込み、無ければ env にフォールバックして RuntimeConfig を返す。 */
+/** `/config.json` を読み込み、無ければ build-time env にフォールバックして RuntimeConfig を返す。 */
 export async function loadRuntimeConfig(): Promise<RuntimeConfig> {
   let fetched: Partial<RuntimeConfig> | undefined;
   try {
@@ -26,5 +29,5 @@ export async function loadRuntimeConfig(): Promise<RuntimeConfig> {
   } catch {
     // 未配置 / ネットワーク不通はローカル開発とみなし env フォールバック。
   }
-  return resolveRuntimeConfig(fetched, import.meta.env);
+  return resolveRuntimeConfig(fetched, import.meta.env.VITE_CONTROL_API_URL);
 }
