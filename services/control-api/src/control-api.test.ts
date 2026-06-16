@@ -399,58 +399,51 @@ describe("settings (LiveKit / YouTube) HTTP", () => {
     expect(res.body).toEqual({ configured: false });
   });
 
-  it("PUT で全フィールドを保存し GET で configured:true + url を返す (LiveKit)", async () => {
+  it("PUT で apiKey/apiSecret を保存し GET で configured:true を返す (LiveKit)", async () => {
     const app = buildAppWithSettings();
     const put = await app.handle(
       req({
         method: "PUT",
         path: "/settings/livekit",
         headers: adminAuth,
-        body: { url: "wss://lk.example.com", apiKey: "k", apiSecret: "s" },
+        body: { apiKey: "k", apiSecret: "s" },
       }),
     );
     expect(put.status).toBe(200);
-    expect(put.body).toEqual({ configured: true, url: "wss://lk.example.com" });
+    expect(put.body).toEqual({ configured: true });
 
     const get = await app.handle(
       req({ method: "GET", path: "/settings/livekit", headers: adminAuth }),
     );
-    expect(get.body).toEqual({ configured: true, url: "wss://lk.example.com" });
+    expect(get.body).toEqual({ configured: true });
+    // ADR 0008 D-7: url はレスポンスから完全削除。
+    expect(JSON.stringify(get.body)).not.toContain("url");
   });
 
-  it("LiveKit URL が wss:// 以外なら 400", async () => {
+  it("apiKey/apiSecret のどれか欠けたら 400", async () => {
     const app = buildAppWithSettings();
     const res = await app.handle(
       req({
         method: "PUT",
         path: "/settings/livekit",
         headers: adminAuth,
-        body: { url: "https://lk.example.com", apiKey: "k", apiSecret: "s" },
+        body: { apiKey: "", apiSecret: "s" },
       }),
     );
     expect(res.status).toBe(400);
   });
 
-  it("POST /settings/livekit/regenerate で鍵が生成される (URL は保持、機密はレスポンスに含めない)", async () => {
+  it("POST /settings/livekit/regenerate で鍵が生成される (機密はレスポンスに含めない)", async () => {
     const app = buildAppWithSettings();
-    // 先に URL だけ入れた状態を作る (鍵は空のままだと configured:false)。
-    await app.handle(
-      req({
-        method: "PUT",
-        path: "/settings/livekit",
-        headers: adminAuth,
-        body: { url: "wss://lk.example.com", apiKey: "old-key", apiSecret: "old-sec" },
-      }),
-    );
-
     const regen = await app.handle(
       req({ method: "POST", path: "/settings/livekit/regenerate", headers: adminAuth }),
     );
     expect(regen.status).toBe(200);
-    expect(regen.body).toEqual({ configured: true, url: "wss://lk.example.com" });
+    expect(regen.body).toEqual({ configured: true });
     // 機密 (apiKey/apiSecret) はレスポンスに含まれない。
     expect(JSON.stringify(regen.body)).not.toContain("apiKey");
     expect(JSON.stringify(regen.body)).not.toContain("apiSecret");
+    expect(JSON.stringify(regen.body)).not.toContain("url");
   });
 
   it("regenerate も認証が必要 (401)", async () => {
@@ -461,15 +454,9 @@ describe("settings (LiveKit / YouTube) HTTP", () => {
     expect(res.status).toBe(401);
   });
 
-  it("PATCH /settings/livekit で URL のみ更新できる (鍵は保持)", async () => {
+  it("PATCH /settings/livekit は削除されており 404", async () => {
     const app = buildAppWithSettings();
-    // 初期: 鍵だけ生成しておく (URL は空)。
-    await app.handle(
-      req({ method: "POST", path: "/settings/livekit/regenerate", headers: adminAuth }),
-    );
-    expect((await app.handle(req({ method: "GET", path: "/settings/livekit", headers: adminAuth }))).body).toEqual({ configured: false });
-
-    const patch = await app.handle(
+    const res = await app.handle(
       req({
         method: "PATCH",
         path: "/settings/livekit",
@@ -477,9 +464,7 @@ describe("settings (LiveKit / YouTube) HTTP", () => {
         body: { url: "wss://nlb.example.com" },
       }),
     );
-    expect(patch.status).toBe(200);
-    // 鍵が既にあるので configured:true に遷移する。
-    expect(patch.body).toEqual({ configured: true, url: "wss://nlb.example.com" });
+    expect(res.status).toBe(404);
   });
 
   it("PUT で YouTube を保存しても機密は GET で返らない", async () => {

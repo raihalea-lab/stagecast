@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  enforceMaxParallel,
   executePlan,
   findStaleStacks,
   planReconcile,
@@ -141,5 +142,43 @@ describe("executePlan (T4)", () => {
     expect(result.skipped).toBe(1);
     expect(result.done).toBe(0);
     expect(result.errors).toBe(0);
+  });
+});
+
+describe("enforceMaxParallel (ADR 0008 D-6)", () => {
+  it("desired が上限以下なら全件 allowed (skipped 空)", () => {
+    const r = enforceMaxParallel([desired("a"), desired("b")], [], 3);
+    expect(r.allowed.map((d) => d.eventId)).toEqual(["a", "b"]);
+    expect(r.skipped).toEqual([]);
+  });
+
+  it("上限を超えると超過分が skipped に入る (eventId 順)", () => {
+    const r = enforceMaxParallel(
+      [desired("c"), desired("a"), desired("b"), desired("d")],
+      [],
+      2,
+    );
+    expect(r.allowed.map((d) => d.eventId)).toEqual(["a", "b"]);
+    expect(r.skipped.map((d) => d.eventId)).toEqual(["c", "d"]);
+  });
+
+  it("既に running / in_progress なものを優先して allowed に残す", () => {
+    const r = enforceMaxParallel(
+      [desired("a"), desired("b"), desired("c")],
+      [
+        { eventId: "c", kind: "running" },
+        { eventId: "b", kind: "running" },
+      ],
+      2,
+    );
+    // 稼働中の b, c が残り、新規の a が skipped。
+    expect(r.allowed.map((d) => d.eventId).sort()).toEqual(["b", "c"]);
+    expect(r.skipped.map((d) => d.eventId)).toEqual(["a"]);
+  });
+
+  it("maxParallel <= 0 は無効化扱いで全件 allowed", () => {
+    const r = enforceMaxParallel([desired("a"), desired("b")], [], 0);
+    expect(r.allowed).toHaveLength(2);
+    expect(r.skipped).toEqual([]);
   });
 });

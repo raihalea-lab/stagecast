@@ -84,9 +84,6 @@ export class HttpControlApiClient implements ControlApiClient {
   putLiveKitSettings(creds: LiveKitCredentials): Promise<LiveKitSettingsStatus> {
     return this.call("PUT", "/settings/livekit", creds);
   }
-  patchLiveKitUrl(url: string): Promise<LiveKitSettingsStatus> {
-    return this.call("PATCH", "/settings/livekit", { url });
-  }
   regenerateLiveKitKeys(): Promise<LiveKitSettingsStatus> {
     return this.call("POST", "/settings/livekit/regenerate");
   }

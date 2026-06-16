@@ -61,6 +61,15 @@ button:disabled {
   color: #f5a623;
   font-weight: 600;
 }
+.retry-progress {
+  background: rgba(245, 166, 35, 0.15);
+  border-left: 4px solid #f5a623;
+  padding: 12px 16px;
+  border-radius: 4px;
+}
+.retry-progress small {
+  color: #888;
+}
 .leave {
   margin-top: 24px;
   background: #5a1f1f;

@@ -44,6 +44,22 @@ export interface YouTubeTarget {
   streamKeyRef: string;
 }
 
+/**
+ * EventMediaStack 起動完了後にメディア層が公開する接続情報 (ADR 0008 D-1)。
+ *
+ * reconcile Lambda が ECS task の Public IP を取得して書き戻す。`/join` はこのフィールドを
+ * 読んで stage-web に返す。status=live でも EventMediaStack 起動完了前は undefined。
+ */
+export interface EventMediaInfo {
+  /**
+   * LiveKit Server に登壇者が WebSocket 接続するための URL。
+   * `wss://<TaskPublicIp>:7880` 形式 (NLB を経由しない、ADR 0008 D-4)。
+   */
+  livekitUrl: string;
+  /** URL が確定し DynamoDB に書き戻されたエポックミリ秒。診断用。 */
+  readyAt: number;
+}
+
 /** イベント定義 (DESIGN.md 8 章)。 */
 export interface EventDefinition {
   /** イベント ID。 */
@@ -63,6 +79,11 @@ export interface EventDefinition {
   slideAssets?: AssetRef[];
   caption: CaptionSettings;
   youtube?: YouTubeTarget;
+  /**
+   * EventMediaStack 起動完了後のメディア層接続情報 (ADR 0008 D-1)。
+   * status="draft"/"ended" や、status="live" でも起動完了前は undefined。
+   */
+  media?: EventMediaInfo;
   createdAtMs: number;
   updatedAtMs: number;
 }

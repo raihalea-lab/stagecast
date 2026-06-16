@@ -73,34 +73,18 @@ describe("EventMediaStack (DESIGN.md 7.1/7.3, N-5)", () => {
     expect(portMapped.length).toBe(1);
   });
 
-  it("LiveKit signaling/WebRTC を受ける Network Load Balancer を持つ (R1, ADR 0006 D-1)", () => {
-    template.resourceCountIs("AWS::ElasticLoadBalancingV2::LoadBalancer", 1);
-    template.hasResourceProperties("AWS::ElasticLoadBalancingV2::LoadBalancer", {
-      Type: "network",
-      Scheme: "internet-facing",
-    });
+  it("ADR 0008 D-4: NLB は廃止 (LoadBalancer も Listener も持たない)", () => {
+    template.resourceCountIs("AWS::ElasticLoadBalancingV2::LoadBalancer", 0);
+    template.resourceCountIs("AWS::ElasticLoadBalancingV2::Listener", 0);
+    template.resourceCountIs("AWS::ElasticLoadBalancingV2::TargetGroup", 0);
   });
 
-  it("signaling(TCP 7880) / RTC-TCP(7881) / RTC-UDP(7882) のリスナを公開する (ADR 0006 D-2)", () => {
-    template.resourceCountIs("AWS::ElasticLoadBalancingV2::Listener", 3);
-    template.hasResourceProperties("AWS::ElasticLoadBalancingV2::Listener", {
-      Protocol: "TCP",
-      Port: 7880,
-    });
-    template.hasResourceProperties("AWS::ElasticLoadBalancingV2::Listener", {
-      Protocol: "TCP",
-      Port: 7881,
-    });
-    template.hasResourceProperties("AWS::ElasticLoadBalancingV2::Listener", {
-      Protocol: "UDP",
-      Port: 7882,
-    });
-    // UDP ターゲットグループの死活監視は signaling(TCP) ポートで行う。
-    template.hasResourceProperties("AWS::ElasticLoadBalancingV2::TargetGroup", {
-      Protocol: "UDP",
-      Port: 7882,
-      HealthCheckProtocol: "TCP",
-      HealthCheckPort: "7880",
+  it("ADR 0008 D-4: SFU ECS service は Public IP 直接公開 + 固定 service 名", () => {
+    template.hasResourceProperties("AWS::ECS::Service", {
+      ServiceName: "sfu",
+      NetworkConfiguration: {
+        AwsvpcConfiguration: { AssignPublicIp: "ENABLED" },
+      },
     });
   });
 

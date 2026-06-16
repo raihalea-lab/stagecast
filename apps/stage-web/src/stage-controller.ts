@@ -5,7 +5,7 @@
  * React コンポーネントはこのコントローラを呼ぶだけにし、ロジックを外部接続なしに検証する。
  */
 import type { InvitedRole } from "@stagecast/shared";
-import type { JoinResponse, StageClient } from "./api/stage-client.js";
+import type { JoinOptions, JoinResponse, StageClient } from "./api/stage-client.js";
 import type { PreferredDevices } from "./lib/devices.js";
 import type { RoomConnector } from "./lib/room.js";
 import { goToPage, nextPage, prevPage, type SlideDeckState } from "./lib/slides.js";
@@ -66,12 +66,17 @@ export class StageController {
   /**
    * 招待トークンで入室し、SFU へ接続する。
    * 連打/二重呼び出しでも SFU 接続は 1 回に保つ (in-flight を共有 + 入室済みは再接続しない)。
+   * options で /join 503 リトライ動作 (ADR 0008 D-3) を制御できる。
    */
-  async join(token: string, displayName?: string): Promise<JoinResponse> {
+  async join(
+    token: string,
+    displayName?: string,
+    options?: JoinOptions,
+  ): Promise<JoinResponse> {
     if (this.session && this.lastJoin) return this.lastJoin; // 入室済み: 再接続しない。
     if (this.joinInFlight) return this.joinInFlight; // 同時呼び出しは 1 本にまとめる。
     this.joinInFlight = (async () => {
-      const res = await this.client.join(token, displayName);
+      const res = await this.client.join(token, displayName, options);
       if (!res.ok) return res;
       await this.room.connect(res.livekitUrl, res.livekitToken);
       this.session = {

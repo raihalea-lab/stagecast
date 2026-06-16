@@ -1,8 +1,12 @@
 /**
- * stage-web から制御 API を呼ぶクライアント (DESIGN.md 4.1, F-1)。
+ * stage-web から制御 API を呼ぶクライアント (DESIGN.md 4.1, F-1, ADR 0008 D-3)。
  *
  * 招待トークンを /join に提示し、LiveKit 接続情報を受け取る。認証は招待トークンのみで、
  * 管理者用 Cognito は不要 (モデレーター・登壇者はアカウントを持たない)。
+ *
+ * EventMediaStack 起動中で per-event URL が確定していない間は制御 API が 503 を返す
+ * (ADR 0008 D-3)。本クライアントは自動で exponential backoff してリトライし、最終的に
+ * 200 もしくは別エラーが返るのを待つ。UI には onRetry で進捗を伝える。
  */
 import type { InvitedRole } from "@stagecast/shared";
 
@@ -21,20 +25,69 @@ export interface JoinFailure {
 }
 export type JoinResponse = JoinSuccess | JoinFailure;
 
-export interface StageClient {
-  join(token: string, displayName?: string): Promise<JoinResponse>;
+export interface JoinOptions {
+  /**
+   * 503 を受けたときに自動リトライする最大累積待ち時間 (秒)。0 ならリトライ無効。
+   * 既定 60s = reconcile tick (60s) + ECS task 起動 (3〜5 分) の組み合わせを
+   * 1 リトライサイクルで吸収する想定。
+   */
+  maxRetryWaitSec?: number;
+  /**
+   * リトライ前に呼ばれるコールバック (UI 進捗表示用)。
+   * attempt は 1 オリジン、nextWaitSec は次の待機秒数。
+   */
+  onRetry?: (info: { attempt: number; nextWaitSec: number; elapsedSec: number }) => void;
+  /** sleep 実装 (テストでは即時 resolve に差し替え)。 */
+  sleep?: (ms: number) => Promise<void>;
 }
+
+export interface StageClient {
+  join(token: string, displayName?: string, options?: JoinOptions): Promise<JoinResponse>;
+}
+
+/** ADR 0008 D-3: exponential backoff スケジュール (秒)。 */
+const BACKOFF_SCHEDULE_SEC = [1, 2, 4, 8, 16, 30, 30] as const;
 
 export class HttpStageClient implements StageClient {
   constructor(private readonly baseUrl: string) {}
 
-  async join(token: string, displayName?: string): Promise<JoinResponse> {
+  async join(token: string, displayName?: string, options: JoinOptions = {}): Promise<JoinResponse> {
+    const maxRetryWaitSec = options.maxRetryWaitSec ?? 60;
+    const sleep = options.sleep ?? ((ms: number) => new Promise((r) => setTimeout(r, ms)));
+
+    let attempt = 0;
+    let elapsedSec = 0;
+    while (true) {
+      attempt++;
+      const res = await this.tryOnce(token, displayName);
+      if (res.status !== 503) return res.body;
+      // 503: リトライ判定
+      if (maxRetryWaitSec <= 0) return { ok: false, reason: "media-unavailable" };
+      const nextWaitSec =
+        BACKOFF_SCHEDULE_SEC[Math.min(attempt - 1, BACKOFF_SCHEDULE_SEC.length - 1)]!;
+      // 次の待ちで上限を越えるなら諦める。
+      if (elapsedSec + nextWaitSec > maxRetryWaitSec) {
+        return { ok: false, reason: "media-unavailable" };
+      }
+      options.onRetry?.({ attempt, nextWaitSec, elapsedSec });
+      await sleep(nextWaitSec * 1000);
+      elapsedSec += nextWaitSec;
+    }
+  }
+
+  /** /join を 1 回だけ呼ぶ (リトライ無し)。Retry-After は将来使うかもしれないので status を返す。 */
+  private async tryOnce(
+    token: string,
+    displayName: string | undefined,
+  ): Promise<{ status: number; body: JoinResponse }> {
     const res = await fetch(`${this.baseUrl}/join`, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ token, displayName }),
     });
-    if (res.status === 503) return { ok: false, reason: "media-unavailable" };
-    return (await res.json()) as JoinResponse;
+    if (res.status === 503) {
+      return { status: 503, body: { ok: false, reason: "media-unavailable" } };
+    }
+    return { status: res.status, body: (await res.json()) as JoinResponse };
   }
 }

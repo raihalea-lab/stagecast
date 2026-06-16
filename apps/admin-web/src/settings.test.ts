@@ -1,8 +1,9 @@
 /**
- * SettingsPage 連携の end-to-end テスト (ADR D-10)。
+ * SettingsPage 連携の end-to-end テスト (ADR D-10, ADR 0008 D-7)。
  *
  * LocalControlApiClient に SettingsService を注入した buildControlApi を渡して、
  * 「保存 → 状態取得」の往復が configured を返すことと、機密値が GET で漏れないことを確認する。
+ * URL は per-event 化 (ADR 0008) により本ページからは扱わない。
  */
 import { describe, expect, it } from "vitest";
 import {
@@ -36,28 +37,24 @@ function buildClient() {
   return { client: new LocalControlApiClient(app), store };
 }
 
-describe("admin-web SettingsPage 連携 (ADR D-10)", () => {
-  it("LiveKit を保存すると configured:true + url を返す (機密は返らない)", async () => {
+describe("admin-web SettingsPage 連携 (ADR D-10, ADR 0008)", () => {
+  it("LiveKit を保存すると configured:true を返す (機密値・URL とも返らない)", async () => {
     const { client, store } = buildClient();
     expect(await client.getLiveKitSettings()).toEqual({ configured: false });
 
-    const next = await client.putLiveKitSettings({
-      url: "wss://lk.example.com",
-      apiKey: "k",
-      apiSecret: "s",
-    });
-    expect(next).toEqual({ configured: true, url: "wss://lk.example.com" });
+    const next = await client.putLiveKitSettings({ apiKey: "k", apiSecret: "s" });
+    expect(next).toEqual({ configured: true });
+    // 機密値も URL もレスポンスに含まれない。
+    expect(JSON.stringify(next)).not.toContain("apiKey");
+    expect(JSON.stringify(next)).not.toContain("apiSecret");
+    expect(JSON.stringify(next)).not.toContain("url");
 
-    // GET でも同じ (機密は返らない)。
-    const get = await client.getLiveKitSettings();
-    expect(get).toEqual({ configured: true, url: "wss://lk.example.com" });
+    expect(await client.getLiveKitSettings()).toEqual({ configured: true });
 
-    // 書き込み済みストアには全フィールドがある (server 内部のみ)。
-    expect(store.get(livekitArn)).toEqual({
-      url: "wss://lk.example.com",
-      apiKey: "k",
-      apiSecret: "s",
-    });
+    // 書き込み済みストアには apiKey / apiSecret がある (url は無い)。
+    const stored = store.get(livekitArn);
+    expect(stored).toEqual({ apiKey: "k", apiSecret: "s" });
+    expect(stored).not.toHaveProperty("url");
   });
 
   it("YouTube を保存すると configured:true (機密は GET で返らない)", async () => {
@@ -74,41 +71,18 @@ describe("admin-web SettingsPage 連携 (ADR D-10)", () => {
     expect(await client.getYouTubeSettings()).toEqual({ configured: true });
   });
 
-  it("LiveKit URL が wss:// 以外なら API がエラーを返す", async () => {
-    const { client } = buildClient();
-    await expect(
-      client.putLiveKitSettings({
-        url: "https://lk.example.com",
-        apiKey: "k",
-        apiSecret: "s",
-      }),
-    ).rejects.toThrow();
-  });
-
-  it("regenerateLiveKitKeys は機密値を返さず configured を返す (URL 設定済の場合 configured:true)", async () => {
+  it("regenerateLiveKitKeys は機密値も URL も返さず configured を返す", async () => {
     const { client, store } = buildClient();
-    // URL を先に PATCH で登録 (鍵はまだ無いので configured:false)。
-    expect(await client.patchLiveKitUrl("wss://nlb.example.com")).toEqual({ configured: false });
-
     const result = await client.regenerateLiveKitKeys();
-    expect(result).toEqual({ configured: true, url: "wss://nlb.example.com" });
-    // クライアントが受け取るレスポンスには apiKey / apiSecret は含まれない (UI に出さない)。
+    expect(result).toEqual({ configured: true });
+    // クライアントが受け取るレスポンスには apiKey / apiSecret も url も含まれない。
     expect(JSON.stringify(result)).not.toContain("apiKey");
     expect(JSON.stringify(result)).not.toContain("apiSecret");
+    expect(JSON.stringify(result)).not.toContain("url");
     // サーバ内部 (Secrets Manager) には実値が保存されている。
     const stored = store.get(livekitArn);
     expect(stored?.apiKey).toMatch(/^API/);
     expect(stored?.apiSecret.length).toBeGreaterThan(40);
-  });
-
-  it("patchLiveKitUrl は既存の鍵を保持する", async () => {
-    const { client, store } = buildClient();
-    await client.regenerateLiveKitKeys(); // 鍵だけ作成
-    const beforeKey = store.get(livekitArn)?.apiKey;
-    expect(beforeKey).toMatch(/^API/);
-
-    await client.patchLiveKitUrl("wss://new.example.com");
-    expect(store.get(livekitArn)?.apiKey).toBe(beforeKey); // 鍵は不変
-    expect(store.get(livekitArn)?.url).toBe("wss://new.example.com");
+    expect(stored).not.toHaveProperty("url");
   });
 });

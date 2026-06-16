@@ -1,11 +1,16 @@
 /**
- * 招待 URL からの入室 (DESIGN.md 4.1, F-1, F-12)。
+ * 招待 URL からの入室 (DESIGN.md 4.1, F-1, F-12, ADR 0008 D-1/D-3)。
  *
  * モデレーター・登壇者は招待トークンを提示して入室する。トークンを検証し、ロールに応じた
  * LiveKit アクセストークンを払い出す。これにより stage-web は SFU に接続できる。
+ *
+ * LiveKit URL は per-event 化 (ADR 0008 D-1) のため、events.media.livekitUrl から取得する。
+ * status="live" でも EventMediaStack 起動完了前は media が undefined のため 503 + Retry-After
+ * を返し、stage-web 側で exponential backoff (ADR 0008 D-3) させる。
  */
 import type { InvitedRole } from "@stagecast/shared";
 import type { createInviteService } from "./invites.js";
+import type { EventService } from "./events.js";
 import type { LiveKitTokenMinter } from "../auth/livekit-minter.js";
 
 type InviteService = ReturnType<typeof createInviteService>;
@@ -23,9 +28,12 @@ export type JoinResult =
   | { ok: false; reason: string };
 
 export class ServiceUnavailableError extends Error {
-  constructor(message = "media layer not available") {
+  /** stage-web が Retry-After ヘッダで参照するリトライ秒数 (ADR 0008 D-3)。 */
+  readonly retryAfterSec?: number;
+  constructor(message = "media layer not available", options?: { retryAfterSec?: number }) {
     super(message);
     this.name = "ServiceUnavailableError";
+    this.retryAfterSec = options?.retryAfterSec;
   }
 }
 
@@ -48,19 +56,32 @@ export function sanitizeDisplayName(name: string | undefined): string | undefine
   return collapsed ? collapsed.slice(0, MAX_DISPLAY_NAME_LENGTH) : undefined;
 }
 
+/** stage-web に推奨するリトライ間隔 (秒) — 60s tick + ECS task 起動を見越して 30s。 */
+export const JOIN_RETRY_AFTER_SEC = 30;
+
 export function createJoinService(deps: {
   invites: InviteService;
+  events: EventService;
   minter?: LiveKitTokenMinter;
   newIdentity: () => string;
   ttlSec?: number;
 }) {
-  const { invites, minter, newIdentity } = deps;
+  const { invites, events, minter, newIdentity } = deps;
   const ttlSec = deps.ttlSec ?? 60 * 60 * 6;
 
   async function join(token: string, displayName?: string): Promise<JoinResult> {
     const verified = await invites.verify(token);
     if (!verified.valid) return { ok: false, reason: verified.reason };
     if (!minter) throw new ServiceUnavailableError("LiveKit is not configured");
+
+    // per-event URL を events 行から引く (ADR 0008 D-1)。
+    // status=live でも EventMediaStack 起動完了前は media が未確定なので 503 + Retry-After。
+    const event = await events.get(verified.eventId);
+    if (!event.media?.livekitUrl) {
+      throw new ServiceUnavailableError("LiveKit URL not ready", {
+        retryAfterSec: JOIN_RETRY_AFTER_SEC,
+      });
+    }
 
     // ルームはイベント単位 (= eventId)。participant identity は衝突しないよう払い出す。
     const room = verified.eventId;
@@ -78,7 +99,7 @@ export function createJoinService(deps: {
       role: verified.role,
       room,
       identity,
-      livekitUrl: minter.url,
+      livekitUrl: event.media.livekitUrl,
       livekitToken,
     };
   }

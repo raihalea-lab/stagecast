@@ -133,7 +133,7 @@ describe("ControlPlaneStack", () => {
   it("LiveKit / YouTube の初期値は空 (運用者が後から値を入れる)", () => {
     template.hasResourceProperties("AWS::SecretsManager::Secret", {
       Name: "stagecast/livekit",
-      SecretString: JSON.stringify({ url: "", apiKey: "", apiSecret: "" }),
+      SecretString: JSON.stringify({ apiKey: "", apiSecret: "" }),
     });
     template.hasResourceProperties("AWS::SecretsManager::Secret", {
       Name: "stagecast/youtube",
@@ -225,19 +225,35 @@ describe("ControlPlaneStack", () => {
         ]),
       },
     });
-    // 広い実リソース作成権限はこのロール側に集約される (elbv2 含む)。
+    // 広い実リソース作成権限はこのロール側に集約される (ADR 0008 で elasticloadbalancing は除去)。
     template.hasResourceProperties("AWS::IAM::Policy", {
       PolicyDocument: {
         Statement: Match.arrayWith([
           Match.objectLike({
-            Action: Match.arrayWith(["ec2:*", "ecs:*", "elasticloadbalancing:*"]),
+            Action: Match.arrayWith(["ec2:*", "ecs:*"]),
           }),
         ]),
       },
     });
   });
 
-  it("reconcile Lambda 自身は ec2/ecs を直接持たず PassRole に絞る (R5)", () => {
+  it("reconcile Lambda は ECS describe-tasks / EC2 describe-network-interfaces を持つ (ADR 0008 D-2)", () => {
+    template.hasResourceProperties("AWS::IAM::Policy", {
+      PolicyDocument: {
+        Statement: Match.arrayWith([
+          Match.objectLike({
+            Action: Match.arrayWith([
+              "ecs:ListTasks",
+              "ecs:DescribeTasks",
+              "ec2:DescribeNetworkInterfaces",
+            ]),
+          }),
+        ]),
+      },
+    });
+  });
+
+  it("reconcile Lambda 自身は ec2/ecs *all* を直接持たず PassRole に絞る (R5)", () => {
     const policies = template.findResources("AWS::IAM::Policy");
     // reconcile Lambda のロールに紐づくポリシーを特定する。
     const reconcilePolicy = Object.values(policies).find((p) => {

@@ -1,9 +1,11 @@
 /**
- * 制御層の運用設定 (LiveKit / YouTube 認証情報) 管理 (ADR D-10)。
+ * 制御層の運用設定 (LiveKit / YouTube 認証情報) 管理 (ADR D-10, ADR 0008 D-7)。
  *
- * 機密値は Secrets Manager に保存する。GET は configured フラグと
- * 非機密のメタ情報 (LiveKit の URL) だけを返し、PUT は全フィールド必須の
- * 完全置き換え (部分更新は許可しない) で衝突や意図しない上書きを防ぐ。
+ * 機密値は Secrets Manager に保存する。GET は configured フラグのみ返し (機密値は読み戻さない)、
+ * PUT は全フィールド必須の完全置き換え。
+ *
+ * LiveKit の URL は per-event 化 (ADR 0008) により events.media.livekitUrl で管理される。
+ * ここで扱うのは全イベント共有の apiKey/apiSecret のみ。
  */
 import { randomBytes } from "node:crypto";
 import type {
@@ -34,7 +36,7 @@ export interface SettingsServiceDeps {
 
 export type SettingsService = ReturnType<typeof createSettingsService>;
 
-const LIVEKIT_FIELDS: ReadonlyArray<keyof LiveKitCredentials> = ["url", "apiKey", "apiSecret"];
+const LIVEKIT_FIELDS: ReadonlyArray<keyof LiveKitCredentials> = ["apiKey", "apiSecret"];
 const YOUTUBE_FIELDS: ReadonlyArray<keyof YouTubeCredentials> = [
   "apiKey",
   "oauthClientId",
@@ -48,27 +50,11 @@ function requireString(field: string, value: unknown): string {
   return value;
 }
 
-function validateLiveKitUrl(url: string): string {
-  // wss:// または ws:// で始まる URL のみ許可 (LiveKit のシグナリング)。
-  // localhost 開発のため ws:// も許す。
-  try {
-    const u = new URL(url);
-    if (u.protocol !== "wss:" && u.protocol !== "ws:") {
-      throw new ValidationError("url must use wss:// or ws://");
-    }
-    return url;
-  } catch (err) {
-    if (err instanceof ValidationError) throw err;
-    throw new ValidationError("url is not a valid URL");
-  }
-}
-
 function parseLiveKitInput(body: unknown): LiveKitCredentials {
   const b = (body ?? {}) as Record<string, unknown>;
-  const url = validateLiveKitUrl(requireString("url", b.url));
   const apiKey = requireString("apiKey", b.apiKey);
   const apiSecret = requireString("apiSecret", b.apiSecret);
-  return { url, apiKey, apiSecret };
+  return { apiKey, apiSecret };
 }
 
 function parseYouTubeInput(body: unknown): YouTubeCredentials {
@@ -101,51 +87,30 @@ export function createSettingsService(deps: SettingsServiceDeps) {
   async function getLiveKit(): Promise<LiveKitSettingsStatus> {
     const arn = requireLiveKitArn();
     const data = await reader.getSecretJson(arn);
-    const configured = allFieldsPresent(data, LIVEKIT_FIELDS);
-    return configured && data.url ? { configured, url: data.url } : { configured };
+    return { configured: allFieldsPresent(data, LIVEKIT_FIELDS) };
   }
 
   async function putLiveKit(body: unknown): Promise<LiveKitSettingsStatus> {
     const arn = requireLiveKitArn();
     const creds = parseLiveKitInput(body);
     await writer.putSecretJson(arn, { ...creds });
-    return { configured: true, url: creds.url };
+    return { configured: true };
   }
 
   /**
-   * URL のみを更新する (API キー/シークレットは保持)。
-   * self-hosted で EventMediaStack の NLB DNS が後から決まる運用向け。
-   * 既存の鍵が無い場合は configured:false のままだが、URL は保存される。
-   */
-  async function patchLiveKitUrl(body: unknown): Promise<LiveKitSettingsStatus> {
-    const arn = requireLiveKitArn();
-    const b = (body ?? {}) as Record<string, unknown>;
-    const url = validateLiveKitUrl(requireString("url", b.url));
-    const current = await reader.getSecretJson(arn);
-    const apiKey = typeof current.apiKey === "string" ? current.apiKey : "";
-    const apiSecret = typeof current.apiSecret === "string" ? current.apiSecret : "";
-    await writer.putSecretJson(arn, { url, apiKey, apiSecret });
-    const configured = apiKey.length > 0 && apiSecret.length > 0;
-    return configured ? { configured, url } : { configured };
-  }
-
-  /**
-   * LiveKit の API キー/シークレットをサーバ側で再生成し Secret に保存する (URL は保持)。
+   * LiveKit の API キー/シークレットをサーバ側で再生成し Secret に保存する。
    *
    * 鍵は `crypto.randomBytes` で生成し、apiKey は LiveKit 慣習に従い `API` prefix +
    * 12 文字 (URL-safe base64)、apiSecret は 32 バイト (256 bit) ぶんの URL-safe base64
-   * (43 文字) を採用する。生成値はレスポンスに含めない (configured / url のみ返す):
+   * (43 文字) を採用する。生成値はレスポンスに含めない (configured のみ返す):
    * 値は Secrets Manager から ECS Secret / Lambda env として注入される (ADR 0006 D-3)。
    */
   async function regenerateLiveKit(): Promise<LiveKitSettingsStatus> {
     const arn = requireLiveKitArn();
-    const current = await reader.getSecretJson(arn);
-    const url = typeof current.url === "string" ? current.url : "";
     const apiKey = generateLiveKitApiKey();
     const apiSecret = generateLiveKitApiSecret();
-    await writer.putSecretJson(arn, { url, apiKey, apiSecret });
-    const configured = url.length > 0 && apiKey.length > 0 && apiSecret.length > 0;
-    return configured ? { configured, url } : { configured };
+    await writer.putSecretJson(arn, { apiKey, apiSecret });
+    return { configured: true };
   }
 
   async function getYouTube(): Promise<YouTubeSettingsStatus> {
@@ -164,7 +129,6 @@ export function createSettingsService(deps: SettingsServiceDeps) {
   return {
     getLiveKit,
     putLiveKit,
-    patchLiveKitUrl,
     regenerateLiveKit,
     getYouTube,
     putYouTube,

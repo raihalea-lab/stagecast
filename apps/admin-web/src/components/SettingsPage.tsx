@@ -1,8 +1,8 @@
 /**
- * 運用設定ページ: LiveKit / YouTube 認証情報の登録 (ADR D-10)。
+ * 運用設定ページ: LiveKit / YouTube 認証情報の登録 (ADR D-10, ADR 0008 D-7)。
  *
- * 機密値は GET で読み戻さない (configured フラグと LiveKit URL のみ表示)。PUT は全フィールド
- * 必須の完全置き換えで、運用者が値を入れ直すか「変更しない」かを明示する。
+ * 機密値は GET で読み戻さない (configured フラグのみ表示)。URL は per-event 化 (ADR 0008)
+ * により events.media.livekitUrl に保存されるため、本ページでは扱わない。
  */
 import { useCallback, useEffect, useState } from "react";
 import type {
@@ -55,10 +55,6 @@ export function SettingsPage(props: Props) {
       )}
       <LiveKitForm
         status={livekitStatus}
-        onSaveUrl={async (url) => {
-          const next = await client.patchLiveKitUrl(url);
-          setLivekitStatus(next);
-        }}
         onRegenerateKeys={async () => {
           const next = await client.regenerateLiveKitKeys();
           setLivekitStatus(next);
@@ -86,38 +82,10 @@ function StatusBadge(props: { configured: boolean | undefined }) {
 
 function LiveKitForm(props: {
   status: LiveKitSettingsStatus | undefined;
-  onSaveUrl: (url: string) => Promise<void>;
   onRegenerateKeys: () => Promise<void>;
 }) {
-  const [url, setUrl] = useState("");
-  const [urlError, setUrlError] = useState<string | undefined>();
   const [keyError, setKeyError] = useState<string | undefined>();
-  const [urlBusy, setUrlBusy] = useState(false);
   const [keyBusy, setKeyBusy] = useState(false);
-  // 機密 (apiKey/apiSecret) はサーバ側 (`POST /settings/livekit/regenerate`) で
-  // ランダム生成し Secrets Manager に保存する。UI に値は表示しない (流出防止)。
-
-  // 既存の URL がサーバから返っていればフォームを初期化する。
-  useEffect(() => {
-    if (props.status?.url) setUrl(props.status.url);
-  }, [props.status]);
-
-  const saveUrl = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setUrlError(undefined);
-    if (!url.trim()) {
-      setUrlError("URL を入力してください。");
-      return;
-    }
-    setUrlBusy(true);
-    try {
-      await props.onSaveUrl(url.trim());
-    } catch (err) {
-      setUrlError(toErrorMessage(err));
-    } finally {
-      setUrlBusy(false);
-    }
-  };
 
   const regenerate = async () => {
     setKeyError(undefined);
@@ -141,48 +109,19 @@ function LiveKitForm(props: {
         LiveKit <StatusBadge configured={props.status?.configured} />
       </h3>
       <p className="settings-sub-note">
-        self-hosted の LiveKit Server (EventMediaStack の NLB) に接続する設定です。
-        URL は NLB DNS、API キー/シークレットはサーバ側で安全にランダム生成して Secrets
-        Manager に保存します (画面に値は表示されません)。
+        全イベント共有の LiveKit API キー / シークレット (ADR 0008 D-5) です。サーバ側で
+        ランダム生成して Secrets Manager (<code>stagecast/livekit</code>) に保存します
+        (画面に値は表示されません)。URL はイベント単位で reconcile が自動設定するため、
+        ここでは扱いません (ADR 0008 D-1)。
       </p>
-
-      <form onSubmit={saveUrl} className="settings-subform">
-        <h4>① URL (NLB DNS)</h4>
-        <label>
-          <input
-            type="text"
-            value={url}
-            onChange={(e) => setUrl(e.target.value)}
-            placeholder="wss://lk-nlb-xxx.elb.ap-northeast-1.amazonaws.com:7880"
-            autoComplete="off"
-          />
-        </label>
-        {urlError && (
-          <p className="error" role="alert">
-            {urlError}
-          </p>
-        )}
-        <button type="submit" disabled={urlBusy}>
-          {urlBusy ? "保存中…" : "URL を保存"}
-        </button>
-      </form>
-
-      <div className="settings-subform">
-        <h4>② API キー / シークレット (サーバ生成)</h4>
-        <p className="settings-sub-note">
-          ボタンを押すとサーバ側で `crypto.randomBytes` でランダム生成し、Secrets Manager
-          (`stagecast/livekit`) に保存します。LiveKit Server は ECS Secret 経由でこの値を
-          読み込むため、ローカルで Docker を実行する必要はありません。
+      {keyError && (
+        <p className="error" role="alert">
+          {keyError}
         </p>
-        {keyError && (
-          <p className="error" role="alert">
-            {keyError}
-          </p>
-        )}
-        <button type="button" onClick={regenerate} disabled={keyBusy}>
-          {keyBusy ? "生成中…" : "鍵を生成 / 再生成"}
-        </button>
-      </div>
+      )}
+      <button type="button" onClick={regenerate} disabled={keyBusy}>
+        {keyBusy ? "生成中…" : "鍵を生成 / 再生成"}
+      </button>
     </section>
   );
 }

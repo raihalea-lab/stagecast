@@ -163,22 +163,18 @@ async function resolveLiveKit(
   env: NodeJS.ProcessEnv,
   secrets: SecretsResolver,
 ): Promise<LiveKitTokenMinter | undefined> {
+  // ADR 0008 D-5: apiKey/apiSecret は全イベント共有。URL は per-event なので minter に持たせない。
   const arn = env.LIVEKIT_SECRET_ARN;
   if (arn) {
     const lk = await secrets.getSecretJson(arn);
-    if (lk.url && lk.apiKey && lk.apiSecret) {
-      return new DefaultLiveKitTokenMinter({
-        url: lk.url,
-        apiKey: lk.apiKey,
-        apiSecret: lk.apiSecret,
-      });
+    if (lk.apiKey && lk.apiSecret) {
+      return new DefaultLiveKitTokenMinter({ apiKey: lk.apiKey, apiSecret: lk.apiSecret });
     }
-    // 値未設定 (運用者が後で更新する想定) なら minter を作らない。
+    // 値未設定 (運用者が後で SettingsPage で生成する想定) なら minter を作らない。
     return undefined;
   }
-  if (env.LIVEKIT_URL && env.LIVEKIT_API_KEY && env.LIVEKIT_API_SECRET) {
+  if (env.LIVEKIT_API_KEY && env.LIVEKIT_API_SECRET) {
     return new DefaultLiveKitTokenMinter({
-      url: env.LIVEKIT_URL,
       apiKey: env.LIVEKIT_API_KEY,
       apiSecret: env.LIVEKIT_API_SECRET,
     });

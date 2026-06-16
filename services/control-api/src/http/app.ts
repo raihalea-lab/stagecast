@@ -31,6 +31,8 @@ export interface HttpRequest {
 export interface HttpResponse {
   status: number;
   body: unknown;
+  /** 追加レスポンスヘッダ (例: 503 で Retry-After を返す, ADR 0008 D-3)。 */
+  headers?: Record<string, string>;
 }
 
 type InviteService = ReturnType<typeof createInviteService>;
@@ -157,14 +159,13 @@ export function createApp(deps: AppDeps) {
       }
     }
 
-    // /settings/livekit | /settings/youtube : 運用設定 (LiveKit / YouTube) の取得・更新 (ADR D-10)
+    // /settings/livekit | /settings/youtube : 運用設定 (LiveKit / YouTube) の取得・更新
+    // (ADR D-10, ADR 0008 D-7: URL は per-event 化により撤去)
     if (segments[0] === "settings") {
       if (!settings) throw new ServiceUnavailableError("settings store not configured");
       if (segments.length === 2 && segments[1] === "livekit") {
         if (req.method === "GET") return json(200, await settings.getLiveKit());
         if (req.method === "PUT") return json(200, await settings.putLiveKit(body));
-        // PATCH は URL のみ更新 (鍵は保持)。self-hosted で NLB DNS が後から決まる用途。
-        if (req.method === "PATCH") return json(200, await settings.patchLiveKitUrl(body));
       } else if (segments.length === 2 && segments[1] === "youtube") {
         if (req.method === "GET") return json(200, await settings.getYouTube());
         if (req.method === "PUT") return json(200, await settings.putYouTube(body));
@@ -174,8 +175,8 @@ export function createApp(deps: AppDeps) {
         segments[2] === "regenerate" &&
         req.method === "POST"
       ) {
-        // サーバ側で API キー/シークレットを生成し Secret に保存する (URL は保持)。
-        // 生成値はレスポンスに含めない (configured/url のみ)。
+        // サーバ側で API キー/シークレットを生成し Secret に保存する。
+        // 生成値はレスポンスに含めない (configured のみ)。
         return json(200, await settings.regenerateLiveKit());
       }
     }
@@ -202,7 +203,12 @@ export function createApp(deps: AppDeps) {
       if (err instanceof UnauthorizedError) return json(401, { error: err.message });
       if (err instanceof ValidationError) return json(400, { error: err.message });
       if (err instanceof NotFoundError) return json(404, { error: err.message });
-      if (err instanceof ServiceUnavailableError) return json(503, { error: err.message });
+      if (err instanceof ServiceUnavailableError) {
+        const headers = err.retryAfterSec
+          ? { "Retry-After": String(err.retryAfterSec) }
+          : undefined;
+        return { status: 503, body: { error: err.message }, headers };
+      }
       return json(500, { error: err instanceof Error ? err.message : "internal error" });
     }
   }

@@ -47,6 +47,8 @@ export function itemToEvent(item: Item): EventDefinition {
     slideAssets: item.slideAssets as EventDefinition["slideAssets"],
     caption: item.caption as EventDefinition["caption"],
     youtube: item.youtube as EventDefinition["youtube"],
+    // ADR 0008 D-1: reconcile が書き戻す per-event LiveKit URL 等。
+    media: item.media as EventDefinition["media"],
     createdAtMs: item.createdAtMs as number,
     updatedAtMs: item.updatedAtMs as number,
   };

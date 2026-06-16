@@ -231,9 +231,11 @@ export class ControlPlaneStack extends Stack {
     });
     const livekitSecret = new secretsmanager.Secret(this, "LiveKitSecret", {
       secretName: "stagecast/livekit",
-      description: "LiveKit URL / API key / API secret (ADR D-10) — 運用者が値を後から更新する",
+      // ADR 0008 D-7: URL は per-event 化されたため Secret から削除。apiKey/apiSecret のみ。
+      description:
+        "LiveKit API key / API secret (ADR D-10, ADR 0008 D-5) — SettingsPage で生成・ローテーション",
       secretStringValue: SecretValue.unsafePlainText(
-        JSON.stringify({ url: "", apiKey: "", apiSecret: "" }),
+        JSON.stringify({ apiKey: "", apiSecret: "" }),
       ),
       removalPolicy: RemovalPolicy.DESTROY,
     });
@@ -419,9 +421,10 @@ export class ControlPlaneStack extends Stack {
     new CfnOutput(this, "YouTubeSecretArn", { value: youtubeSecret.secretArn });
 
     // --- EventMediaStack 作成用 CloudFormation サービスロール (R5, ADR 0005 D-5) ---
-    // 広い権限 (ec2/ecs/elasticache/elbv2/iam/logs/cw/sns) はこのロールに集約し、
+    // 広い権限 (ec2/ecs/elasticache/iam/logs/cw/sns) はこのロールに集約し、
     // cloudformation.amazonaws.com からのみ assume 可能にする。reconcile Lambda 自身は
     // これらを直接持たず、CFN にロールを渡す (iam:PassRole) だけにして攻撃面を絞る。
+    // ADR 0008 D-4 で NLB を廃止したため elasticloadbalancing 権限も不要になった。
     const eventMediaCfnRole = new iam.Role(this, "EventMediaCfnExecRole", {
       assumedBy: new iam.ServicePrincipal("cloudformation.amazonaws.com"),
       description: "CloudFormation execution role for EventMediaStack (ADR 0005 D-5)",
@@ -432,7 +435,6 @@ export class ControlPlaneStack extends Stack {
           "ec2:*",
           "ecs:*",
           "elasticache:*",
-          "elasticloadbalancing:*", // R1 で追加した NLB の作成に必要。
           "logs:*",
           "cloudwatch:*",
           "sns:*",
@@ -529,11 +531,14 @@ export class ControlPlaneStack extends Stack {
         CFN_EXEC_ROLE_ARN: eventMediaCfnRole.roleArn,
         // テンプレート生成 Lambda を invoke する (D1)。
         RENDER_TEMPLATE_FUNCTION_NAME: renderTemplateFn.functionName,
+        // ADR 0008 D-6: 並列イベント数の soft cap (コスト暴走防止)。
+        MAX_PARALLEL_EVENTS: "10",
       },
     });
     // reconcile は RenderTemplateFunction を invoke できる。
     renderTemplateFn.grantInvoke(reconcileFn);
-    metadataTable.grantReadData(reconcileFn);
+    // ADR 0008 D-2: events 行の media フィールドを書き戻すため Read だけでなく Write も必要。
+    metadataTable.grantReadWriteData(reconcileFn);
     // reconcile 自身は「スタック操作」と「CFN ロールを渡す」権限のみ持つ (R5, ADR 0005 D-5)。
     // 実リソース作成権限は eventMediaCfnRole に集約し、Lambda には付与しない。
     reconcileFn.addToRolePolicy(
@@ -554,6 +559,14 @@ export class ControlPlaneStack extends Stack {
         actions: ["iam:PassRole"],
         resources: [eventMediaCfnRole.roleArn],
         conditions: { StringEquals: { "iam:PassedToService": "cloudformation.amazonaws.com" } },
+      }),
+    );
+    // ADR 0008 D-2: ECS task の Public IP を引いて events.media.livekitUrl を埋めるため、
+    // 読み取り系 API を許可する。Resource は EventMediaStack のクラスタ・タスク全般。
+    reconcileFn.addToRolePolicy(
+      new iam.PolicyStatement({
+        actions: ["ecs:ListTasks", "ecs:DescribeTasks", "ec2:DescribeNetworkInterfaces"],
+        resources: ["*"],
       }),
     );
     new CfnOutput(this, "EventMediaCfnExecRoleArn", { value: eventMediaCfnRole.roleArn });

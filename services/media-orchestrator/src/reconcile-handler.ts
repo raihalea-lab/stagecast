@@ -16,6 +16,7 @@ import { eventMediaStackName, createAwsMediaStackProvisioner } from "./aws-cfn.j
 
 const log = createLogger({ component: "reconcile" });
 import {
+  enforceMaxParallel,
   executePlan,
   findStaleStacks,
   planReconcile,
@@ -28,11 +29,34 @@ import {
 /** これ以上残存したら「暴走の疑い」として警告するスタック寿命 (既定 24h, L3)。 */
 const DEFAULT_STALE_STACK_MAX_AGE_MS = 24 * 60 * 60 * 1000;
 
+/** 並列イベント数の soft cap 既定値 (ADR 0008 D-6)。 */
+const DEFAULT_MAX_PARALLEL_EVENTS = 10;
+
+/** LiveKit Server (Fargate task) が listen するシグナリングポート。 */
+const LIVEKIT_SIGNAL_PORT = 7880;
+
+/** LiveKit Server を担う ECS service 名 (event-media-stack.ts SFU_SERVICE_NAME と一致)。 */
+const SFU_SERVICE_NAME = "sfu";
+
+/** ECS Cluster の命名規約 (event-media-stack.ts eventMediaClusterName と一致)。 */
+function clusterName(eventId: string): string {
+  return `stagecast-event-${eventId}`;
+}
+
+import {
+  createMediaPublisher,
+  type MediaResolver,
+  type MediaStore,
+} from "./media-publisher.js";
+import type { EventMediaInfo } from "@stagecast/shared";
+
 /** 環境変数 → 結線。Lambda の cold start で 1 度だけ評価する。 */
 interface HandlerDeps {
   fetchDesired: () => Promise<DesiredEvent[]>;
   fetchActual: () => Promise<ActualStack[]>;
   executor: ReconcileExecutor;
+  mediaPublisher: ReturnType<typeof createMediaPublisher>;
+  maxParallel: number;
 }
 
 let cached: HandlerDeps | undefined;
@@ -43,11 +67,89 @@ async function deps(): Promise<HandlerDeps> {
   if (!tableName) throw new Error("METADATA_TABLE_NAME is required");
   // 遅延 import: テストや代替ハンドラから読まれても副作用を発生させない。
   const { DynamoDBClient } = await import("@aws-sdk/client-dynamodb");
-  const { DynamoDBDocumentClient, QueryCommand } = await import("@aws-sdk/lib-dynamodb");
+  const { DynamoDBDocumentClient, QueryCommand, UpdateCommand } = await import(
+    "@aws-sdk/lib-dynamodb"
+  );
   const { CloudFormationClient, ListStacksCommand } =
     await import("@aws-sdk/client-cloudformation");
+  const { ECSClient, ListTasksCommand, DescribeTasksCommand } = await import(
+    "@aws-sdk/client-ecs"
+  );
+  const { EC2Client, DescribeNetworkInterfacesCommand } = await import("@aws-sdk/client-ec2");
   const dynamo = DynamoDBDocumentClient.from(new DynamoDBClient({}));
   const cfn = new CloudFormationClient({});
+  const ecs = new ECSClient({});
+  const ec2 = new EC2Client({});
+
+  // ADR 0008 D-2: ECS task の Public IP を解決する MediaResolver。
+  const resolver: MediaResolver = {
+    resolveLivekitUrl: async (eventId) => {
+      const cluster = clusterName(eventId);
+      const listed = await ecs.send(
+        new ListTasksCommand({
+          cluster,
+          serviceName: SFU_SERVICE_NAME,
+          desiredStatus: "RUNNING",
+        }),
+      );
+      const taskArn = listed.taskArns?.[0];
+      if (!taskArn) return undefined;
+      const described = await ecs.send(
+        new DescribeTasksCommand({ cluster, tasks: [taskArn] }),
+      );
+      const attachment = described.tasks?.[0]?.attachments?.find(
+        (a: { type?: string }) => a.type === "ElasticNetworkInterface",
+      );
+      const eniId = attachment?.details?.find(
+        (d: { name?: string }) => d.name === "networkInterfaceId",
+      )?.value;
+      if (!eniId) return undefined;
+      const enis = await ec2.send(
+        new DescribeNetworkInterfacesCommand({ NetworkInterfaceIds: [eniId] }),
+      );
+      const publicIp = enis.NetworkInterfaces?.[0]?.Association?.PublicIp;
+      if (!publicIp) return undefined;
+      return `wss://${publicIp}:${LIVEKIT_SIGNAL_PORT}`;
+    },
+  };
+
+  const store: MediaStore = {
+    get: async (eventId) => {
+      const res = await dynamo.send(
+        new QueryCommand({
+          TableName: tableName,
+          KeyConditionExpression: "pk = :pk AND sk = :sk",
+          ExpressionAttributeValues: { ":pk": `EVENT#${eventId}`, ":sk": "META" },
+          Limit: 1,
+        }),
+      );
+      return res.Items?.[0]?.media as EventMediaInfo | undefined;
+    },
+    put: async (eventId, media) => {
+      await dynamo.send(
+        new UpdateCommand({
+          TableName: tableName,
+          Key: { pk: `EVENT#${eventId}`, sk: "META" },
+          UpdateExpression: "SET media = :m, updatedAtMs = :t",
+          ExpressionAttributeValues: { ":m": media, ":t": Date.now() },
+        }),
+      );
+    },
+    clear: async (eventId) => {
+      await dynamo.send(
+        new UpdateCommand({
+          TableName: tableName,
+          Key: { pk: `EVENT#${eventId}`, sk: "META" },
+          UpdateExpression: "REMOVE media SET updatedAtMs = :t",
+          ExpressionAttributeValues: { ":t": Date.now() },
+        }),
+      );
+    },
+  };
+  const mediaPublisher = createMediaPublisher({ resolver, store });
+  const maxParallel = process.env.MAX_PARALLEL_EVENTS
+    ? Number(process.env.MAX_PARALLEL_EVENTS)
+    : DEFAULT_MAX_PARALLEL_EVENTS;
 
   cached = {
     fetchDesired: async () => {
@@ -96,6 +198,8 @@ async function deps(): Promise<HandlerDeps> {
       return stacks;
     },
     executor: makeExecutor(),
+    mediaPublisher,
+    maxParallel,
   };
   return cached;
 }
@@ -203,9 +307,28 @@ function makeExecutor(): ReconcileExecutor {
 export async function handler(
   _event: ScheduledEvent,
   _context?: Context,
-): Promise<{ done: number; errors: number; skipped: number }> {
+): Promise<{ done: number; errors: number; skipped: number; mediaUpdated: number }> {
   const d = await deps();
-  const [desired, actual] = await Promise.all([d.fetchDesired(), d.fetchActual()]);
+  const [allDesired, actual] = await Promise.all([d.fetchDesired(), d.fetchActual()]);
+
+  // ADR 0008 D-6: 並列イベント数の soft cap を適用する。超過分は警告ログを出して skip。
+  const { allowed: desired, skipped: cappedSkipped } = enforceMaxParallel(
+    allDesired,
+    actual,
+    d.maxParallel,
+  );
+  for (const s of cappedSkipped) {
+    log.warn("event provision skipped (cap exceeded)", {
+      eventId: s.eventId,
+      reason: "cap exceeded",
+      maxParallel: d.maxParallel,
+    });
+  }
+  log.info("parallel event count", {
+    desired: allDesired.length,
+    allowed: desired.length,
+    skipped: cappedSkipped.length,
+  });
 
   // 長時間残存しているスタックを検知して警告する (L3, N-1 コスト暴走の早期発見)。
   const maxAgeMs = process.env.STALE_STACK_MAX_AGE_MS
@@ -221,7 +344,7 @@ export async function handler(
   }
 
   const plan = planReconcile(desired, actual);
-  return executePlan(plan, d.executor, {
+  const planResult = await executePlan(plan, d.executor, {
     log: (e) => {
       const id = e.action.type === "provision" ? e.action.spec.eventId : e.action.eventId;
       const fields = { action: e.action.type, eventId: id, status: e.status };
@@ -229,4 +352,32 @@ export async function handler(
       else log.info("reconcile step", fields);
     },
   });
+
+  // ADR 0008 D-2: live + 既にスタック running の各イベントに対して media を確定させる。
+  const runningIds = new Set(
+    actual.filter((a) => a.kind === "running").map((a) => a.eventId),
+  );
+  const liveRunning = desired.filter((d) => runningIds.has(d.eventId));
+  let mediaUpdated = 0;
+  for (const d2 of liveRunning) {
+    const outcome = await d.mediaPublisher.publish(d2.eventId);
+    if (outcome.status === "updated") {
+      mediaUpdated++;
+      log.info("media publish", { eventId: d2.eventId, status: "updated" });
+    } else if (outcome.status === "error") {
+      log.error("media publish", { eventId: d2.eventId, err: outcome.err });
+    } else {
+      log.info("media publish", { eventId: d2.eventId, status: outcome.status });
+    }
+  }
+  // ADR 0008 D-2: desired に無いのにスタックがあった (= destroy 対象) なら media をクリア。
+  const desiredIds = new Set(desired.map((e) => e.eventId));
+  for (const a of actual) {
+    if (desiredIds.has(a.eventId)) continue;
+    if (a.kind !== "deleting") continue;
+    await d.mediaPublisher.clear(a.eventId);
+    log.info("media clear", { eventId: a.eventId });
+  }
+
+  return { ...planResult, mediaUpdated };
 }

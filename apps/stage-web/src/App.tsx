@@ -46,6 +46,10 @@ export function App(props: {
   const [page, setPage] = useState(1);
   const [reconnecting, setReconnecting] = useState(false);
   const [busy, setBusy] = useState(false);
+  /** /join 503 リトライ中の進捗 (ADR 0008 D-3, undefined ならリトライ無し)。 */
+  const [retryInfo, setRetryInfo] = useState<
+    { attempt: number; nextWaitSec: number; elapsedSec: number } | undefined
+  >();
 
   // SFU 切断を検知したら入室画面へ戻し、再入室を促す。
   // 一時的な回線断は自動再接続を試みるのでセッションは保ち、再接続中バナーだけ出す。
@@ -61,18 +65,28 @@ export function App(props: {
 
   const join = async () => {
     setError(undefined);
+    setRetryInfo(undefined);
     setBusy(true);
     try {
       // 入室前テストで選んだマイク/カメラを publish に反映する (N7)。
       controller.setPreferredDevices(prefs);
-      const res = await controller.join(token, name || undefined);
+      const res = await controller.join(token, name || undefined, {
+        // ADR 0008 D-3: EventMediaStack 起動中なら /join が 503。最大 60s リトライ。
+        maxRetryWaitSec: 60,
+        onRetry: setRetryInfo,
+      });
       if (!res.ok) {
-        setError(`入室できません: ${res.reason}`);
+        const reason =
+          res.reason === "media-unavailable"
+            ? "配信サーバの準備が間に合いませんでした。少し待ってからもう一度お試しください。"
+            : res.reason;
+        setError(`入室できません: ${reason}`);
         return;
       }
       setSession(controller.currentSession);
     } finally {
       setBusy(false);
+      setRetryInfo(undefined);
     }
   };
 
@@ -93,6 +107,15 @@ export function App(props: {
       <main className="join">
         <h1>Stagecast ステージ入室</h1>
         {error && <p className="error">{error}</p>}
+        {retryInfo && (
+          <p className="retry-progress" role="status">
+            配信準備中… ({retryInfo.elapsedSec + retryInfo.nextWaitSec}/60 秒)
+            <br />
+            <small>
+              配信サーバを起動しています。あと {retryInfo.nextWaitSec} 秒で再試行します。
+            </small>
+          </p>
+        )}
         <label>
           招待トークン
           <input value={token} onChange={(e) => setToken(e.target.value)} />
@@ -103,7 +126,7 @@ export function App(props: {
         </label>
         <DeviceCheck provider={deviceProvider} onChange={setPrefs} />
         <button onClick={join} disabled={!token || busy}>
-          {busy ? "入室中…" : "入室する"}
+          {busy ? (retryInfo ? "配信準備待ち…" : "入室中…") : "入室する"}
         </button>
       </main>
     );

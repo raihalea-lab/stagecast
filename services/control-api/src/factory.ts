@@ -54,13 +54,12 @@ export interface FactoryConfig {
   newId?: () => string;
 }
 
-/** 環境変数から LiveKit 設定が揃っていれば既定の発行器を作る。 */
+/** 環境変数から LiveKit 設定が揃っていれば既定の発行器を作る (ADR 0008 D-5: URL は不要)。 */
 function livekitFromEnv(): LiveKitTokenMinter | undefined {
-  const url = process.env.LIVEKIT_URL;
   const apiKey = process.env.LIVEKIT_API_KEY;
   const apiSecret = process.env.LIVEKIT_API_SECRET;
-  if (url && apiKey && apiSecret) {
-    return new DefaultLiveKitTokenMinter({ url, apiKey, apiSecret });
+  if (apiKey && apiSecret) {
+    return new DefaultLiveKitTokenMinter({ apiKey, apiSecret });
   }
   return undefined;
 }
@@ -95,6 +94,7 @@ export function buildControlApi(config: FactoryConfig = {}) {
   });
   const join = createJoinService({
     invites,
+    events,
     minter: config.livekitMinter ?? livekitFromEnv(),
     newIdentity: newId,
   });

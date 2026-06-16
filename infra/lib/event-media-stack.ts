@@ -9,7 +9,6 @@ import {
   aws_ec2 as ec2,
   aws_ecs as ecs,
   aws_elasticache as elasticache,
-  aws_elasticloadbalancingv2 as elbv2,
   aws_logs as logs,
   aws_iam as iam,
   aws_secretsmanager as secretsmanager,
@@ -20,7 +19,7 @@ import {
 import type { Construct } from "constructs";
 import type { CaptionEngineKind, CaptionSinkKind } from "@stagecast/shared";
 
-/** LiveKit / WebRTC が使うポート (ADR 0006 D-1)。NLB リスナと config.yaml で共有する。 */
+/** LiveKit / WebRTC が使うポート (config.yaml と Security Group で共有する)。 */
 export const LIVEKIT_PORTS = {
   /** signaling (HTTP/WS)。 */
   signaling: 7880,
@@ -29,6 +28,17 @@ export const LIVEKIT_PORTS = {
   /** WebRTC over UDP (主たる media 経路, ADR 0006 D-2)。 */
   rtcUdp: 7882,
 } as const;
+
+/**
+ * SFU (LiveKit Server) の ECS サービス名 (ADR 0008 D-2)。reconcile Lambda が
+ * `ecs:ListTasks` で参照するため、予測可能な固定名にする。
+ */
+export const SFU_SERVICE_NAME = "sfu";
+
+/** ECS Cluster の予測可能命名 (reconcile が `ecs:ListTasks` で使う)。 */
+export function eventMediaClusterName(eventId: string): string {
+  return `stagecast-event-${eventId}`;
+}
 
 /** ControlPlaneStack が作る LiveKit 資格情報シークレット名 (control-plane-stack.ts と共有)。 */
 const LIVEKIT_SECRET_NAME = "stagecast/livekit";
@@ -76,6 +86,8 @@ export class EventMediaStack extends Stack {
 
     const cluster = new ecs.Cluster(this, "Cluster", {
       vpc,
+      // reconcile Lambda が `ecs:ListTasks` で参照するため固定名 (ADR 0008 D-2)。
+      clusterName: eventMediaClusterName(props.eventId),
       containerInsightsV2: ecs.ContainerInsights.ENABLED,
     });
 
@@ -147,6 +159,10 @@ export class EventMediaStack extends Stack {
       taskRole?: iam.IRole;
       environment?: Record<string, string>;
       secrets?: Record<string, ecs.Secret>;
+      /** 予測可能な ECS service 名 (reconcile が `ecs:ListTasks` で参照, ADR 0008 D-2)。 */
+      serviceName?: string;
+      /** Public IP 直接公開 (ADR 0008 D-4)。SFU のみ true。 */
+      assignPublicIp?: boolean;
     }
     const addService = (
       name: string,
@@ -203,11 +219,22 @@ export class EventMediaStack extends Stack {
         // ephemeral: 破棄を速くするため最小構成。
         minHealthyPercent: 0,
         circuitBreaker: { rollback: false },
+        // ADR 0008 D-4: SFU は Public IP 直接公開 (NLB 廃止)。それ以外も同経路で揃える。
+        assignPublicIp: opts.assignPublicIp ?? false,
+        ...(opts.serviceName ? { serviceName: opts.serviceName } : {}),
+        // VPC のパブリックサブネットに置かないと assignPublicIp が効かない。
+        ...(opts.assignPublicIp
+          ? { vpcSubnets: { subnetType: ec2.SubnetType.PUBLIC } }
+          : {}),
       });
     };
 
     // SFU(LiveKit): signaling(TCP) + WebRTC(TCP fallback / UDP)。config と Valkey を注入 (R1)。
+    // ADR 0008 D-4: Public IP を直接公開し、NLB を廃止。reconcile Lambda が ECS から
+    // task の Public IP を引いて events.media.livekitUrl に書き戻す (ADR 0008 D-2)。
     const sfu = addService("Sfu", images.sfu ?? "livekit/livekit-server:latest", {
+      serviceName: SFU_SERVICE_NAME,
+      assignPublicIp: true,
       ports: [
         { containerPort: LIVEKIT_PORTS.signaling, protocol: ecs.Protocol.TCP },
         { containerPort: LIVEKIT_PORTS.rtcTcp, protocol: ecs.Protocol.TCP },
@@ -233,54 +260,21 @@ export class EventMediaStack extends Stack {
       },
     );
 
-    // --- 外部到達性: Network Load Balancer (R1, ADR 0006 D-1) ---
-    // signaling/WebRTC を NLB に集約し、タスク入れ替えに強い安定エンドポイントを得る。
-    // イベント単位スタックなので NLB もイベント時のみ起動・破棄される (N-1 と整合)。
-    const nlb = new elbv2.NetworkLoadBalancer(this, "SfuNlb", {
-      vpc,
-      internetFacing: true,
-      crossZoneEnabled: true,
-    });
-    const sfuTarget = (port: number, protocol: ecs.Protocol) =>
-      sfu.loadBalancerTarget({ containerName: "SfuContainer", containerPort: port, protocol });
-
-    nlb
-      .addListener("Signaling", { port: LIVEKIT_PORTS.signaling, protocol: elbv2.Protocol.TCP })
-      .addTargets("SfuSignaling", {
-        port: LIVEKIT_PORTS.signaling,
-        protocol: elbv2.Protocol.TCP,
-        targets: [sfuTarget(LIVEKIT_PORTS.signaling, ecs.Protocol.TCP)],
-      });
-    nlb
-      .addListener("RtcTcp", { port: LIVEKIT_PORTS.rtcTcp, protocol: elbv2.Protocol.TCP })
-      .addTargets("SfuRtcTcp", {
-        port: LIVEKIT_PORTS.rtcTcp,
-        protocol: elbv2.Protocol.TCP,
-        targets: [sfuTarget(LIVEKIT_PORTS.rtcTcp, ecs.Protocol.TCP)],
-      });
-    nlb
-      .addListener("RtcUdp", { port: LIVEKIT_PORTS.rtcUdp, protocol: elbv2.Protocol.UDP })
-      .addTargets("SfuRtcUdp", {
-        port: LIVEKIT_PORTS.rtcUdp,
-        protocol: elbv2.Protocol.UDP,
-        targets: [sfuTarget(LIVEKIT_PORTS.rtcUdp, ecs.Protocol.UDP)],
-        // UDP はヘルスチェック不可なので signaling(TCP) ポートで死活監視する。
-        healthCheck: { protocol: elbv2.Protocol.TCP, port: String(LIVEKIT_PORTS.signaling) },
-      });
-
-    // NLB はクライアント IP を保持するため、タスク SG で公開元 (= インターネット) を許可する。
-    // WebRTC は登壇者ブラウザから直接届くため 0.0.0.0/0 を開ける (ADR 0006 D-1/D-2)。
+    // --- 外部到達性: Fargate task の Public IP 直接公開 (ADR 0008 D-4) ---
+    // NLB は ADR 0008 で廃止。task の ENI に Public IP を付与し、SG で 7880/7881/7882 のみ
+    // 開放する。reconcile Lambda が task の Public IP を取得して
+    // events.media.livekitUrl に書き戻す (ADR 0008 D-2)。
     sfu.connections.allowFromAnyIpv4(
       ec2.Port.tcp(LIVEKIT_PORTS.signaling),
-      "LiveKit signaling (public via NLB)",
+      "LiveKit signaling (public, ADR 0008 D-4)",
     );
     sfu.connections.allowFromAnyIpv4(
       ec2.Port.tcp(LIVEKIT_PORTS.rtcTcp),
-      "WebRTC ICE/TCP fallback (public via NLB)",
+      "WebRTC ICE/TCP fallback (public, ADR 0008 D-4)",
     );
     sfu.connections.allowFromAnyIpv4(
       ec2.Port.udp(LIVEKIT_PORTS.rtcUdp),
-      "WebRTC media/UDP (public via NLB)",
+      "WebRTC media/UDP (public, ADR 0008 D-4)",
     );
 
     // --- オブザーバビリティ (T9, ADR 0003 監視・検知) ---
@@ -474,11 +468,13 @@ export class EventMediaStack extends Stack {
 
     new CfnOutput(this, "EventId", { value: props.eventId });
     new CfnOutput(this, "ValkeyEndpoint", { value: valkey.attrEndpointAddress });
-    new CfnOutput(this, "SfuNlbDnsName", {
-      value: nlb.loadBalancerDnsName,
-      description: "LiveKit signaling/WebRTC を受ける NLB の DNS 名 (stage-web が接続)",
-    });
+    // ADR 0008 D-4: NLB を廃止。stage-web は events.media.livekitUrl (reconcile が書き戻す
+    // Public IP ベース URL) で接続する。
     new CfnOutput(this, "ClusterName", { value: cluster.clusterName });
+    new CfnOutput(this, "SfuServiceName", {
+      value: SFU_SERVICE_NAME,
+      description: "reconcile Lambda が ecs:ListTasks で参照する SFU service 名 (ADR 0008 D-2)",
+    });
     new CfnOutput(this, "AlarmTopicArn", { value: alarmTopic.topicArn });
     new CfnOutput(this, "DashboardName", {
       value: dashboard.dashboardName,

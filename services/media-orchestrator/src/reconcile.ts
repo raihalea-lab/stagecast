@@ -144,6 +144,40 @@ function toSpec(d: DesiredEvent): EventMediaSpec {
   };
 }
 
+/**
+ * 並列実行数の soft cap を適用する (ADR 0008 D-6, MAX_PARALLEL_EVENTS)。
+ *
+ * 既に動いている (running / in_progress) スタックを優先して残し、上限を超える分を skip する。
+ * これにより「途中までデプロイされたイベント」を勝手に止めないようにする。
+ *
+ * 戻り値の `skipped` は呼び出し側で警告ログ + メトリクスにする。
+ */
+export function enforceMaxParallel(
+  desired: DesiredEvent[],
+  actual: ActualStack[],
+  maxParallel: number,
+): { allowed: DesiredEvent[]; skipped: DesiredEvent[] } {
+  if (maxParallel <= 0 || desired.length <= maxParallel) {
+    return { allowed: desired, skipped: [] };
+  }
+  const runningIds = new Set(
+    actual
+      .filter((a) => a.kind === "running" || a.kind === "in_progress")
+      .map((a) => a.eventId),
+  );
+  // 既に稼働中のものを優先、それ以外は eventId 順 (決定性確保)。
+  const sorted = [...desired].sort((a, b) => {
+    const ar = runningIds.has(a.eventId) ? 0 : 1;
+    const br = runningIds.has(b.eventId) ? 0 : 1;
+    if (ar !== br) return ar - br;
+    return a.eventId.localeCompare(b.eventId);
+  });
+  return {
+    allowed: sorted.slice(0, maxParallel),
+    skipped: sorted.slice(maxParallel),
+  };
+}
+
 /** 実行側の最小依存。テストでは fake を注入する。 */
 export interface ReconcileExecutor {
   provision(spec: EventMediaSpec): Promise<void>;

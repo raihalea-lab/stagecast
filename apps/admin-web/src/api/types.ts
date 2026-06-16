@@ -51,12 +51,10 @@ export interface ControlApiClient {
     page?: number,
   ): Promise<PresentationState>;
 
-  /** LiveKit / YouTube の運用設定 (ADR D-10)。値の取得は configured フラグのみ。 */
+  /** LiveKit / YouTube の運用設定 (ADR D-10, ADR 0008 D-7)。値の取得は configured フラグのみ。 */
   getLiveKitSettings(): Promise<LiveKitSettingsStatus>;
   putLiveKitSettings(creds: LiveKitCredentials): Promise<LiveKitSettingsStatus>;
-  /** URL のみ更新する (鍵は保持)。self-hosted で NLB DNS が後から決まる用途。 */
-  patchLiveKitUrl(url: string): Promise<LiveKitSettingsStatus>;
-  /** LiveKit の API キー/シークレットをサーバ側で再生成する (URL は保持)。 */
+  /** LiveKit の API キー/シークレットをサーバ側で再生成する。 */
   regenerateLiveKitKeys(): Promise<LiveKitSettingsStatus>;
   getYouTubeSettings(): Promise<YouTubeSettingsStatus>;
   putYouTubeSettings(creds: YouTubeCredentials): Promise<YouTubeSettingsStatus>;
