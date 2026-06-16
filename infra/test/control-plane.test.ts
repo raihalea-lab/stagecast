@@ -141,6 +141,37 @@ describe("ControlPlaneStack", () => {
     });
   });
 
+  it("control-api Lambda に LIVEKIT_SECRET_ARN / YOUTUBE_SECRET_ARN を env で渡す", () => {
+    template.hasResourceProperties("AWS::Lambda::Function", {
+      Environment: {
+        Variables: Match.objectLike({
+          LIVEKIT_SECRET_ARN: Match.anyValue(),
+          YOUTUBE_SECRET_ARN: Match.anyValue(),
+        }),
+      },
+    });
+  });
+
+  it("control-api には LiveKit / YouTube Secret への PutSecretValue を限定付与する (ADR D-10)", () => {
+    // PutSecretValue は対象 2 Secret に限定される (UpdateSecret は含まない、最小権限)。
+    const policies = template.findResources("AWS::IAM::Policy");
+    interface PolicyStatement {
+      Action: unknown;
+      Resource: unknown;
+    }
+    const putValueStatements = Object.values(policies).flatMap((p) => {
+      const stmts = (p.Properties as { PolicyDocument: { Statement: PolicyStatement[] } })
+        .PolicyDocument.Statement;
+      return stmts.filter((s) => s.Action === "secretsmanager:PutSecretValue");
+    });
+    expect(putValueStatements).toHaveLength(1);
+    const stmt = putValueStatements[0];
+    expect(stmt).toBeDefined();
+    // 対象は 2 リソース (LiveKit / YouTube Secret の ARN) 限定。
+    const resources = Array.isArray(stmt!.Resource) ? stmt!.Resource : [stmt!.Resource];
+    expect(resources).toHaveLength(2);
+  });
+
   it("成果物 S3 と SPA バケットはパブリックアクセス全ブロック (N-4)", () => {
     const buckets = template.findResources("AWS::S3::Bucket");
     const bucketList = Object.values(buckets);

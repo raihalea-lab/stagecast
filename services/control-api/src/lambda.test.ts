@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { CaptionSettings } from "@stagecast/shared";
 import { buildControlApiFromEnv, type SecretsResolver } from "./lambda.js";
+import type { SecretsWriter } from "./usecases/settings.js";
 
 class FakeSecretsResolver implements SecretsResolver {
   constructor(private readonly map: Record<string, Record<string, string>>) {}
@@ -8,6 +9,13 @@ class FakeSecretsResolver implements SecretsResolver {
     const v = this.map[secretId];
     if (!v) throw new Error(`unknown secret ${secretId}`);
     return v;
+  }
+}
+
+class FakeSecretsWriter implements SecretsWriter {
+  constructor(public readonly map: Record<string, Record<string, string>> = {}) {}
+  async putSecretJson(secretId: string, payload: Record<string, string>): Promise<void> {
+    this.map[secretId] = { ...payload };
   }
 }
 
@@ -118,5 +126,41 @@ describe("buildControlApiFromEnv (T5 / T7)", () => {
       env: { LIVEKIT_SECRET_ARN: "arn:lk" },
     });
     expect(app).toBeDefined();
+  });
+
+  it("LIVEKIT_SECRET_ARN / YOUTUBE_SECRET_ARN があれば SettingsService を配線する", async () => {
+    const secrets = new FakeSecretsResolver({
+      "arn:lk": { url: "", apiKey: "", apiSecret: "" },
+      "arn:yt": { apiKey: "", oauthClientId: "", oauthClientSecret: "" },
+    });
+    const writer = new FakeSecretsWriter();
+    const app = await buildControlApiFromEnv({
+      secrets,
+      secretsWriter: writer,
+      env: { LIVEKIT_SECRET_ARN: "arn:lk", YOUTUBE_SECRET_ARN: "arn:yt" },
+    });
+    const res = await app.handle({
+      method: "PUT",
+      path: "/settings/youtube",
+      headers: adminAuth,
+      body: { apiKey: "K", oauthClientId: "id", oauthClientSecret: "sec" },
+    });
+    expect(res.status).toBe(200);
+    expect(writer.map["arn:yt"]).toEqual({
+      apiKey: "K",
+      oauthClientId: "id",
+      oauthClientSecret: "sec",
+    });
+  });
+
+  it("Secret ARN が無ければ SettingsService を作らず /settings は 503", async () => {
+    const secrets = new FakeSecretsResolver({});
+    const app = await buildControlApiFromEnv({ secrets, env: {} });
+    const res = await app.handle({
+      method: "GET",
+      path: "/settings/livekit",
+      headers: adminAuth,
+    });
+    expect(res.status).toBe(503);
   });
 });

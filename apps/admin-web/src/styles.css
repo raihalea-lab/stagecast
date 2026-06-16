@@ -86,3 +86,75 @@ code {
   color: #888;
   font-size: 0.85em;
 }
+
+/* ヘッダ内ビュー切替 (イベント / 運用設定) */
+.view-nav {
+  display: inline-flex;
+  gap: 0.25rem;
+  margin-left: 1rem;
+}
+.view-nav button {
+  background: transparent;
+  border: 1px solid #ccc;
+  padding: 0.25rem 0.75rem;
+  border-radius: 4px;
+  cursor: pointer;
+}
+.view-nav button.active {
+  background: #333;
+  color: #fff;
+  border-color: #333;
+}
+
+/* 運用設定ページ */
+.settings {
+  max-width: 480px;
+  padding: 0 1rem;
+}
+.settings-note {
+  color: #555;
+  font-size: 0.9em;
+  margin: 0.25rem 0 1.5rem;
+}
+.settings-form {
+  border: 1px solid #ddd;
+  border-radius: 6px;
+  padding: 1rem;
+  margin-bottom: 1.5rem;
+  display: grid;
+  gap: 0.5rem;
+}
+.settings-form label {
+  display: grid;
+  gap: 0.25rem;
+  font-size: 0.9em;
+}
+.settings-form input {
+  padding: 0.4rem 0.5rem;
+}
+.settings-form button[type="submit"] {
+  justify-self: start;
+  padding: 0.4rem 1rem;
+}
+
+/* ステータスバッジ (設定済み / 未設定 / 確認中) */
+.badge {
+  display: inline-block;
+  margin-left: 0.5rem;
+  padding: 0.05rem 0.5rem;
+  border-radius: 999px;
+  font-size: 0.75em;
+  vertical-align: middle;
+}
+.badge-ok {
+  background: #2e7d32;
+  color: #fff;
+}
+.badge-warn {
+  background: #ed6c02;
+  color: #fff;
+}
+.badge-loading {
+  background: #999;
+  color: #fff;
+}

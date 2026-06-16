@@ -19,6 +19,7 @@ import type { createPresentationService } from "../usecases/presentation.js";
 import { ServiceUnavailableError, type createJoinService } from "../usecases/join.js";
 import type { createAssetUploadService } from "../assets/asset-upload.js";
 import type { createArtifactDownloadService } from "../assets/artifact-download.js";
+import type { SettingsService } from "../usecases/settings.js";
 
 export interface HttpRequest {
   method: string;
@@ -48,12 +49,14 @@ export interface AppDeps {
   assets?: AssetUploadService;
   /** 成果物ダウンロードサービス (S3 未設定なら省略され 503)。 */
   artifacts?: ArtifactDownloadService;
+  /** 運用設定 (LiveKit / YouTube 認証情報) 管理 (Secrets Manager 未設定なら省略され 503)。 */
+  settings?: SettingsService;
 }
 
 const json = (status: number, body: unknown): HttpResponse => ({ status, body });
 
 export function createApp(deps: AppDeps) {
-  const { auth, events, invites, presentation, join, assets, artifacts } = deps;
+  const { auth, events, invites, presentation, join, assets, artifacts, settings } = deps;
 
   async function requireAdmin(req: HttpRequest): Promise<void> {
     await auth.verify(req.headers["authorization"] ?? req.headers["Authorization"]);
@@ -151,6 +154,18 @@ export function createApp(deps: AppDeps) {
         // 配信成果物 (録画 / 確定字幕) のダウンロード URL 一覧 (N1)。
         if (!artifacts) throw new ServiceUnavailableError("asset storage not configured");
         return json(200, await artifacts.listArtifacts(eventId));
+      }
+    }
+
+    // /settings/livekit | /settings/youtube : 運用設定 (LiveKit / YouTube) の取得・更新 (ADR D-10)
+    if (segments[0] === "settings" && segments.length === 2) {
+      if (!settings) throw new ServiceUnavailableError("settings store not configured");
+      if (segments[1] === "livekit") {
+        if (req.method === "GET") return json(200, await settings.getLiveKit());
+        if (req.method === "PUT") return json(200, await settings.putLiveKit(body));
+      } else if (segments[1] === "youtube") {
+        if (req.method === "GET") return json(200, await settings.getYouTube());
+        if (req.method === "PUT") return json(200, await settings.putYouTube(body));
       }
     }
 

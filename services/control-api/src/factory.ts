@@ -33,6 +33,7 @@ import {
   type ArtifactStore,
 } from "./assets/artifact-download.js";
 import { createApp } from "./http/app.js";
+import type { SettingsService } from "./usecases/settings.js";
 
 export interface FactoryConfig {
   auth?: AdminAuthVerifier;
@@ -47,6 +48,8 @@ export interface FactoryConfig {
   assetSigner?: AssetUploadSigner;
   /** 成果物ダウンロード用 S3 ストア。未指定なら ASSETS_BUCKET_NAME があれば S3 実装を使う。 */
   artifactStore?: ArtifactStore;
+  /** 運用設定 (LiveKit / YouTube 認証情報) 管理サービス。注入 > 環境変数解決 (lambda.ts 側で行う) > 503。 */
+  settings?: SettingsService;
   now?: () => number;
   newId?: () => string;
 }
@@ -117,5 +120,6 @@ export function buildControlApi(config: FactoryConfig = {}) {
     join,
     assets,
     artifacts,
+    settings: config.settings,
   });
 }

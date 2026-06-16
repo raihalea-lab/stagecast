@@ -9,9 +9,13 @@ import type {
   EventDefinition,
   EventStatus,
   InvitedRole,
+  LiveKitCredentials,
+  LiveKitSettingsStatus,
   PresentationState,
   SlideSource,
   SpeakerVisibility,
+  YouTubeCredentials,
+  YouTubeSettingsStatus,
 } from "@stagecast/shared";
 import type { CreateEventInput } from "@stagecast/control-api";
 
@@ -46,6 +50,12 @@ export interface ControlApiClient {
     source: SlideSource | undefined,
     page?: number,
   ): Promise<PresentationState>;
+
+  /** LiveKit / YouTube の運用設定 (ADR D-10)。値の取得は configured フラグのみ。 */
+  getLiveKitSettings(): Promise<LiveKitSettingsStatus>;
+  putLiveKitSettings(creds: LiveKitCredentials): Promise<LiveKitSettingsStatus>;
+  getYouTubeSettings(): Promise<YouTubeSettingsStatus>;
+  putYouTubeSettings(creds: YouTubeCredentials): Promise<YouTubeSettingsStatus>;
 }
 
 /**

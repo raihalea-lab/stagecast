@@ -2,6 +2,7 @@ import { describe, expect, it, beforeEach } from "vitest";
 import type { CaptionSettings } from "@stagecast/shared";
 import { buildControlApi } from "./factory.js";
 import type { App, HttpRequest } from "./http/app.js";
+import { createSettingsService } from "./usecases/settings.js";
 
 const caption: CaptionSettings = {
   languages: ["ja", "en"],
@@ -350,5 +351,102 @@ describe("control-api integration (in-memory)", () => {
       }),
     );
     expect(res.status).toBe(404);
+  });
+});
+
+describe("settings (LiveKit / YouTube) HTTP", () => {
+  // ローカル/テスト用のインメモリ Secrets ストアと SettingsService 配線。
+  const livekitArn = "arn:aws:secretsmanager:ap-northeast-1:1:secret:stagecast/livekit";
+  const youtubeArn = "arn:aws:secretsmanager:ap-northeast-1:1:secret:stagecast/youtube";
+
+  function buildAppWithSettings(): App {
+    const store = new Map<string, Record<string, string>>();
+    const reader = { getSecretJson: async (id: string) => store.get(id) ?? {} };
+    const writer = {
+      putSecretJson: async (id: string, payload: Record<string, string>) => {
+        store.set(id, { ...payload });
+      },
+    };
+    const settings = createSettingsService({
+      reader,
+      writer,
+      livekitSecretArn: livekitArn,
+      youtubeSecretArn: youtubeArn,
+    });
+    return buildControlApi({ inviteSecret: "s", settings });
+  }
+
+  it("settings 未配線なら 503 を返す", async () => {
+    const app = buildControlApi({ inviteSecret: "s" });
+    const res = await app.handle(
+      req({ method: "GET", path: "/settings/livekit", headers: adminAuth }),
+    );
+    expect(res.status).toBe(503);
+  });
+
+  it("認証無しの GET /settings/livekit は 401", async () => {
+    const app = buildAppWithSettings();
+    const res = await app.handle(req({ method: "GET", path: "/settings/livekit" }));
+    expect(res.status).toBe(401);
+  });
+
+  it("初期状態は configured:false (LiveKit)", async () => {
+    const app = buildAppWithSettings();
+    const res = await app.handle(
+      req({ method: "GET", path: "/settings/livekit", headers: adminAuth }),
+    );
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ configured: false });
+  });
+
+  it("PUT で全フィールドを保存し GET で configured:true + url を返す (LiveKit)", async () => {
+    const app = buildAppWithSettings();
+    const put = await app.handle(
+      req({
+        method: "PUT",
+        path: "/settings/livekit",
+        headers: adminAuth,
+        body: { url: "wss://lk.example.com", apiKey: "k", apiSecret: "s" },
+      }),
+    );
+    expect(put.status).toBe(200);
+    expect(put.body).toEqual({ configured: true, url: "wss://lk.example.com" });
+
+    const get = await app.handle(
+      req({ method: "GET", path: "/settings/livekit", headers: adminAuth }),
+    );
+    expect(get.body).toEqual({ configured: true, url: "wss://lk.example.com" });
+  });
+
+  it("LiveKit URL が wss:// 以外なら 400", async () => {
+    const app = buildAppWithSettings();
+    const res = await app.handle(
+      req({
+        method: "PUT",
+        path: "/settings/livekit",
+        headers: adminAuth,
+        body: { url: "https://lk.example.com", apiKey: "k", apiSecret: "s" },
+      }),
+    );
+    expect(res.status).toBe(400);
+  });
+
+  it("PUT で YouTube を保存しても機密は GET で返らない", async () => {
+    const app = buildAppWithSettings();
+    const put = await app.handle(
+      req({
+        method: "PUT",
+        path: "/settings/youtube",
+        headers: adminAuth,
+        body: { apiKey: "K", oauthClientId: "id", oauthClientSecret: "sec" },
+      }),
+    );
+    expect(put.status).toBe(200);
+    expect(put.body).toEqual({ configured: true });
+
+    const get = await app.handle(
+      req({ method: "GET", path: "/settings/youtube", headers: adminAuth }),
+    );
+    expect(get.body).toEqual({ configured: true });
   });
 });

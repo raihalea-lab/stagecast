@@ -14,6 +14,7 @@ import { HttpArtifactService } from "./api/http-artifact-service.js";
 import type { ControlApiClient, AssetService, ArtifactService } from "./api/types.js";
 import { EventForm } from "./components/EventForm.js";
 import { EventDetail } from "./components/EventDetail.js";
+import { SettingsPage } from "./components/SettingsPage.js";
 import { CognitoAuthClient, cognitoConfig } from "./auth/cognito.js";
 import type { RuntimeConfig } from "./config.js";
 import { toErrorMessage } from "./lib/errors.js";
@@ -61,6 +62,8 @@ export function App(props: {
   const [selectedId, setSelectedId] = useState<string | undefined>();
   const [apiError, setApiError] = useState<string | undefined>();
   const [busy, setBusy] = useState(false);
+  /** 画面切り替え: イベント管理 / 運用設定 (LiveKit / YouTube 認証情報)。 */
+  const [view, setView] = useState<"events" | "settings">("events");
 
   // API 操作を共通ラップ: 実行中は busy、失敗はエラーバナーに出す (従来は握り潰し)。
   const run = useCallback(async (fn: () => Promise<void>) => {
@@ -164,6 +167,20 @@ export function App(props: {
     <main className="app">
       <header>
         <h1>Stagecast 管理コンソール</h1>
+        <nav className="view-nav">
+          <button
+            onClick={() => setView("events")}
+            className={view === "events" ? "active" : ""}
+          >
+            イベント
+          </button>
+          <button
+            onClick={() => setView("settings")}
+            className={view === "settings" ? "active" : ""}
+          >
+            運用設定
+          </button>
+        </nav>
         {busy && <span className="busy">処理中…</span>}
         {authClient && <button onClick={logout}>ログアウト</button>}
       </header>
@@ -172,37 +189,41 @@ export function App(props: {
           {apiError} <button onClick={() => setApiError(undefined)}>×</button>
         </p>
       )}
-      <div className="layout">
-        <aside>
-          <EventForm onCreate={create} busy={busy} />
-          <h2>イベント一覧</h2>
-          <ul className="event-list">
-            {events.map((e) => (
-              <li key={e.id}>
-                <button
-                  onClick={() => setSelectedId(e.id)}
-                  className={e.id === selectedId ? "active" : ""}
-                >
-                  {e.title} ({e.status})
-                </button>
-              </li>
-            ))}
-          </ul>
-        </aside>
-        <article>
-          {selected ? (
-            <EventDetail
-              event={selected}
-              client={client}
-              assets={assets}
-              artifacts={artifacts}
-              onChanged={() => void run(refresh)}
-            />
-          ) : (
-            <p>イベントを選択してください。</p>
-          )}
-        </article>
-      </div>
+      {view === "settings" ? (
+        <SettingsPage client={client} />
+      ) : (
+        <div className="layout">
+          <aside>
+            <EventForm onCreate={create} busy={busy} />
+            <h2>イベント一覧</h2>
+            <ul className="event-list">
+              {events.map((e) => (
+                <li key={e.id}>
+                  <button
+                    onClick={() => setSelectedId(e.id)}
+                    className={e.id === selectedId ? "active" : ""}
+                  >
+                    {e.title} ({e.status})
+                  </button>
+                </li>
+              ))}
+            </ul>
+          </aside>
+          <article>
+            {selected ? (
+              <EventDetail
+                event={selected}
+                client={client}
+                assets={assets}
+                artifacts={artifacts}
+                onChanged={() => void run(refresh)}
+              />
+            ) : (
+              <p>イベントを選択してください。</p>
+            )}
+          </article>
+        </div>
+      )}
     </main>
   );
 }

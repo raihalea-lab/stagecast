@@ -6,9 +6,13 @@ import type {
   EventDefinition,
   EventStatus,
   InvitedRole,
+  LiveKitCredentials,
+  LiveKitSettingsStatus,
   PresentationState,
   SlideSource,
   SpeakerVisibility,
+  YouTubeCredentials,
+  YouTubeSettingsStatus,
 } from "@stagecast/shared";
 import type { CreateEventInput } from "@stagecast/control-api";
 import type { ControlApiClient, IssuedInvite } from "./types.js";
@@ -73,5 +77,17 @@ export class HttpControlApiClient implements ControlApiClient {
       slideSource: source,
       slidePage: page,
     });
+  }
+  getLiveKitSettings(): Promise<LiveKitSettingsStatus> {
+    return this.call("GET", "/settings/livekit");
+  }
+  putLiveKitSettings(creds: LiveKitCredentials): Promise<LiveKitSettingsStatus> {
+    return this.call("PUT", "/settings/livekit", creds);
+  }
+  getYouTubeSettings(): Promise<YouTubeSettingsStatus> {
+    return this.call("GET", "/settings/youtube");
+  }
+  putYouTubeSettings(creds: YouTubeCredentials): Promise<YouTubeSettingsStatus> {
+    return this.call("PUT", "/settings/youtube", creds);
   }
 }

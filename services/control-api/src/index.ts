@@ -15,6 +15,7 @@ export * from "./usecases/events.js";
 export * from "./usecases/invites.js";
 export * from "./usecases/presentation.js";
 export * from "./usecases/join.js";
+export * from "./usecases/settings.js";
 export * from "./auth/livekit-minter.js";
 export * from "./assets/asset-upload.js";
 export * from "./invite/token.js";

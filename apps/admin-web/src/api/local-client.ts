@@ -10,9 +10,13 @@ import type {
   EventDefinition,
   EventStatus,
   InvitedRole,
+  LiveKitCredentials,
+  LiveKitSettingsStatus,
   PresentationState,
   SlideSource,
   SpeakerVisibility,
+  YouTubeCredentials,
+  YouTubeSettingsStatus,
 } from "@stagecast/shared";
 import type { CreateEventInput } from "@stagecast/control-api";
 import type { ControlApiClient, IssuedInvite } from "./types.js";
@@ -79,5 +83,19 @@ export class LocalControlApiClient implements ControlApiClient {
       slideSource: source,
       slidePage: page,
     });
+  }
+  // ローカル/テストでは control-api を SettingsService 無しで構築しているため、
+  // 設定 API は 503 を返す。実体での確認は HttpControlApiClient + Lambda 経由で行う。
+  getLiveKitSettings(): Promise<LiveKitSettingsStatus> {
+    return this.call("GET", "/settings/livekit");
+  }
+  putLiveKitSettings(creds: LiveKitCredentials): Promise<LiveKitSettingsStatus> {
+    return this.call("PUT", "/settings/livekit", creds);
+  }
+  getYouTubeSettings(): Promise<YouTubeSettingsStatus> {
+    return this.call("GET", "/settings/youtube");
+  }
+  putYouTubeSettings(creds: YouTubeCredentials): Promise<YouTubeSettingsStatus> {
+    return this.call("PUT", "/settings/youtube", creds);
   }
 }

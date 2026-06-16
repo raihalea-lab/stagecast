@@ -15,11 +15,19 @@ import {
 import { DefaultLiveKitTokenMinter, type LiveKitTokenMinter } from "./auth/livekit-minter.js";
 import { buildControlApi } from "./factory.js";
 import type { App } from "./http/app.js";
+import {
+  createSettingsService,
+  type SecretsWriter,
+  type SettingsService,
+} from "./usecases/settings.js";
 
-/** Secrets Manager の最小操作。テストでは fake を注入する。 */
+/** Secrets Manager の最小読み取り操作。テストでは fake を注入する。 */
 export interface SecretsResolver {
   getSecretJson(secretId: string): Promise<Record<string, string>>;
 }
+
+/** Secrets Manager の最小書き込み操作 (PutSecretValue)。テストでは fake を注入する。 */
+export type SecretsWriterAdapter = SecretsWriter;
 
 class AwsSecretsResolver implements SecretsResolver {
   private clientPromise: Promise<{
@@ -56,9 +64,38 @@ class AwsSecretsResolver implements SecretsResolver {
   }
 }
 
+/** Secrets Manager に PutSecretValue で JSON 文字列を上書き保存する。 */
+class AwsSecretsWriter implements SecretsWriter {
+  private clientPromise: Promise<{
+    send: (cmd: unknown) => Promise<unknown>;
+  }> | null = null;
+
+  private async client(): Promise<{ send: (cmd: unknown) => Promise<unknown> }> {
+    if (!this.clientPromise) {
+      this.clientPromise = (async () => {
+        const { SecretsManagerClient } = await import("@aws-sdk/client-secrets-manager");
+        return new SecretsManagerClient({}) as unknown as {
+          send: (cmd: unknown) => Promise<unknown>;
+        };
+      })();
+    }
+    return this.clientPromise;
+  }
+
+  async putSecretJson(secretId: string, payload: Record<string, string>): Promise<void> {
+    const { PutSecretValueCommand } = await import("@aws-sdk/client-secrets-manager");
+    const sm = await this.client();
+    await sm.send(
+      new PutSecretValueCommand({ SecretId: secretId, SecretString: JSON.stringify(payload) }),
+    );
+  }
+}
+
 export interface BuildFromEnvOptions {
-  /** Secrets Manager 解決器 (テストでは fake を注入)。 */
+  /** Secrets Manager 読み取り (テストでは fake を注入)。 */
   secrets?: SecretsResolver;
+  /** Secrets Manager 書き込み (PutSecretValue, テストでは fake を注入)。 */
+  secretsWriter?: SecretsWriter;
   /** env (テストでは差し替え可能)。 */
   env?: NodeJS.ProcessEnv;
 }
@@ -74,16 +111,37 @@ export interface BuildFromEnvOptions {
 export async function buildControlApiFromEnv(options: BuildFromEnvOptions = {}): Promise<App> {
   const env = options.env ?? process.env;
   const secrets = options.secrets ?? new AwsSecretsResolver();
+  const secretsWriter = options.secretsWriter ?? new AwsSecretsWriter();
 
   const inviteSecret = await resolveInviteSecret(env, secrets);
   const livekitMinter = await resolveLiveKit(env, secrets);
   const auth = resolveAdminAuth(env);
+  const settings = resolveSettings(env, secrets, secretsWriter);
 
   return buildControlApi({
     inviteSecret,
     livekitMinter,
     auth,
+    settings,
   });
+}
+
+/**
+ * 運用設定 (LiveKit / YouTube 認証情報) 管理を組み立てる。
+ *
+ * LIVEKIT_SECRET_ARN または YOUTUBE_SECRET_ARN のどちらか 1 つでもあれば SettingsService
+ * を作る (片方しか env が無い環境でもサービスは部分的に利用できる)。両方無いなら
+ * undefined を返し、HTTP 層が 503 を返す。
+ */
+function resolveSettings(
+  env: NodeJS.ProcessEnv,
+  reader: SecretsResolver,
+  writer: SecretsWriter,
+): SettingsService | undefined {
+  const livekitSecretArn = env.LIVEKIT_SECRET_ARN;
+  const youtubeSecretArn = env.YOUTUBE_SECRET_ARN;
+  if (!livekitSecretArn && !youtubeSecretArn) return undefined;
+  return createSettingsService({ reader, writer, livekitSecretArn, youtubeSecretArn });
 }
 
 async function resolveInviteSecret(

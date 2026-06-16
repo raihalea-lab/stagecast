@@ -273,12 +273,24 @@ export class ControlPlaneStack extends Stack {
         COGNITO_USER_POOL_CLIENT_ID: adminUserPoolClient.userPoolClientId,
         INVITE_TOKEN_SECRET_ARN: inviteTokenSecret.secretArn,
         LIVEKIT_SECRET_ARN: livekitSecret.secretArn,
+        // 運用設定 (LiveKit / YouTube) を管理画面から更新できるようにする。
+        YOUTUBE_SECRET_ARN: youtubeSecret.secretArn,
       },
     });
     metadataTable.grantReadWriteData(controlApiFn);
     assetsBucket.grantReadWrite(controlApiFn);
     inviteTokenSecret.grantRead(controlApiFn);
     livekitSecret.grantRead(controlApiFn);
+    youtubeSecret.grantRead(controlApiFn);
+    // 管理画面からの設定更新 (PUT /settings/*) 用に、対象 2 Secret に限定して
+    // PutSecretValue だけを許可する (ADR D-10)。grantWrite は UpdateSecret も付くため
+    // 使わず、値書き込み専用の PolicyStatement で最小権限にする。
+    controlApiFn.addToRolePolicy(
+      new iam.PolicyStatement({
+        actions: ["secretsmanager:PutSecretValue"],
+        resources: [livekitSecret.secretArn, youtubeSecret.secretArn],
+      }),
+    );
 
     // --- API Gateway HTTP API + Cognito JWT Authorizer (T5, F-12) ---
     // 防御層: API Gateway で JWT を一次検証し、Lambda 側 (cognitoAdminAuthVerifier) で
