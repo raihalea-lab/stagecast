@@ -406,7 +406,7 @@ export class ControlPlaneStack extends Stack {
     // これらを直接持たず、CFN にロールを渡す (iam:PassRole) だけにして攻撃面を絞る。
     const eventMediaCfnRole = new iam.Role(this, "EventMediaCfnExecRole", {
       assumedBy: new iam.ServicePrincipal("cloudformation.amazonaws.com"),
-      description: "EventMediaStack を CFN が作成/破棄するための実行ロール (ADR 0005 D-5)",
+      description: "CloudFormation execution role for EventMediaStack (ADR 0005 D-5)",
     });
     eventMediaCfnRole.addToPolicy(
       new iam.PolicyStatement({
