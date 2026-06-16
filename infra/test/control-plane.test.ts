@@ -110,6 +110,25 @@ describe("ControlPlaneStack", () => {
     });
   });
 
+  it("OPTIONS preflight は明示ルートを持たない (API Gateway corsConfiguration が自動 204 応答する)", () => {
+    // 明示 OPTIONS ルートを置くと Lambda に流れて requireAdmin で 401 を返してしまい、
+    // ブラウザが「Failed to fetch」と判定するため、ルート登録は禁止 (CORS 自動応答に任せる)。
+    const routes = template.findResources("AWS::ApiGatewayV2::Route");
+    const optionsRoutes = Object.values(routes).filter((r) => {
+      const key = (r.Properties as { RouteKey?: string }).RouteKey ?? "";
+      return key.startsWith("OPTIONS ");
+    });
+    expect(optionsRoutes).toHaveLength(0);
+  });
+
+  it("CORS allowMethods に PUT が含まれる (settings 保存系で必要)", () => {
+    template.hasResourceProperties("AWS::ApiGatewayV2::Api", {
+      CorsConfiguration: Match.objectLike({
+        AllowMethods: Match.arrayWith(["PUT"]),
+      }),
+    });
+  });
+
   it("Secrets Manager に invite-token / livekit / youtube の 3 シークレット (T7, ADR D-10)", () => {
     template.resourceCountIs("AWS::SecretsManager::Secret", 3);
     template.hasResourceProperties("AWS::SecretsManager::Secret", {
