@@ -176,6 +176,33 @@ aws cloudfront create-invalidation \
 - 実 AWS との疎通確認は `pnpm run test:integration` (`*.integration.test.ts`) で行える (T8)。
   RUN_INTEGRATION 環境変数が立たない通常 CI ではスキップされる。
 
+## 管理コンソールからイベントを起動する（イベントごとの `cdk deploy` は不要）
+
+**イベントを増やすたびに `cdk deploy` する必要はない**。制御層を一度デプロイすれば、以降は
+管理コンソール (admin-web) の操作だけでメディア/字幕スタックが自動で起動・破棄される:
+
+1. 管理コンソールでイベントを作成（タイトル・字幕エンジン・言語・YouTube RTMP URL / ストリームキー参照を入力）
+2. **「配信開始 (live)」** をクリック → control-api がイベントを `live` にして DynamoDB に保存
+3. **reconcile Lambda (60s tick)** が `live` イベントを検出し、`StagecastEventMedia-<id>`
+   スタックを CloudFormation で自動 CreateStack（ADR 0003 D-2）
+4. **「配信終了 (ended)」** をクリック → 次の tick でスタックを自動 DeleteStack
+
+`cdk deploy -c eventId=<id>` は手動の代替経路として残るが、通常運用では使わない。
+
+### コンソール運用を始める前のワンタイム準備（環境ごとに一度）
+
+イベント単位ではなく、**環境構築時に一度だけ** 整えておくもの。これが揃っていないと
+自動起動したスタックのコンテナが正しく動かない:
+
+- [ ] **CDK bootstrap** + 制御層 deploy（reconcile Lambda・CFN 実行ロール・`gsi-live` GSI が入る）
+- [ ] **字幕ワーカーのコンテナイメージを ECR に push**
+      （`Actions → Build caption-worker image → Run workflow`）。未 push だと placeholder
+      イメージにフォールバックし字幕ワーカーが動かない。
+- [ ] **Secrets Manager に実値を投入**: `stagecast/livekit`（url / apiKey / apiSecret）、
+      必要なら `stagecast/youtube`。CDK は空値で作成する。
+- [ ] 録画の出力先は制御層の成果物バケットを自動共用する（`RECORDINGS_BUCKET_NAME` を
+      reconcile/render-template に注入済み）。専用バケットの手動作成は不要。
+
 ## 開発ルール
 
 - `DESIGN.md` を逸脱しない。仕様変更が要るときは ADR を書いてから。

@@ -1,5 +1,33 @@
 import { describe, expect, it } from "vitest";
-import { classifyStackStatus } from "./reconcile-handler.js";
+import { classifyStackStatus, toDesiredEvent } from "./reconcile-handler.js";
+
+describe("toDesiredEvent (gsi-live item → DesiredEvent)", () => {
+  it("caption.engine / caption.customApiEnabled / youtube.rtmpUrl を正しく取り出す", () => {
+    // dynamo-mapper.eventToItem が格納する EventDefinition 相当の item。
+    const item = {
+      id: "evt-1",
+      eventId: "evt-1",
+      status: "live",
+      caption: { engine: "llm", customApiEnabled: true, languages: ["ja"], youtubeLanguage: "ja" },
+      youtube: { rtmpUrl: "rtmp://a/b", streamKeyRef: "stagecast/sk" },
+    };
+    expect(toDesiredEvent(item)).toEqual({
+      eventId: "evt-1",
+      captionEngine: "llm",
+      customCaptionApi: true,
+      rtmpUrl: "rtmp://a/b",
+    });
+  });
+
+  it("欠損時は安全な既定 (transcribe / false / rtmpUrl 無し) にフォールバックする", () => {
+    expect(toDesiredEvent({ id: "evt-2" })).toEqual({
+      eventId: "evt-2",
+      captionEngine: "transcribe",
+      customCaptionApi: false,
+      rtmpUrl: undefined,
+    });
+  });
+});
 
 describe("classifyStackStatus (T4)", () => {
   it("CREATE_COMPLETE / UPDATE_COMPLETE は running", () => {

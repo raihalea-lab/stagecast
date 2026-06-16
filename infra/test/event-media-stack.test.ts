@@ -151,6 +151,27 @@ describe("EventMediaStack (DESIGN.md 7.1/7.3, N-5)", () => {
     });
   });
 
+  it("recordingsBucketName を渡すと Egress の録画出力先がそのバケットになる (ADR 0006 D-4)", () => {
+    const app = new App();
+    const stack = new EventMediaStack(app, eventMediaStackName("evt-b"), {
+      env: { account: "111111111111", region: "ap-northeast-1" },
+      eventId: "evt-b",
+      captionEngine: "transcribe",
+      customCaptionApi: false,
+      recordingsBucketName: "stagecast-assets-123",
+    });
+    Template.fromStack(stack).hasResourceProperties("AWS::IAM::Policy", {
+      PolicyDocument: {
+        Statement: Match.arrayWith([
+          Match.objectLike({
+            Action: Match.arrayWith(["s3:PutObject"]),
+            Resource: "arn:aws:s3:::stagecast-assets-123/recordings/*",
+          }),
+        ]),
+      },
+    });
+  });
+
   it("CloudWatch アラーム/メトリクスフィルタ/ダッシュボードを定義する (T9, ADR 0003)", () => {
     // タスク異常 3 + 字幕遅延 1 + RTMP 切断 1 + Sink エラー 2 (youtube/custom-api) + 翻訳失敗 1 = 8
     template.resourceCountIs("AWS::CloudWatch::Alarm", 8);

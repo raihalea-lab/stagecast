@@ -25,6 +25,12 @@ export function eventToItem(event: EventDefinition): Item {
     type: "event",
     gsi1pk: "EVENT",
     gsi1sk: `${event.startsAt}#${event.id}`,
+    // gsi-live (reconcile が live イベントを引く) のキー属性。eventId はソートキー、
+    // liveStatus はパーティションキー。live のときだけ liveStatus を立て、それ以外は
+    // undefined にして DocClient の removeUndefinedValues で消す → sparse index (live のみ索引)。
+    // live→ended は PutItem 全置換で liveStatus が消え、次の reconcile tick で destroy される。
+    eventId: event.id,
+    liveStatus: event.status === "live" ? "live" : undefined,
     ...event,
   };
 }

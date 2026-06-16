@@ -36,6 +36,17 @@ describe("dynamo single-table mapping (DESIGN.md 3.1)", () => {
     expect(itemToEvent(item)).toEqual(event);
   });
 
+  it("live イベントだけ gsi-live のキー (liveStatus/eventId) を立てる (reconcile 用)", () => {
+    // live → liveStatus="live" + eventId が入り、reconcile の gsi-live クエリで発見される。
+    const live = eventToItem({ ...event, status: "live" });
+    expect(live.liveStatus).toBe("live");
+    expect(live.eventId).toBe("evt-1");
+
+    // 非 live → liveStatus は undefined (DocClient の removeUndefinedValues で消え sparse index)。
+    expect(eventToItem({ ...event, status: "draft" }).liveStatus).toBeUndefined();
+    expect(eventToItem({ ...event, status: "ended" }).liveStatus).toBeUndefined();
+  });
+
   it("round-trips an invite record with event-scoped GSI", () => {
     const rec: InviteTokenRecord = {
       jti: "tok-1",
