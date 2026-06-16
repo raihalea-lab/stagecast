@@ -425,6 +425,9 @@ export class ControlPlaneStack extends Stack {
         CDK_DEFAULT_REGION: this.region,
         // EventMediaStack の caption-worker イメージに使う (R4)。`latest` を参照。
         CAPTION_WORKER_IMAGE: `${captionWorkerRepo.repositoryUri}:latest`,
+        // Egress 録画の出力先 (制御層の成果物バケットを共用)。未設定だと EventMediaStack 既定の
+        // ハードコード名にフォールバックし、実在しないバケットを参照してしまう (ADR 0006 D-4)。
+        RECORDINGS_BUCKET_NAME: assetsBucket.bucketName,
       },
     });
 

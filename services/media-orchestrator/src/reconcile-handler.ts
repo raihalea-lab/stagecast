@@ -59,12 +59,7 @@ async function deps(): Promise<HandlerDeps> {
           ExpressionAttributeValues: { ":v": "live" },
         }),
       );
-      return (res.Items ?? []).map((it) => ({
-        eventId: String(it.eventId ?? it.pk ?? ""),
-        captionEngine: (it.captionEngine as DesiredEvent["captionEngine"]) ?? "transcribe",
-        customCaptionApi: Boolean(it.customCaptionApi),
-        rtmpUrl: (it.rtmpUrl as string | undefined) ?? undefined,
-      }));
+      return (res.Items ?? []).map(toDesiredEvent);
     },
     fetchActual: async () => {
       const stacks: ActualStack[] = [];
@@ -103,6 +98,27 @@ async function deps(): Promise<HandlerDeps> {
     executor: makeExecutor(),
   };
   return cached;
+}
+
+/**
+ * DynamoDB の gsi-live item を DesiredEvent に変換する (純粋関数・テスト可能)。
+ *
+ * item は EventDefinition を素直に格納したもの (dynamo-mapper.eventToItem)。
+ * - eventId: GSI ソートキー属性 (無ければ id)
+ * - captionEngine / customCaptionApi: `caption` ネスト配下から取る (top-level には無い)
+ * - rtmpUrl: `youtube.rtmpUrl` から取る (フォーム入力は youtube ターゲット配下に保存される)
+ */
+export function toDesiredEvent(it: Record<string, unknown>): DesiredEvent {
+  const caption = it.caption as
+    | { engine?: DesiredEvent["captionEngine"]; customApiEnabled?: boolean }
+    | undefined;
+  const youtube = it.youtube as { rtmpUrl?: string } | undefined;
+  return {
+    eventId: String(it.eventId ?? it.id ?? ""),
+    captionEngine: caption?.engine ?? "transcribe",
+    customCaptionApi: Boolean(caption?.customApiEnabled),
+    rtmpUrl: youtube?.rtmpUrl,
+  };
 }
 
 /** CloudFormation スタックの状態文字列を ActualStackKind に分類する (T4)。 */

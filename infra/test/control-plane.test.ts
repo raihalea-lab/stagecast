@@ -49,6 +49,17 @@ describe("ControlPlaneStack", () => {
     template.resourceCountIs("AWS::ApiGatewayV2::Api", 1);
   });
 
+  it("RenderTemplateFunction に caption-worker イメージと録画バケットを env で渡す", () => {
+    template.hasResourceProperties("AWS::Lambda::Function", {
+      Environment: {
+        Variables: Match.objectLike({
+          CAPTION_WORKER_IMAGE: Match.anyValue(),
+          RECORDINGS_BUCKET_NAME: Match.anyValue(),
+        }),
+      },
+    });
+  });
+
   it("EventBridge スケジュール + reconcile Lambda が 60s 毎に起動する (T4, ADR 0003 D-2)", () => {
     template.hasResourceProperties("AWS::Events::Rule", {
       ScheduleExpression: "rate(1 minute)",

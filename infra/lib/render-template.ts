@@ -22,11 +22,14 @@ export function renderEventMediaTemplate(spec: RenderEventMediaSpec): string {
   // reconcile Lambda が ECR の caption-worker イメージ URI を env で渡す (R4)。未設定なら
   // EventMediaStack 既定の node:24-alpine プレースホルダにフォールバックする。
   const captionWorkerImage = process.env.CAPTION_WORKER_IMAGE;
+  // Egress 録画の出力先バケット。制御層が成果物バケット名を env で渡す (ADR 0006 D-4)。
+  const recordingsBucketName = process.env.RECORDINGS_BUCKET_NAME;
   new EventMediaStack(app, stackName, {
     eventId: spec.eventId,
     captionEngine: spec.captionEngine,
     customCaptionApi: spec.customCaptionApi,
     ...(captionWorkerImage ? { images: { captionWorker: captionWorkerImage } } : {}),
+    ...(recordingsBucketName ? { recordingsBucketName } : {}),
   });
   const assembly = app.synth();
   const template = assembly.getStackByName(stackName).template as unknown;
