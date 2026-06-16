@@ -65,7 +65,8 @@ export class ControlPlaneStack extends Stack {
       sortKey: { name: "sk", type: dynamodb.AttributeType.STRING },
       billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
       pointInTimeRecoverySpecification: { pointInTimeRecoveryEnabled: true },
-      removalPolicy: RemovalPolicy.RETAIN,
+      // 開発環境では stack 削除でテーブルも消す。本番に移すときは RETAIN に戻すこと。
+      removalPolicy: RemovalPolicy.DESTROY,
     });
     metadataTable.addGlobalSecondaryIndex({
       indexName: "gsi1",
@@ -86,7 +87,9 @@ export class ControlPlaneStack extends Stack {
       encryption: s3.BucketEncryption.S3_MANAGED,
       enforceSSL: true,
       versioned: true,
-      removalPolicy: RemovalPolicy.RETAIN,
+      // 開発環境では stack 削除でバケットも消す。autoDeleteObjects で中身を空にしてから削除。
+      removalPolicy: RemovalPolicy.DESTROY,
+      autoDeleteObjects: true,
       lifecycleRules: [
         {
           id: "archive-recordings",
@@ -106,7 +109,9 @@ export class ControlPlaneStack extends Stack {
       repositoryName: "stagecast/caption-worker",
       imageScanOnPush: true,
       imageTagMutability: ecr.TagMutability.MUTABLE, // `latest` を上書きするため
-      removalPolicy: RemovalPolicy.RETAIN,
+      // スタック削除時にレジストリも消す。emptyOnDelete でイメージが残っていても削除可能にする。
+      removalPolicy: RemovalPolicy.DESTROY,
+      emptyOnDelete: true,
       lifecycleRules: [
         // 直近 10 イメージのみ保持してストレージ費を抑える。
         { description: "keep last 10 images", maxImageCount: 10 },
@@ -133,7 +138,8 @@ export class ControlPlaneStack extends Stack {
       mfa: cognito.Mfa.OPTIONAL,
       mfaSecondFactor: { sms: false, otp: true },
       accountRecovery: cognito.AccountRecovery.EMAIL_ONLY,
-      removalPolicy: RemovalPolicy.RETAIN,
+      // 開発環境では stack 削除で UserPool も消す (initialAdmins は再 deploy で復元される)。
+      removalPolicy: RemovalPolicy.DESTROY,
     });
 
     // Hosted UI 用ドメイン (Cognito ドメイン)。
@@ -221,7 +227,7 @@ export class ControlPlaneStack extends Stack {
         excludePunctuation: true,
         passwordLength: 64,
       },
-      removalPolicy: RemovalPolicy.RETAIN,
+      removalPolicy: RemovalPolicy.DESTROY,
     });
     const livekitSecret = new secretsmanager.Secret(this, "LiveKitSecret", {
       secretName: "stagecast/livekit",
@@ -229,7 +235,7 @@ export class ControlPlaneStack extends Stack {
       secretStringValue: SecretValue.unsafePlainText(
         JSON.stringify({ url: "", apiKey: "", apiSecret: "" }),
       ),
-      removalPolicy: RemovalPolicy.RETAIN,
+      removalPolicy: RemovalPolicy.DESTROY,
     });
     const youtubeSecret = new secretsmanager.Secret(this, "YouTubeSecret", {
       secretName: "stagecast/youtube",
@@ -237,7 +243,7 @@ export class ControlPlaneStack extends Stack {
       secretStringValue: SecretValue.unsafePlainText(
         JSON.stringify({ apiKey: "", oauthClientId: "", oauthClientSecret: "" }),
       ),
-      removalPolicy: RemovalPolicy.RETAIN,
+      removalPolicy: RemovalPolicy.DESTROY,
     });
 
     // --- 制御 API: API Gateway (HTTP API) + Lambda (DESIGN.md 3.1, T5) ---
@@ -406,7 +412,7 @@ export class ControlPlaneStack extends Stack {
     // これらを直接持たず、CFN にロールを渡す (iam:PassRole) だけにして攻撃面を絞る。
     const eventMediaCfnRole = new iam.Role(this, "EventMediaCfnExecRole", {
       assumedBy: new iam.ServicePrincipal("cloudformation.amazonaws.com"),
-      description: "EventMediaStack を CFN が作成/破棄するための実行ロール (ADR 0005 D-5)",
+      description: "CloudFormation execution role for EventMediaStack (ADR 0005 D-5)",
     });
     eventMediaCfnRole.addToPolicy(
       new iam.PolicyStatement({
@@ -586,7 +592,9 @@ export class ControlPlaneStack extends Stack {
       blockPublicAccess: s3.BlockPublicAccess.BLOCK_ALL,
       encryption: s3.BucketEncryption.S3_MANAGED,
       enforceSSL: true,
-      removalPolicy: RemovalPolicy.RETAIN,
+      // 開発環境では stack 削除でバケットも消す。中身は BucketDeployment 生成物なので失っても再生成可能。
+      removalPolicy: RemovalPolicy.DESTROY,
+      autoDeleteObjects: true,
     });
   }
 

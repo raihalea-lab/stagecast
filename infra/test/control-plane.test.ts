@@ -45,7 +45,8 @@ describe("ControlPlaneStack", () => {
 
   it("制御 API の Lambda + HTTP API がある (T5)", () => {
     // control-api + reconcile + render-template lambda の 3 つ (D1 で分離)。
-    template.resourceCountIs("AWS::Lambda::Function", 3);
+    // + S3 autoDeleteObjects 用の Custom Resource provider Lambda が 1 つ (3 つの SPA/assets バケットで共有)。
+    template.resourceCountIs("AWS::Lambda::Function", 4);
     template.hasResourceProperties("AWS::Lambda::Function", {
       Runtime: "nodejs24.x",
     });
