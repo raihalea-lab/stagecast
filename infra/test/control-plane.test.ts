@@ -130,11 +130,21 @@ describe("ControlPlaneStack", () => {
     });
   });
 
-  it("LiveKit / YouTube の初期値は空 (運用者が後から値を入れる)", () => {
+  it("LiveKit Secret は CREATE 時に CDK が apiSecret を自動生成する (apiKey はテンプレ埋め込み)", () => {
+    // generateSecretString を使う = SecretString プロパティに平文が無い。
+    // テンプレに apiKey 識別子を埋め込み、apiSecret のみランダム生成 (43 文字 ≒ 256 bit)。
     template.hasResourceProperties("AWS::SecretsManager::Secret", {
       Name: "stagecast/livekit",
-      SecretString: JSON.stringify({ apiKey: "", apiSecret: "" }),
+      GenerateSecretString: Match.objectLike({
+        GenerateStringKey: "apiSecret",
+        PasswordLength: 43,
+        ExcludePunctuation: true,
+        SecretStringTemplate: Match.stringLikeRegexp("APIstagecast"),
+      }),
     });
+  });
+
+  it("YouTube Secret は空テンプレート (運用者が Google Cloud Console から取得した値を入れる)", () => {
     template.hasResourceProperties("AWS::SecretsManager::Secret", {
       Name: "stagecast/youtube",
       SecretString: JSON.stringify({ apiKey: "", oauthClientId: "", oauthClientSecret: "" }),

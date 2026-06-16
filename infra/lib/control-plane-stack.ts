@@ -233,10 +233,18 @@ export class ControlPlaneStack extends Stack {
       secretName: "stagecast/livekit",
       // ADR 0008 D-7: URL は per-event 化されたため Secret から削除。apiKey/apiSecret のみ。
       description:
-        "LiveKit API key / API secret (ADR D-10, ADR 0008 D-5) — SettingsPage で生成・ローテーション",
-      secretStringValue: SecretValue.unsafePlainText(
-        JSON.stringify({ apiKey: "", apiSecret: "" }),
-      ),
+        "LiveKit API key / API secret (ADR D-10, ADR 0008 D-5) — Secrets Manager が自動生成、SettingsPage でローテーション可",
+      // CREATE 時に Secrets Manager が apiSecret をランダム生成し、apiKey は account 末尾から
+      // 導出した識別子を埋め込む (apiKey 自体は機密でない、LiveKit 公式慣習どおり API prefix
+      // を持つ識別子の役割)。UPDATE では再生成されないため、SettingsPage の「鍵を生成」で
+      // 手動上書きした値は保持される。
+      generateSecretString: {
+        secretStringTemplate: JSON.stringify({ apiKey: `APIstagecast${this.account.slice(-6)}` }),
+        generateStringKey: "apiSecret",
+        // base64url ライクな文字集合に揃える (LiveKit Server の HMAC 署名で利用)。
+        excludePunctuation: true,
+        passwordLength: 43, // 約 256 bit のエントロピー
+      },
       removalPolicy: RemovalPolicy.DESTROY,
     });
     const youtubeSecret = new secretsmanager.Secret(this, "YouTubeSecret", {
