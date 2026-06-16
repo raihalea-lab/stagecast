@@ -1,3 +1,6 @@
+import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { App } from "aws-cdk-lib";
 import { Match, Template } from "aws-cdk-lib/assertions";
@@ -232,6 +235,10 @@ describe("ControlPlaneStack", () => {
     template.resourceCountIs("AWS::CloudFormation::CustomResource", 0);
   });
 
+  it("webAssets 未指定なら BucketDeployment を作らない (ビルド前 synth でも壊れない)", () => {
+    template.resourceCountIs("Custom::CDKBucketDeployment", 0);
+  });
+
   it("テンプレート生成を別 Lambda に分離し reconcile から invoke する (D1)", () => {
     // reconcile は RenderTemplateFunction 名を env で受け取り invoke する。
     template.hasResourceProperties("AWS::Lambda::Function", {
@@ -271,6 +278,32 @@ describe("ControlPlaneStack 初期管理者ブートストラップ (R6, ADR 000
           Match.objectLike({ Action: "cognito-idp:AdminCreateUser", Effect: "Allow" }),
         ]),
       },
+    });
+  });
+});
+
+describe("ControlPlaneStack SPA 配信 (webAssets)", () => {
+  // ビルド済み dist を模した一時ディレクトリ (Source.asset は実在ディレクトリを要求する)。
+  const base = mkdtempSync(join(tmpdir(), "stagecast-web-"));
+  const adminWebDir = join(base, "admin");
+  const stageWebDir = join(base, "stage");
+  mkdirSync(adminWebDir);
+  mkdirSync(stageWebDir);
+  writeFileSync(join(adminWebDir, "index.html"), "<!doctype html>admin");
+  writeFileSync(join(stageWebDir, "index.html"), "<!doctype html>stage");
+
+  const app = new App();
+  const stack = new ControlPlaneStack(app, "TestCPWeb", {
+    env: { account: "111111111111", region: "ap-northeast-1" },
+    webAssets: { adminWebDir, stageWebDir },
+  });
+  const t = Template.fromStack(stack);
+
+  it("admin/stage の2つの BucketDeployment を作り CloudFront を invalidate する", () => {
+    t.resourceCountIs("Custom::CDKBucketDeployment", 2);
+    t.hasResourceProperties("Custom::CDKBucketDeployment", {
+      DistributionId: Match.anyValue(),
+      DistributionPaths: ["/*"],
     });
   });
 });

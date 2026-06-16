@@ -162,16 +162,17 @@ export class CognitoAuthClient {
   }
 }
 
-/** Vite 環境変数から Cognito 設定を組み立てる (ビルド時に注入)。 */
-export function configFromEnv(env: ImportMetaEnv): CognitoAuthConfig | undefined {
-  const domain = env.VITE_COGNITO_DOMAIN;
-  const clientId = env.VITE_COGNITO_USER_POOL_CLIENT_ID;
-  if (!domain || !clientId) return undefined;
+/**
+ * ドメイン/クライアントIDから CognitoAuthConfig を組み立てる。
+ * redirect/logout URI は実行時の `window.location.origin` (= CloudFront ドメイン) から導出するので、
+ * ランタイム設定 (config.json) にはドメインとクライアントIDだけ持てばよい。
+ */
+export function cognitoConfig(base: { domain: string; clientId: string }): CognitoAuthConfig {
   const origin = globalThis.location?.origin ?? "";
   return {
-    domain,
-    clientId,
-    redirectUri: env.VITE_COGNITO_REDIRECT_URI ?? `${origin}/auth/callback`,
-    logoutUri: env.VITE_COGNITO_LOGOUT_URI ?? `${origin}/`,
+    domain: base.domain,
+    clientId: base.clientId,
+    redirectUri: `${origin}/auth/callback`,
+    logoutUri: `${origin}/`,
   };
 }

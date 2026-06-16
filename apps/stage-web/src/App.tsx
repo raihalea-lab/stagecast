@@ -11,13 +11,11 @@ import type { RoomConnector } from "./lib/room.js";
 import { StageController, type StageSession } from "./stage-controller.js";
 import { parseInviteToken } from "./lib/token.js";
 import { DeviceCheck } from "./components/DeviceCheck.js";
-
-function defaultClient(): StageClient {
-  const baseUrl = import.meta.env.VITE_CONTROL_API_URL ?? "";
-  return new HttpStageClient(baseUrl);
-}
+import type { RuntimeConfig } from "./config.js";
 
 export function App(props: {
+  /** ランタイム設定 (main.tsx が config.json から解決して渡す)。未指定はテスト/ローカル。 */
+  config?: RuntimeConfig;
   client?: StageClient;
   room?: RoomConnector;
   search?: string;
@@ -26,10 +24,10 @@ export function App(props: {
   const controller = useMemo(
     () =>
       new StageController(
-        props.client ?? defaultClient(),
+        props.client ?? new HttpStageClient(props.config?.controlApiUrl ?? ""),
         props.room ?? new LiveKitRoomConnector(),
       ),
-    [props.client, props.room],
+    [props.client, props.room, props.config],
   );
   const deviceProvider = useMemo(
     () => props.devices ?? new BrowserMediaDevicesProvider(),
