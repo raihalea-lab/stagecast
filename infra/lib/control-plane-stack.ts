@@ -25,8 +25,18 @@ import {
   aws_cloudwatch as cloudwatch,
   aws_cloudwatch_actions as cwActions,
   aws_sns as sns,
+  aws_s3_deployment as s3deploy,
 } from "aws-cdk-lib";
 import type { Construct } from "constructs";
+
+/** 制御層スタックの props。webAssets を渡すと SPA を BucketDeployment で配信する。 */
+export interface ControlPlaneStackProps extends StackProps {
+  /**
+   * ビルド済み SPA の dist ディレクトリ。指定時のみ S3 配信 + config.json 生成 + CloudFront
+   * invalidation を行う (bin/app.ts が dist 存在時に渡す)。未指定ならビルド前 synth でも壊れない。
+   */
+  webAssets?: { adminWebDir: string; stageWebDir: string };
+}
 
 /**
  * 制御層スタック (DESIGN.md 3.1 / 9 章, ADR D-4)。
@@ -46,7 +56,7 @@ import type { Construct } from "constructs";
  * 動的に起動・破棄するため別スタック (event-media-stack) として扱う (DESIGN.md 7.1, ADR D-6)。
  */
 export class ControlPlaneStack extends Stack {
-  constructor(scope: Construct, id: string, props?: StackProps) {
+  constructor(scope: Construct, id: string, props?: ControlPlaneStackProps) {
     super(scope, id, props);
 
     // --- DynamoDB: メタデータ (オンデマンド課金で非配信時の固定費ゼロ) ---
@@ -329,6 +339,38 @@ export class ControlPlaneStack extends Stack {
       principal: new iam.ServicePrincipal("apigateway.amazonaws.com"),
       sourceArn: `arn:aws:execute-api:${this.region}:${this.account}:${httpApi.ref}/*/*`,
     });
+
+    // --- SPA 配信 (DESIGN.md 3.1): ビルド済み dist + ランタイム config.json を S3 へ置き invalidate ---
+    // SPA はビルド時に API URL/Cognito を焼き込まず、起動時に /config.json を読む。スタックの
+    // 実値 (API/Cognito) を Source.jsonData でここから注入するので `cdk deploy` だけで配信が完結する。
+    // webAssets はビルド済み dist がある時だけ渡される (ビルド前 synth では skip → synth は壊れない)。
+    if (props?.webAssets) {
+      const controlApiUrl = `https://${httpApi.ref}.execute-api.${this.region}.amazonaws.com`;
+      new s3deploy.BucketDeployment(this, "AdminWebDeployment", {
+        destinationBucket: adminWebBucket,
+        distribution: adminWebDistribution,
+        distributionPaths: ["/*"],
+        sources: [
+          s3deploy.Source.asset(props.webAssets.adminWebDir),
+          s3deploy.Source.jsonData("config.json", {
+            controlApiUrl,
+            cognito: {
+              domain: `${adminAuthDomain.domainName}.auth.${this.region}.amazoncognito.com`,
+              clientId: adminUserPoolClient.userPoolClientId,
+            },
+          }),
+        ],
+      });
+      new s3deploy.BucketDeployment(this, "StageWebDeployment", {
+        destinationBucket: stageWebBucket,
+        distribution: stageWebDistribution,
+        distributionPaths: ["/*"],
+        sources: [
+          s3deploy.Source.asset(props.webAssets.stageWebDir),
+          s3deploy.Source.jsonData("config.json", { controlApiUrl }),
+        ],
+      });
+    }
 
     // --- 出力 (フロントビルド / 運用) ---
     new CfnOutput(this, "AdminWebUrl", { value: `https://${adminWebDistribution.domainName}` });

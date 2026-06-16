@@ -50,57 +50,21 @@ jobs:
           role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
           aws-region: ${{ env.AWS_REGION }}
 
+      # SPA を環境非依存にビルドする (API URL/Cognito は焼き込まない)。dist が存在すれば
+      # bin/app.ts が webAssets を渡し、cdk deploy 内の BucketDeployment が S3 配信 + config.json
+      # 生成 + CloudFront invalidation まで行う (手動 s3 sync は不要)。
       - name: Build
         run: vp run -r build
 
-      - name: CDK diff (制御層)
+      - name: CDK diff (制御層 + SPA 配信)
         run: vp run --filter @stagecast/infra cdk -- diff StagecastControlPlane
 
-      - name: CDK deploy (制御層)
+      - name: CDK deploy (制御層 + SPA 配信)
         if: ${{ env.DRY_RUN == 'false' }}
         run: |
           vp run --filter @stagecast/infra cdk -- deploy StagecastControlPlane \
             --require-approval never \
             --outputs-file infra/cdk-outputs.json
-
-      - name: Read CDK outputs into env
-        if: ${{ env.DRY_RUN == 'false' }}
-        run: |
-          set -e
-          out=infra/cdk-outputs.json
-          echo "ADMIN_WEB_BUCKET=$(jq -r '.StagecastControlPlane.AdminWebBucketName' $out)" >> $GITHUB_ENV
-          echo "STAGE_WEB_BUCKET=$(jq -r '.StagecastControlPlane.StageWebBucketName' $out)" >> $GITHUB_ENV
-          echo "ADMIN_DIST_ID=$(jq -r '.StagecastControlPlane.AdminWebDistributionId' $out)" >> $GITHUB_ENV
-          echo "STAGE_DIST_ID=$(jq -r '.StagecastControlPlane.StageWebDistributionId' $out)" >> $GITHUB_ENV
-          echo "CONTROL_API_ENDPOINT=$(jq -r '.StagecastControlPlane.ControlApiEndpoint' $out)" >> $GITHUB_ENV
-          echo "ADMIN_AUTH_DOMAIN=$(jq -r '.StagecastControlPlane.AdminAuthDomain' $out)" >> $GITHUB_ENV
-          echo "ADMIN_USER_POOL_CLIENT_ID=$(jq -r '.StagecastControlPlane.AdminUserPoolClientId' $out)" >> $GITHUB_ENV
-
-      - name: Build SPAs with CDK outputs
-        if: ${{ env.DRY_RUN == 'false' }}
-        env:
-          VITE_CONTROL_API_URL: ${{ env.CONTROL_API_ENDPOINT }}
-          VITE_COGNITO_DOMAIN: ${{ env.ADMIN_AUTH_DOMAIN }}
-          VITE_COGNITO_USER_POOL_CLIENT_ID: ${{ env.ADMIN_USER_POOL_CLIENT_ID }}
-        run: |
-          vp run --filter @stagecast/admin-web build
-          vp run --filter @stagecast/stage-web build
-
-      - name: Sync admin-web to S3 + CloudFront invalidate
-        if: ${{ env.DRY_RUN == 'false' }}
-        run: |
-          aws s3 sync apps/admin-web/dist "s3://$ADMIN_WEB_BUCKET" --delete
-          aws cloudfront create-invalidation \
-            --distribution-id "$ADMIN_DIST_ID" \
-            --paths '/*'
-
-      - name: Sync stage-web to S3 + CloudFront invalidate
-        if: ${{ env.DRY_RUN == 'false' }}
-        run: |
-          aws s3 sync apps/stage-web/dist "s3://$STAGE_WEB_BUCKET" --delete
-          aws cloudfront create-invalidation \
-            --distribution-id "$STAGE_DIST_ID" \
-            --paths '/*'
 
       - name: Summary
         run: |
@@ -108,6 +72,8 @@ jobs:
           echo "- environment: ${{ github.event.inputs.environment }}" >> $GITHUB_STEP_SUMMARY
           echo "- dry-run: ${{ env.DRY_RUN }}" >> $GITHUB_STEP_SUMMARY
           if [ "${{ env.DRY_RUN }}" = "false" ]; then
-            echo "- admin-web: https://$ADMIN_DIST_ID.cloudfront.net" >> $GITHUB_STEP_SUMMARY
-            echo "- control-api: $CONTROL_API_ENDPOINT" >> $GITHUB_STEP_SUMMARY
+            out=infra/cdk-outputs.json
+            echo "- admin-web: $(jq -r '.StagecastControlPlane.AdminWebUrl' $out)" >> $GITHUB_STEP_SUMMARY
+            echo "- stage-web: $(jq -r '.StagecastControlPlane.StageWebUrl' $out)" >> $GITHUB_STEP_SUMMARY
+            echo "- control-api: $(jq -r '.StagecastControlPlane.ControlApiEndpoint' $out)" >> $GITHUB_STEP_SUMMARY
           fi

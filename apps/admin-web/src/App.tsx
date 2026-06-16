@@ -14,23 +14,9 @@ import { HttpArtifactService } from "./api/http-artifact-service.js";
 import type { ControlApiClient, AssetService, ArtifactService } from "./api/types.js";
 import { EventForm } from "./components/EventForm.js";
 import { EventDetail } from "./components/EventDetail.js";
-import { CognitoAuthClient, configFromEnv } from "./auth/cognito.js";
+import { CognitoAuthClient, cognitoConfig } from "./auth/cognito.js";
+import type { RuntimeConfig } from "./config.js";
 import { toErrorMessage } from "./lib/errors.js";
-
-const apiBaseUrl = (): string => import.meta.env.VITE_CONTROL_API_URL ?? "";
-
-/** 既定: 環境変数から Cognito を構築 (未設定なら認証なし)。 */
-const authClient = (() => {
-  const cfg = configFromEnv(import.meta.env);
-  return cfg ? new CognitoAuthClient(cfg) : undefined;
-})();
-
-const getIdToken = (): string | undefined =>
-  authClient?.getTokens()?.idToken ?? sessionStorage.getItem("stagecast.idToken") ?? undefined;
-
-function defaultClient(): ControlApiClient {
-  return new HttpControlApiClient(apiBaseUrl(), getIdToken);
-}
 
 interface AuthState {
   status: "loading" | "anonymous" | "authenticated";
@@ -38,18 +24,36 @@ interface AuthState {
 }
 
 export function App(props: {
+  /** ランタイム設定 (main.tsx が config.json から解決して渡す)。未指定はテスト/認証なし。 */
+  config?: RuntimeConfig;
   client?: ControlApiClient;
   assets?: AssetService;
   artifacts?: ArtifactService;
 }) {
-  const client = useMemo(() => props.client ?? defaultClient(), [props.client]);
+  const apiBaseUrl = props.config?.controlApiUrl ?? "";
+  // Cognito 設定があれば認証クライアントを構築 (未設定なら認証スキップ＝ローカル/テスト)。
+  const cognito = props.config?.cognito;
+  const authClient = useMemo(
+    () => (cognito ? new CognitoAuthClient(cognitoConfig(cognito)) : undefined),
+    [cognito],
+  );
+  const getIdToken = useCallback(
+    (): string | undefined =>
+      authClient?.getTokens()?.idToken ?? sessionStorage.getItem("stagecast.idToken") ?? undefined,
+    [authClient],
+  );
+
+  const client = useMemo(
+    () => props.client ?? new HttpControlApiClient(apiBaseUrl, getIdToken),
+    [props.client, apiBaseUrl, getIdToken],
+  );
   const assets = useMemo(
-    () => props.assets ?? new HttpAssetService(apiBaseUrl(), getIdToken),
-    [props.assets],
+    () => props.assets ?? new HttpAssetService(apiBaseUrl, getIdToken),
+    [props.assets, apiBaseUrl, getIdToken],
   );
   const artifacts = useMemo(
-    () => props.artifacts ?? new HttpArtifactService(apiBaseUrl(), getIdToken),
-    [props.artifacts],
+    () => props.artifacts ?? new HttpArtifactService(apiBaseUrl, getIdToken),
+    [props.artifacts, apiBaseUrl, getIdToken],
   );
 
   const [auth, setAuth] = useState<AuthState>({ status: "loading" });
@@ -105,7 +109,7 @@ export function App(props: {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [authClient]);
 
   const refresh = useCallback(async () => {
     const list = await client.listEvents();

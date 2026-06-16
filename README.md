@@ -124,14 +124,18 @@ vp run --filter @stagecast/infra cdk -- bootstrap aws://<account>/<region>
 
 ### ローカルから手動デプロイ
 
-```bash
-# 1. テンプレ生成の健全性チェック
-vp run --filter @stagecast/infra synth
+SPA は **環境非依存に1回ビルド**しておけば、`cdk deploy` の中で S3 配信 + `config.json` 生成 +
+CloudFront invalidation まで自動で行われる (BucketDeployment)。**手動 `aws s3 sync` は不要**。
+API URL / Cognito 設定はビルド時に焼き込まず、ブラウザが起動時に `/config.json` を読む。
 
-# 2. 差分確認
+```bash
+# 1. SPA を含め全ワークスペースをビルド (dist が無いと cdk が SPA 配信をスキップする)
+vp run -r build
+
+# 2. 差分確認 (SPA 配信リソースも含まれる)
 vp run --filter @stagecast/infra cdk -- diff StagecastControlPlane
 
-# 3. 制御層デプロイ (control-api Lambda + Secrets + Cognito + reconcile Lambda)
+# 3. 制御層 + SPA をデプロイ (control-api / Secrets / Cognito / reconcile + admin/stage の配信)
 vp run --filter @stagecast/infra cdk -- deploy StagecastControlPlane \
   --require-approval never \
   --outputs-file infra/cdk-outputs.json
@@ -139,20 +143,10 @@ vp run --filter @stagecast/infra cdk -- deploy StagecastControlPlane \
 # 4. シークレットを実値で更新 (LiveKit / YouTube)
 aws secretsmanager update-secret --secret-id stagecast/livekit \
   --secret-string '{"url":"wss://...","apiKey":"...","apiSecret":"..."}'
-
-# 5. フロント (admin-web / stage-web) をビルドして S3 へ配置
-VITE_CONTROL_API_URL="$(jq -r '.StagecastControlPlane.ControlApiEndpoint' infra/cdk-outputs.json)" \
-VITE_COGNITO_DOMAIN="$(jq -r '.StagecastControlPlane.AdminAuthDomain' infra/cdk-outputs.json)" \
-VITE_COGNITO_USER_POOL_CLIENT_ID="$(jq -r '.StagecastControlPlane.AdminUserPoolClientId' infra/cdk-outputs.json)" \
-  vp run --filter @stagecast/admin-web build
-
-aws s3 sync apps/admin-web/dist \
-  "s3://$(jq -r '.StagecastControlPlane.AdminWebBucketName' infra/cdk-outputs.json)" --delete
-
-aws cloudfront create-invalidation \
-  --distribution-id "$(jq -r '.StagecastControlPlane.AdminWebDistributionId' infra/cdk-outputs.json)" \
-  --paths '/*'
 ```
+
+> SPA を更新したら `vp run -r build` → `cdk deploy` を再実行するだけ。BucketDeployment が
+> 差分アップロードと invalidation を行う。`config.json` はスタックの実値から毎回生成される。
 
 ### GitHub Actions から (T10)
 
@@ -160,7 +154,7 @@ aws cloudfront create-invalidation \
 入力:
 
 - `environment`: dev / staging / prod のいずれか (GitHub Environment と一致)
-- `dry-run`: true (cdk diff のみ) / false (cdk deploy + S3 sync まで実行)
+- `dry-run`: true (cdk diff のみ) / false (cdk deploy = 制御層 + SPA 配信まで実行)
 
 事前に Environment ごとに以下を設定する:
 
