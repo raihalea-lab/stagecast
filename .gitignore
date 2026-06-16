@@ -11,6 +11,7 @@ coverage/
 # CDK
 infra/cdk.out/
 cdk.context.json
+cdk-outputs.json
 
 # Env / secrets
 .env
