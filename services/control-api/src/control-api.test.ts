@@ -431,6 +431,57 @@ describe("settings (LiveKit / YouTube) HTTP", () => {
     expect(res.status).toBe(400);
   });
 
+  it("POST /settings/livekit/regenerate で鍵が生成される (URL は保持、機密はレスポンスに含めない)", async () => {
+    const app = buildAppWithSettings();
+    // 先に URL だけ入れた状態を作る (鍵は空のままだと configured:false)。
+    await app.handle(
+      req({
+        method: "PUT",
+        path: "/settings/livekit",
+        headers: adminAuth,
+        body: { url: "wss://lk.example.com", apiKey: "old-key", apiSecret: "old-sec" },
+      }),
+    );
+
+    const regen = await app.handle(
+      req({ method: "POST", path: "/settings/livekit/regenerate", headers: adminAuth }),
+    );
+    expect(regen.status).toBe(200);
+    expect(regen.body).toEqual({ configured: true, url: "wss://lk.example.com" });
+    // 機密 (apiKey/apiSecret) はレスポンスに含まれない。
+    expect(JSON.stringify(regen.body)).not.toContain("apiKey");
+    expect(JSON.stringify(regen.body)).not.toContain("apiSecret");
+  });
+
+  it("regenerate も認証が必要 (401)", async () => {
+    const app = buildAppWithSettings();
+    const res = await app.handle(
+      req({ method: "POST", path: "/settings/livekit/regenerate" }),
+    );
+    expect(res.status).toBe(401);
+  });
+
+  it("PATCH /settings/livekit で URL のみ更新できる (鍵は保持)", async () => {
+    const app = buildAppWithSettings();
+    // 初期: 鍵だけ生成しておく (URL は空)。
+    await app.handle(
+      req({ method: "POST", path: "/settings/livekit/regenerate", headers: adminAuth }),
+    );
+    expect((await app.handle(req({ method: "GET", path: "/settings/livekit", headers: adminAuth }))).body).toEqual({ configured: false });
+
+    const patch = await app.handle(
+      req({
+        method: "PATCH",
+        path: "/settings/livekit",
+        headers: adminAuth,
+        body: { url: "wss://nlb.example.com" },
+      }),
+    );
+    expect(patch.status).toBe(200);
+    // 鍵が既にあるので configured:true に遷移する。
+    expect(patch.body).toEqual({ configured: true, url: "wss://nlb.example.com" });
+  });
+
   it("PUT で YouTube を保存しても機密は GET で返らない", async () => {
     const app = buildAppWithSettings();
     const put = await app.handle(

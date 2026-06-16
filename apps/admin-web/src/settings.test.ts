@@ -84,4 +84,31 @@ describe("admin-web SettingsPage 連携 (ADR D-10)", () => {
       }),
     ).rejects.toThrow();
   });
+
+  it("regenerateLiveKitKeys は機密値を返さず configured を返す (URL 設定済の場合 configured:true)", async () => {
+    const { client, store } = buildClient();
+    // URL を先に PATCH で登録 (鍵はまだ無いので configured:false)。
+    expect(await client.patchLiveKitUrl("wss://nlb.example.com")).toEqual({ configured: false });
+
+    const result = await client.regenerateLiveKitKeys();
+    expect(result).toEqual({ configured: true, url: "wss://nlb.example.com" });
+    // クライアントが受け取るレスポンスには apiKey / apiSecret は含まれない (UI に出さない)。
+    expect(JSON.stringify(result)).not.toContain("apiKey");
+    expect(JSON.stringify(result)).not.toContain("apiSecret");
+    // サーバ内部 (Secrets Manager) には実値が保存されている。
+    const stored = store.get(livekitArn);
+    expect(stored?.apiKey).toMatch(/^API/);
+    expect(stored?.apiSecret.length).toBeGreaterThan(40);
+  });
+
+  it("patchLiveKitUrl は既存の鍵を保持する", async () => {
+    const { client, store } = buildClient();
+    await client.regenerateLiveKitKeys(); // 鍵だけ作成
+    const beforeKey = store.get(livekitArn)?.apiKey;
+    expect(beforeKey).toMatch(/^API/);
+
+    await client.patchLiveKitUrl("wss://new.example.com");
+    expect(store.get(livekitArn)?.apiKey).toBe(beforeKey); // 鍵は不変
+    expect(store.get(livekitArn)?.url).toBe("wss://new.example.com");
+  });
 });

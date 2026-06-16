@@ -1,9 +1,10 @@
 # ADR 0006: LiveKit Server / Egress のデプロイ構成と SDK 整合
 
-- ステータス: Accepted
+- ステータス: Accepted (**D-1 は [ADR 0008](./0008-livekit-multi-event-support.md) D-4 で廃止**)
 - 日付: 2026-06-14
 - 関連: `DESIGN.md` 3.2 / 5.1 / 7 章、[ADR 0001](./0001-tech-stack.md)（D-3/D-6/D-7）、
   [ADR 0005](./0005-media-layer-rollout.md)（R1〜R3, D-2 self-hosted 確定）、
+  [ADR 0008](./0008-livekit-multi-event-support.md)（D-4 で NLB 廃止、Public IP 直接公開に変更）、
   [`docs/NEXT_WORK.md`](../NEXT_WORK.md)（R1 / R2 / D3 / D5）
 
 ## コンテキスト

@@ -5,6 +5,7 @@
  * 非機密のメタ情報 (LiveKit の URL) だけを返し、PUT は全フィールド必須の
  * 完全置き換え (部分更新は許可しない) で衝突や意図しない上書きを防ぐ。
  */
+import { randomBytes } from "node:crypto";
 import type {
   LiveKitCredentials,
   LiveKitSettingsStatus,
@@ -111,6 +112,42 @@ export function createSettingsService(deps: SettingsServiceDeps) {
     return { configured: true, url: creds.url };
   }
 
+  /**
+   * URL のみを更新する (API キー/シークレットは保持)。
+   * self-hosted で EventMediaStack の NLB DNS が後から決まる運用向け。
+   * 既存の鍵が無い場合は configured:false のままだが、URL は保存される。
+   */
+  async function patchLiveKitUrl(body: unknown): Promise<LiveKitSettingsStatus> {
+    const arn = requireLiveKitArn();
+    const b = (body ?? {}) as Record<string, unknown>;
+    const url = validateLiveKitUrl(requireString("url", b.url));
+    const current = await reader.getSecretJson(arn);
+    const apiKey = typeof current.apiKey === "string" ? current.apiKey : "";
+    const apiSecret = typeof current.apiSecret === "string" ? current.apiSecret : "";
+    await writer.putSecretJson(arn, { url, apiKey, apiSecret });
+    const configured = apiKey.length > 0 && apiSecret.length > 0;
+    return configured ? { configured, url } : { configured };
+  }
+
+  /**
+   * LiveKit の API キー/シークレットをサーバ側で再生成し Secret に保存する (URL は保持)。
+   *
+   * 鍵は `crypto.randomBytes` で生成し、apiKey は LiveKit 慣習に従い `API` prefix +
+   * 12 文字 (URL-safe base64)、apiSecret は 32 バイト (256 bit) ぶんの URL-safe base64
+   * (43 文字) を採用する。生成値はレスポンスに含めない (configured / url のみ返す):
+   * 値は Secrets Manager から ECS Secret / Lambda env として注入される (ADR 0006 D-3)。
+   */
+  async function regenerateLiveKit(): Promise<LiveKitSettingsStatus> {
+    const arn = requireLiveKitArn();
+    const current = await reader.getSecretJson(arn);
+    const url = typeof current.url === "string" ? current.url : "";
+    const apiKey = generateLiveKitApiKey();
+    const apiSecret = generateLiveKitApiSecret();
+    await writer.putSecretJson(arn, { url, apiKey, apiSecret });
+    const configured = url.length > 0 && apiKey.length > 0 && apiSecret.length > 0;
+    return configured ? { configured, url } : { configured };
+  }
+
   async function getYouTube(): Promise<YouTubeSettingsStatus> {
     const arn = requireYouTubeArn();
     const data = await reader.getSecretJson(arn);
@@ -124,5 +161,23 @@ export function createSettingsService(deps: SettingsServiceDeps) {
     return { configured: true };
   }
 
-  return { getLiveKit, putLiveKit, getYouTube, putYouTube };
+  return {
+    getLiveKit,
+    putLiveKit,
+    patchLiveKitUrl,
+    regenerateLiveKit,
+    getYouTube,
+    putYouTube,
+  };
+}
+
+/** LiveKit 慣習: `API` + 12 文字 URL-safe base64。識別子として人にも読める。 */
+function generateLiveKitApiKey(): string {
+  // 9 bytes → base64url 12 chars (パディング不要長さに揃う)。
+  return "API" + randomBytes(9).toString("base64url");
+}
+
+/** 256 bit のエントロピーで apiSecret を作る。base64url 43 文字 (パディング無し)。 */
+function generateLiveKitApiSecret(): string {
+  return randomBytes(32).toString("base64url");
 }

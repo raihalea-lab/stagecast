@@ -30,6 +30,7 @@
 | **R5** | S5    | reconcile Lambda IAM 最小化 (CFN Service Role + PassRole)                    | `claude/reconcile-iam-min` (完)            | reconcile は cloudformation:\* + iam:PassRole のみ (実権限は CFN ロールへ)         |
 | **R6** | S5    | Cognito 管理者 Custom Resource (✅) + CloudFront カスタムドメイン + ACM (未) | `claude/cognito-admin-bootstrap` (CR 完)   | `-c initialAdmins=...` で初期管理者を IaC 投入。ACM/独自ドメインは要ドメインで別途 |
 | **R7** | S5    | 統合テスト CI workflow + YouTube ingestion URL 自動取得                      | `claude/integration-ci-youtube`            | 1 イベントを実 YouTube Live に配信、SLO 観測                                       |
+| **R8** | S3+   | LiveKit per-event URL ルーティング + NLB 廃止 (ADR 0008)                     | `claude/livekit-per-event-url`             | events.media.livekitUrl を reconcile が書き戻し、/join が per-event URL を返す。並列 2 イベントで相互干渉なし (ADR 0008 受け入れ基準) |
 
 ---
 

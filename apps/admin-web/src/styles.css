@@ -136,6 +136,26 @@ code {
   justify-self: start;
   padding: 0.4rem 1rem;
 }
+.settings-sub-note {
+  color: #555;
+  font-size: 0.85em;
+  margin: 0.25rem 0 0.75rem;
+}
+.settings-subform {
+  border-top: 1px solid #eee;
+  padding-top: 0.75rem;
+  margin-top: 0.5rem;
+  display: grid;
+  gap: 0.5rem;
+}
+.settings-subform h4 {
+  margin: 0;
+  font-size: 0.95em;
+}
+.settings-subform button {
+  justify-self: start;
+  padding: 0.4rem 1rem;
+}
 
 /* ステータスバッジ (設定済み / 未設定 / 確認中) */
 .badge {

@@ -158,14 +158,25 @@ export function createApp(deps: AppDeps) {
     }
 
     // /settings/livekit | /settings/youtube : 運用設定 (LiveKit / YouTube) の取得・更新 (ADR D-10)
-    if (segments[0] === "settings" && segments.length === 2) {
+    if (segments[0] === "settings") {
       if (!settings) throw new ServiceUnavailableError("settings store not configured");
-      if (segments[1] === "livekit") {
+      if (segments.length === 2 && segments[1] === "livekit") {
         if (req.method === "GET") return json(200, await settings.getLiveKit());
         if (req.method === "PUT") return json(200, await settings.putLiveKit(body));
-      } else if (segments[1] === "youtube") {
+        // PATCH は URL のみ更新 (鍵は保持)。self-hosted で NLB DNS が後から決まる用途。
+        if (req.method === "PATCH") return json(200, await settings.patchLiveKitUrl(body));
+      } else if (segments.length === 2 && segments[1] === "youtube") {
         if (req.method === "GET") return json(200, await settings.getYouTube());
         if (req.method === "PUT") return json(200, await settings.putYouTube(body));
+      } else if (
+        segments.length === 3 &&
+        segments[1] === "livekit" &&
+        segments[2] === "regenerate" &&
+        req.method === "POST"
+      ) {
+        // サーバ側で API キー/シークレットを生成し Secret に保存する (URL は保持)。
+        // 生成値はレスポンスに含めない (configured/url のみ)。
+        return json(200, await settings.regenerateLiveKit());
       }
     }
 
