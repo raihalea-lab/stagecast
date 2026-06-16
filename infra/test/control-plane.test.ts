@@ -110,15 +110,14 @@ describe("ControlPlaneStack", () => {
     });
   });
 
-  it("OPTIONS preflight は明示ルートを持たない (API Gateway corsConfiguration が自動 204 応答する)", () => {
-    // 明示 OPTIONS ルートを置くと Lambda に流れて requireAdmin で 401 を返してしまい、
-    // ブラウザが「Failed to fetch」と判定するため、ルート登録は禁止 (CORS 自動応答に任せる)。
-    const routes = template.findResources("AWS::ApiGatewayV2::Route");
-    const optionsRoutes = Object.values(routes).filter((r) => {
-      const key = (r.Properties as { RouteKey?: string }).RouteKey ?? "";
-      return key.startsWith("OPTIONS ");
+  it("OPTIONS preflight は NONE 認証で登録 ($default JWT をバイパス、Lambda が 204 返却)", () => {
+    // $default ルートが JWT なので OPTIONS も吸い込まれて 401 になる問題への対策。
+    // OPTIONS /{proxy+} を NONE 認証で登録し、Lambda 側で即 204 返却する。
+    // corsConfiguration が CORS ヘッダを自動付与する。
+    template.hasResourceProperties("AWS::ApiGatewayV2::Route", {
+      RouteKey: "OPTIONS /{proxy+}",
+      AuthorizationType: "NONE",
     });
-    expect(optionsRoutes).toHaveLength(0);
   });
 
   it("CORS allowMethods に PUT が含まれる (settings 保存系で必要)", () => {

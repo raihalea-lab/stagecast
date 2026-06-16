@@ -65,6 +65,11 @@ export function createApp(deps: AppDeps) {
   }
 
   async function route(req: HttpRequest): Promise<HttpResponse> {
+    // OPTIONS (CORS preflight) は API Gateway の corsConfiguration が CORS ヘッダを付けるが、
+    // $default ルート (JWT) が OPTIONS を吸い込むため、Lambda まで到達する。
+    // Lambda 側で認証不要の 204 を返して preflight を成功させる。
+    if (req.method === "OPTIONS") return { status: 204, body: null };
+
     const segments = req.path.replace(/^\/+|\/+$/g, "").split("/");
     const body = (req.body ?? {}) as Record<string, unknown>;
 

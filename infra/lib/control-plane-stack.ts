@@ -340,10 +340,10 @@ export class ControlPlaneStack extends Stack {
 
     // 公開ルート (招待トークン検証 / 入室) — 招待 URL でアクセスするモデレーター/登壇者用 (4.1)。
     // API Gateway の JWT を通さず、control-api 内で招待トークンを検証する。
-    // OPTIONS (preflight) は corsConfiguration が API Gateway 内で 204 応答するため、
-    // 明示ルートを登録しない (登録すると Lambda に流れて requireAdmin で 401 になり、
-    // ブラウザが「Failed to fetch」になるため)。
-    for (const route of ["POST /invites/verify", "POST /join"]) {
+    // OPTIONS (preflight) は $default (JWT) ルートに吸い込まれて 401 になるため、
+    // 明示的に NONE で登録して Lambda に流す。Lambda 側は OPTIONS を即 204 返却する。
+    // API Gateway の corsConfiguration が CORS ヘッダ (Allow-Origin 等) を自動付与する。
+    for (const route of ["POST /invites/verify", "POST /join", "OPTIONS /{proxy+}"]) {
       new apigwv2.CfnRoute(this, `PublicRoute${route.replace(/[^A-Za-z0-9]/g, "_")}`, {
         apiId: httpApi.ref,
         routeKey: route,
