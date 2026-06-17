@@ -324,27 +324,29 @@ export class EventMediaStack extends Stack {
     latencyAlarm.addAlarmAction(new cwActions.SnsAction(alarmTopic));
 
     // ログメトリクスフィルタ: 「RTMP disconnect」「reconnect failed」などをカウント。
+    // dimensions は CloudWatch Logs MetricFilter の filterPattern 構文 (anyTerm 等) と
+    // 組み合わせられない制約があるため使用しない。ロググループ自体が per-event なので
+    // EventId ディメンションは不要 (アラーム側で直接 metricName を参照する)。
     const rtmpDisconnectFilter = new logs.MetricFilter(this, "RtmpDisconnectFilter", {
       logGroup,
       metricNamespace: "Stagecast/MediaLayer",
-      metricName: "RtmpDisconnects",
+      metricName: `RtmpDisconnects-${props.eventId}`,
       filterPattern: logs.FilterPattern.anyTerm(
         "rtmp disconnect",
         "RTMP disconnect",
         "stream disconnected",
       ),
       metricValue: "1",
-      dimensions: { EventId: props.eventId },
     });
     void rtmpDisconnectFilter;
 
     const rtmpAlarm = new cloudwatch.Alarm(this, "RtmpDisconnectAlarm", {
       alarmName: `stagecast-${props.eventId}-rtmp-disconnect`,
       alarmDescription: "RTMP 切断ログが直近 5 分で複数発生 (ADR 0003 D-3)",
+      // MetricFilter が per-event メトリクス名で publish するのでディメンション無しで引く。
       metric: new cloudwatch.Metric({
         namespace: "Stagecast/MediaLayer",
-        metricName: "RtmpDisconnects",
-        dimensionsMap: { EventId: props.eventId },
+        metricName: `RtmpDisconnects-${props.eventId}`,
         statistic: "Sum",
         period: Duration.minutes(5),
       }),
@@ -435,8 +437,7 @@ export class EventMediaStack extends Stack {
           }),
           new cloudwatch.Metric({
             namespace: "Stagecast/MediaLayer",
-            metricName: "RtmpDisconnects",
-            dimensionsMap: { EventId: props.eventId },
+            metricName: `RtmpDisconnects-${props.eventId}`,
             statistic: "Sum",
             period: Duration.minutes(5),
             label: "RTMP disconnects/5min",
