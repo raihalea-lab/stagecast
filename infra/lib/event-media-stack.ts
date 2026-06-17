@@ -146,6 +146,10 @@ export class EventMediaStack extends Stack {
       "LiveKitSecret",
       LIVEKIT_SECRET_NAME,
     );
+    // LiveKit Server は `keys:` (config) か `LIVEKIT_KEYS` (env, "key: secret" 形式) で
+    // API キーを読む。`LIVEKIT_API_KEY` / `LIVEKIT_API_SECRET` は LiveKit が認識しない独自名。
+    // ECS Secret で個別に注入し、SFU の entrypoint で `LIVEKIT_KEYS` を組み立てる。
+    // Egress は `api_key` / `api_secret` を config で受け取るため別途注入。
     const livekitSecrets = {
       LIVEKIT_API_KEY: ecs.Secret.fromSecretsManager(livekitSecret, "apiKey"),
       LIVEKIT_API_SECRET: ecs.Secret.fromSecretsManager(livekitSecret, "apiSecret"),
@@ -171,6 +175,8 @@ export class EventMediaStack extends Stack {
       secrets?: Record<string, ecs.Secret>;
       /** 予測可能な ECS service 名 (reconcile が `ecs:ListTasks` で参照, ADR 0008 D-2)。 */
       serviceName?: string;
+      /** コンテナの entrypoint / command を上書きする (SFU の LIVEKIT_KEYS 組み立て用)。 */
+      command?: string[];
     }
     const addService = (
       name: string,
@@ -213,6 +219,7 @@ export class EventMediaStack extends Stack {
           ...opts.environment,
         },
         ...(opts.secrets ? { secrets: opts.secrets } : {}),
+        ...(opts.command ? { command: opts.command } : {}),
       });
       for (const p of opts.ports ?? []) {
         container.addPortMappings({
@@ -237,6 +244,9 @@ export class EventMediaStack extends Stack {
     // SFU(LiveKit): signaling(TCP) + WebRTC(TCP fallback / UDP)。config と Valkey を注入 (R1)。
     // ADR 0008 D-4: Public IP を直接公開し、NLB を廃止。reconcile Lambda が ECS から
     // task の Public IP を引いて events.media.livekitUrl に書き戻す (ADR 0008 D-2)。
+    // SFU (LiveKit Server): `LIVEKIT_KEYS` env を "key: secret" 形式で組み立てて起動する。
+    // LiveKit は `LIVEKIT_API_KEY` / `LIVEKIT_API_SECRET` を認識しないため、ECS Secret で
+    // 注入した個別値をシェルで結合する。
     const sfu = addService("Sfu", images.sfu ?? "livekit/livekit-server:latest", {
       serviceName: SFU_SERVICE_NAME,
       ports: [
@@ -246,6 +256,12 @@ export class EventMediaStack extends Stack {
       ],
       environment: { LIVEKIT_CONFIG_BODY: liveKitServerConfig(valkey.attrEndpointAddress) },
       secrets: livekitSecrets,
+      // sh -c で LIVEKIT_KEYS を組み立ててから livekit-server を exec する。
+      command: [
+        "sh",
+        "-c",
+        'export LIVEKIT_KEYS="$LIVEKIT_API_KEY: $LIVEKIT_API_SECRET" && exec livekit-server',
+      ],
     });
 
     // Egress: Chrome ヘッドレスで合成 → RTMP/S3。Valkey で SFU とジョブ共有 (R2, ADR 0006 D-4)。
