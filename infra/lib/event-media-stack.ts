@@ -175,7 +175,9 @@ export class EventMediaStack extends Stack {
       secrets?: Record<string, ecs.Secret>;
       /** 予測可能な ECS service 名 (reconcile が `ecs:ListTasks` で参照, ADR 0008 D-2)。 */
       serviceName?: string;
-      /** コンテナの entrypoint / command を上書きする (SFU の LIVEKIT_KEYS 組み立て用)。 */
+      /** Docker entrypoint を上書きする。 */
+      entryPoint?: string[];
+      /** Docker command を上書きする。 */
       command?: string[];
     }
     const addService = (
@@ -219,6 +221,7 @@ export class EventMediaStack extends Stack {
           ...opts.environment,
         },
         ...(opts.secrets ? { secrets: opts.secrets } : {}),
+        ...(opts.entryPoint ? { entryPoint: opts.entryPoint } : {}),
         ...(opts.command ? { command: opts.command } : {}),
       });
       for (const p of opts.ports ?? []) {
@@ -256,10 +259,10 @@ export class EventMediaStack extends Stack {
       ],
       environment: { LIVEKIT_CONFIG_BODY: liveKitServerConfig(valkey.attrEndpointAddress) },
       secrets: livekitSecrets,
-      // sh -c で LIVEKIT_KEYS を組み立ててから livekit-server を exec する。
+      // LiveKit Server の Docker image は entrypoint が /livekit-server なので、
+      // sh -c で LIVEKIT_KEYS を組み立ててから exec する場合は entryPoint ごと上書きする。
+      entryPoint: ["sh", "-c"],
       command: [
-        "sh",
-        "-c",
         'export LIVEKIT_KEYS="$LIVEKIT_API_KEY: $LIVEKIT_API_SECRET" && exec livekit-server',
       ],
     });
