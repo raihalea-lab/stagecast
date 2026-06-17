@@ -449,6 +449,12 @@ export class ControlPlaneStack extends Stack {
           "logs:*",
           "cloudwatch:*",
           "sns:*",
+          // CDK テンプレートは CFN deploy 時に bootstrap バージョン (/cdk-bootstrap/hnb659fds/version)
+          // を SSM Parameter Store から読み取る。この権限が無いと CreateStack が AccessDenied で失敗する。
+          "ssm:GetParameter",
+          "ssm:GetParameters",
+          // EventMediaStack 内の Secrets Manager 参照 (LiveKit 鍵の ECS Secret 注入) に必要。
+          "secretsmanager:GetSecretValue",
           "iam:CreateRole",
           "iam:DeleteRole",
           "iam:PassRole",
