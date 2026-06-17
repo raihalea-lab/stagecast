@@ -81,8 +81,16 @@ export class EventMediaStack extends Stack {
     Tags.of(this).add("stagecast:ephemeral", "true");
 
     // --- ネットワーク (このイベント専用。破棄で消える) ---
-    // NAT は 1 つに絞りコストを抑える。イベント時のみ存在するため常時費用にはならない。
-    const vpc = new ec2.Vpc(this, "Vpc", { maxAzs: 2, natGateways: 1 });
+    // NAT Gateway を廃止しコストをゼロに。全サービスをパブリックサブネットに配置し
+    // assignPublicIp で直接インターネットに出る。Egress/CaptionWorker の SG はインバウンド
+    // ルールが無いのでパブリック IP があっても外部からアクセスされない。
+    const vpc = new ec2.Vpc(this, "Vpc", {
+      maxAzs: 2,
+      natGateways: 0,
+      subnetConfiguration: [
+        { name: "Public", subnetType: ec2.SubnetType.PUBLIC, cidrMask: 24 },
+      ],
+    });
 
     const cluster = new ecs.Cluster(this, "Cluster", {
       vpc,
@@ -103,13 +111,15 @@ export class EventMediaStack extends Stack {
       // eventId が長い/似ている場合の 40 文字クリップ衝突を short hash で回避 (D5)。
       serverlessCacheName: serverlessCacheName(props.eventId),
       securityGroupIds: [valkeySg.securityGroupId],
-      subnetIds: vpc.selectSubnets({ subnetType: ec2.SubnetType.PRIVATE_WITH_EGRESS }).subnetIds,
+      subnetIds: vpc.selectSubnets({ subnetType: ec2.SubnetType.PUBLIC }).subnetIds,
     });
 
     // --- メディア/字幕の Fargate サービス群 ---
     const logGroup = new logs.LogGroup(this, "Logs", {
       retention: logs.RetentionDays.ONE_WEEK,
-      removalPolicy: RemovalPolicy.DESTROY,
+      // スタックがロールバック/削除されてもログを残す (デバッグに必要)。
+      // 1 週間で自動失効するので手動クリーンアップは不要。
+      removalPolicy: RemovalPolicy.RETAIN,
     });
 
     // 字幕ワーカーは Transcribe/Translate/Bedrock を呼ぶため最小権限を付与 (DESIGN.md 6.2)。
@@ -161,8 +171,6 @@ export class EventMediaStack extends Stack {
       secrets?: Record<string, ecs.Secret>;
       /** 予測可能な ECS service 名 (reconcile が `ecs:ListTasks` で参照, ADR 0008 D-2)。 */
       serviceName?: string;
-      /** Public IP 直接公開 (ADR 0008 D-4)。SFU のみ true。 */
-      assignPublicIp?: boolean;
     }
     const addService = (
       name: string,
@@ -219,13 +227,10 @@ export class EventMediaStack extends Stack {
         // ephemeral: 破棄を速くするため最小構成。
         minHealthyPercent: 0,
         circuitBreaker: { rollback: false },
-        // ADR 0008 D-4: SFU は Public IP 直接公開 (NLB 廃止)。それ以外も同経路で揃える。
-        assignPublicIp: opts.assignPublicIp ?? false,
+        // NAT Gateway 廃止: 全サービスをパブリックサブネットに配置して直接インターネットへ出る。
+        assignPublicIp: true,
+        vpcSubnets: { subnetType: ec2.SubnetType.PUBLIC },
         ...(opts.serviceName ? { serviceName: opts.serviceName } : {}),
-        // VPC のパブリックサブネットに置かないと assignPublicIp が効かない。
-        ...(opts.assignPublicIp
-          ? { vpcSubnets: { subnetType: ec2.SubnetType.PUBLIC } }
-          : {}),
       });
     };
 
@@ -234,7 +239,6 @@ export class EventMediaStack extends Stack {
     // task の Public IP を引いて events.media.livekitUrl に書き戻す (ADR 0008 D-2)。
     const sfu = addService("Sfu", images.sfu ?? "livekit/livekit-server:latest", {
       serviceName: SFU_SERVICE_NAME,
-      assignPublicIp: true,
       ports: [
         { containerPort: LIVEKIT_PORTS.signaling, protocol: ecs.Protocol.TCP },
         { containerPort: LIVEKIT_PORTS.rtcTcp, protocol: ecs.Protocol.TCP },
