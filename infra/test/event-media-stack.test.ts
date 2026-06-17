@@ -173,13 +173,10 @@ describe("EventMediaStack (DESIGN.md 7.1/7.3, N-5)", () => {
       Namespace: "Stagecast/CaptionPipeline",
       MetricName: "CaptionLatencyMs",
     });
-    // 翻訳失敗アラーム (N-2)。言語次元を SEARCH 式で合算する。
+    // 翻訳失敗アラーム (N-2)。SEARCH はアラームでは使えないので固定ディメンションメトリクス。
     template.hasResourceProperties("AWS::CloudWatch::Alarm", {
-      Metrics: Match.arrayWith([
-        Match.objectLike({
-          Expression: Match.stringLikeRegexp('SEARCH.*MetricName="TranslateErrors"'),
-        }),
-      ]),
+      Namespace: "Stagecast/CaptionPipeline",
+      MetricName: "TranslateErrors",
     });
   });
 });
