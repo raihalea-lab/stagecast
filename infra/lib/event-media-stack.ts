@@ -259,12 +259,16 @@ export class EventMediaStack extends Stack {
       ],
       environment: { LIVEKIT_CONFIG_BODY: liveKitServerConfig(valkey.attrEndpointAddress) },
       secrets: livekitSecrets,
-      // LiveKit Server の Docker image は entrypoint が /livekit-server なので、
-      // sh -c で LIVEKIT_KEYS を組み立ててから exec する場合は entryPoint ごと上書きする。
-      entryPoint: ["sh", "-c"],
-      command: [
-        'export LIVEKIT_KEYS="$LIVEKIT_API_KEY: $LIVEKIT_API_SECRET" && exec livekit-server',
+      // LiveKit Server は LIVEKIT_KEYS env ("key: secret" 形式) で API キーを読む。
+      // ECS Secret で個別注入した値をシェルで結合してから livekit-server を exec する。
+      // entryPoint + command の分割は ECS/Docker で挙動が安定しないため、
+      // entryPoint に全コマンドを含める。
+      entryPoint: [
+        "/bin/sh",
+        "-c",
+        'export LIVEKIT_KEYS="$LIVEKIT_API_KEY: $LIVEKIT_API_SECRET" && exec /livekit-server',
       ],
+      command: [],
     });
 
     // Egress: Chrome ヘッドレスで合成 → RTMP/S3。Valkey で SFU とジョブ共有 (R2, ADR 0006 D-4)。
