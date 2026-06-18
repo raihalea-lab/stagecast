@@ -177,6 +177,8 @@ export class EventMediaStack extends Stack {
       secrets?: Record<string, ecs.Secret>;
       /** 予測可能な ECS service 名 (reconcile が `ecs:ListTasks` で参照, ADR 0008 D-2)。 */
       serviceName?: string;
+      /** コンテナの command を上書きする (プレースホルダイメージの即終了防止用)。 */
+      command?: string[];
     }
     const addService = (
       name: string,
@@ -219,6 +221,7 @@ export class EventMediaStack extends Stack {
           ...opts.environment,
         },
         ...(opts.secrets ? { secrets: opts.secrets } : {}),
+        ...(opts.command ? { command: opts.command } : {}),
       });
       for (const p of opts.ports ?? []) {
         container.addPortMappings({
@@ -268,6 +271,9 @@ export class EventMediaStack extends Stack {
       {
         taskRole: captionTaskRole,
         ...(props.customCaptionApi ? { ports: [{ containerPort: 8080 }] } : {}),
+        // プレースホルダイメージ (node:24-alpine) は引数なしで即終了する。
+        // 実 caption-worker イメージが ECR に push されるまで sleep で生かしておく。
+        ...(!images.captionWorker ? { command: ["sleep", "infinity"] } : {}),
       },
     );
 
