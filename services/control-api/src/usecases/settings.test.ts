@@ -42,11 +42,15 @@ describe("SettingsService LiveKit (ADR 0008 D-7: URL 削除後)", () => {
     expect(JSON.stringify(result)).not.toContain("apiSecret");
   });
 
-  it("PUT は apiKey/apiSecret のみを受け付ける (URL は受け付けない)", async () => {
+  it("PUT は apiKey/apiSecret + livekitKeys を保存する", async () => {
     const { store, reader, writer } = fakeStorage();
     const svc = createSettingsService({ reader, writer, livekitSecretArn });
     await svc.putLiveKit({ apiKey: "k", apiSecret: "s" });
-    expect(store.get(livekitSecretArn)).toEqual({ apiKey: "k", apiSecret: "s" });
+    expect(store.get(livekitSecretArn)).toEqual({
+      apiKey: "k",
+      apiSecret: "s",
+      livekitKeys: "k: s",
+    });
   });
 
   it("どれか欠けたら 400 (ValidationError)", async () => {
@@ -67,7 +71,7 @@ describe("SettingsService LiveKit (ADR 0008 D-7: URL 削除後)", () => {
     await expect(svc.regenerateLiveKit()).rejects.toBeInstanceOf(ValidationError);
   });
 
-  it("regenerateLiveKit は API キー/シークレットを生成し configured:true を返す", async () => {
+  it("regenerateLiveKit は API キー/シークレット + livekitKeys を生成し configured:true を返す", async () => {
     const { store, reader, writer } = fakeStorage();
     const svc = createSettingsService({ reader, writer, livekitSecretArn });
     const result = await svc.regenerateLiveKit();
@@ -75,7 +79,8 @@ describe("SettingsService LiveKit (ADR 0008 D-7: URL 削除後)", () => {
     const stored = store.get(livekitSecretArn);
     expect(stored?.apiKey).toMatch(/^API[\w-]{12,}$/);
     expect(stored!.apiSecret.length).toBeGreaterThanOrEqual(40);
-    // ADR 0008: url フィールドは生成しない (per-event 化)。
+    // livekitKeys は "apiKey: apiSecret" 形式 (LiveKit Server の LIVEKIT_KEYS env 用)。
+    expect(stored?.livekitKeys).toBe(`${stored!.apiKey}: ${stored!.apiSecret}`);
     expect(stored).not.toHaveProperty("url");
   });
 

@@ -93,7 +93,9 @@ export function createSettingsService(deps: SettingsServiceDeps) {
   async function putLiveKit(body: unknown): Promise<LiveKitSettingsStatus> {
     const arn = requireLiveKitArn();
     const creds = parseLiveKitInput(body);
-    await writer.putSecretJson(arn, { ...creds });
+    // livekitKeys: LiveKit Server が LIVEKIT_KEYS env として読む "key: secret" 形式。
+    const livekitKeys = `${creds.apiKey}: ${creds.apiSecret}`;
+    await writer.putSecretJson(arn, { ...creds, livekitKeys });
     return { configured: true };
   }
 
@@ -109,7 +111,9 @@ export function createSettingsService(deps: SettingsServiceDeps) {
     const arn = requireLiveKitArn();
     const apiKey = generateLiveKitApiKey();
     const apiSecret = generateLiveKitApiSecret();
-    await writer.putSecretJson(arn, { apiKey, apiSecret });
+    // livekitKeys: LiveKit Server が LIVEKIT_KEYS env として読む "key: secret" 形式。
+    const livekitKeys = `${apiKey}: ${apiSecret}`;
+    await writer.putSecretJson(arn, { apiKey, apiSecret, livekitKeys });
     return { configured: true };
   }
 

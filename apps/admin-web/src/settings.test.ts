@@ -51,9 +51,9 @@ describe("admin-web SettingsPage 連携 (ADR D-10, ADR 0008)", () => {
 
     expect(await client.getLiveKitSettings()).toEqual({ configured: true });
 
-    // 書き込み済みストアには apiKey / apiSecret がある (url は無い)。
+    // 書き込み済みストアには apiKey / apiSecret / livekitKeys がある (url は無い)。
     const stored = store.get(livekitArn);
-    expect(stored).toEqual({ apiKey: "k", apiSecret: "s" });
+    expect(stored).toEqual({ apiKey: "k", apiSecret: "s", livekitKeys: "k: s" });
     expect(stored).not.toHaveProperty("url");
   });
 

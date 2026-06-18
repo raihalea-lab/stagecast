@@ -146,11 +146,13 @@ export class EventMediaStack extends Stack {
       "LiveKitSecret",
       LIVEKIT_SECRET_NAME,
     );
-    // LiveKit Server は `keys:` (config) か `LIVEKIT_KEYS` (env, "key: secret" 形式) で
-    // API キーを読む。`LIVEKIT_API_KEY` / `LIVEKIT_API_SECRET` は LiveKit が認識しない独自名。
-    // ECS Secret で個別に注入し、SFU の entrypoint で `LIVEKIT_KEYS` を組み立てる。
-    // Egress は `api_key` / `api_secret` を config で受け取るため別途注入。
+    // LiveKit Server は LIVEKIT_KEYS env ("key: secret" 形式) で API キーを読む。
+    // Secrets Manager の livekitKeys フィールドに "apiKey: apiSecret" 形式で格納し、
+    // ECS Secret で LIVEKIT_KEYS に直接注入する (シェル不要、Docker イメージの sh 依存なし)。
+    // livekitKeys は SettingsService の regenerateLiveKit / putLiveKit が自動生成する。
+    // Egress も同じ形式で api_key / api_secret を受け取る。
     const livekitSecrets = {
+      LIVEKIT_KEYS: ecs.Secret.fromSecretsManager(livekitSecret, "livekitKeys"),
       LIVEKIT_API_KEY: ecs.Secret.fromSecretsManager(livekitSecret, "apiKey"),
       LIVEKIT_API_SECRET: ecs.Secret.fromSecretsManager(livekitSecret, "apiSecret"),
     };
@@ -175,10 +177,6 @@ export class EventMediaStack extends Stack {
       secrets?: Record<string, ecs.Secret>;
       /** 予測可能な ECS service 名 (reconcile が `ecs:ListTasks` で参照, ADR 0008 D-2)。 */
       serviceName?: string;
-      /** Docker entrypoint を上書きする。 */
-      entryPoint?: string[];
-      /** Docker command を上書きする。 */
-      command?: string[];
     }
     const addService = (
       name: string,
@@ -221,8 +219,6 @@ export class EventMediaStack extends Stack {
           ...opts.environment,
         },
         ...(opts.secrets ? { secrets: opts.secrets } : {}),
-        ...(opts.entryPoint ? { entryPoint: opts.entryPoint } : {}),
-        ...(opts.command ? { command: opts.command } : {}),
       });
       for (const p of opts.ports ?? []) {
         container.addPortMappings({
@@ -247,9 +243,7 @@ export class EventMediaStack extends Stack {
     // SFU(LiveKit): signaling(TCP) + WebRTC(TCP fallback / UDP)。config と Valkey を注入 (R1)。
     // ADR 0008 D-4: Public IP を直接公開し、NLB を廃止。reconcile Lambda が ECS から
     // task の Public IP を引いて events.media.livekitUrl に書き戻す (ADR 0008 D-2)。
-    // SFU (LiveKit Server): `LIVEKIT_KEYS` env を "key: secret" 形式で組み立てて起動する。
-    // LiveKit は `LIVEKIT_API_KEY` / `LIVEKIT_API_SECRET` を認識しないため、ECS Secret で
-    // 注入した個別値をシェルで結合する。
+    // LIVEKIT_KEYS は Secret の livekitKeys フィールドから ECS Secret で直接注入 (シェル不要)。
     const sfu = addService("Sfu", images.sfu ?? "livekit/livekit-server:latest", {
       serviceName: SFU_SERVICE_NAME,
       ports: [
@@ -259,16 +253,6 @@ export class EventMediaStack extends Stack {
       ],
       environment: { LIVEKIT_CONFIG_BODY: liveKitServerConfig(valkey.attrEndpointAddress) },
       secrets: livekitSecrets,
-      // LiveKit Server は LIVEKIT_KEYS env ("key: secret" 形式) で API キーを読む。
-      // ECS Secret で個別注入した値をシェルで結合してから livekit-server を exec する。
-      // entryPoint + command の分割は ECS/Docker で挙動が安定しないため、
-      // entryPoint に全コマンドを含める。
-      entryPoint: [
-        "/bin/sh",
-        "-c",
-        'export LIVEKIT_KEYS="$LIVEKIT_API_KEY: $LIVEKIT_API_SECRET" && exec /livekit-server',
-      ],
-      command: [],
     });
 
     // Egress: Chrome ヘッドレスで合成 → RTMP/S3。Valkey で SFU とジョブ共有 (R2, ADR 0006 D-4)。
