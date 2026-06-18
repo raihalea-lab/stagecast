@@ -30,7 +30,30 @@
 | **R5** | S5    | reconcile Lambda IAM 最小化 (CFN Service Role + PassRole)                    | `claude/reconcile-iam-min` (完)            | reconcile は cloudformation:\* + iam:PassRole のみ (実権限は CFN ロールへ)         |
 | **R6** | S5    | Cognito 管理者 Custom Resource (✅) + CloudFront カスタムドメイン + ACM (未) | `claude/cognito-admin-bootstrap` (CR 完)   | `-c initialAdmins=...` で初期管理者を IaC 投入。ACM/独自ドメインは要ドメインで別途 |
 | **R7** | S5    | 統合テスト CI workflow + YouTube ingestion URL 自動取得                      | `claude/integration-ci-youtube`            | 1 イベントを実 YouTube Live に配信、SLO 観測                                       |
-| **R8** | S3+   | LiveKit per-event URL ルーティング + NLB 廃止 (ADR 0008)                     | `claude/livekit-per-event-url`             | events.media.livekitUrl を reconcile が書き戻し、/join が per-event URL を返す。並列 2 イベントで相互干渉なし (ADR 0008 受け入れ基準) |
+| **R8** | S3+   | LiveKit per-event URL ルーティング + NLB 廃止 (ADR 0008)                     | `claude/livekit-per-event-url` (**✅ 完**)  | events.media.livekitUrl を reconcile が書き戻し、/join が per-event URL を返す。並列 2 イベントで相互干渉なし (ADR 0008 受け入れ基準) |
+| **R9** | S3+   | stage-web → 実 LiveKit 接続の E2E 確認                                       |                                            | 招待 URL 発行 → stage-web で /join → LiveKit Server に WebSocket 接続成功          |
+| **R10** | S3+  | イベント終了で EventMediaStack が破棄されること確認                           |                                            | status=ended → reconcile が stack destroy → events.media がクリア                    |
+| **R11** | S4   | caption-worker イメージを ECR に push + CAPTION_WORKER_IMAGE 有効化          |                                            | GHA build/push → ECR に latest → control-plane-stack.ts のコメントアウトを戻す → CaptionWorker が実イメージで起動 |
+| **R12** | S5   | YouTube Live RTMP 送出の E2E 確認                                            |                                            | イベントに RTMP URL + Stream Key → Egress が YouTube に映像を送出 → YouTube Live で視聴 |
+
+---
+
+## V: 実機検証で判明した修正 (2026-06-17〜18 のデプロイ検証)
+
+> EventMediaStack の初回起動で発見・修正した問題。将来同種の問題を防ぐための記録。
+
+| PR   | 問題                                        | 修正                                                    | 教訓                                       |
+| ---- | ------------------------------------------- | ------------------------------------------------------- | ------------------------------------------ |
+| #64  | CORS preflight OPTIONS → 401               | allowMethods に PUT 追加                                | 新しい HTTP メソッドを使うときは CORS も更新 |
+| #65  | $default JWT が OPTIONS を吸い込む          | OPTIONS /{proxy+} を NONE で登録 + Lambda で 204 返却   | API GW HTTP API の $default は全メソッドにマッチ |
+| #66  | CFN ロールに ssm:GetParameters がない       | EventMediaCfnExecRole に SSM 権限追加                   | CDK テンプレートは bootstrap パラメータを SSM から読む |
+| #67  | SEARCH 式がアラームで使えない               | 固定ディメンション Metric に変更                        | SEARCH はダッシュボード専用                 |
+| #68  | MetricFilter で dimensions が anyTerm と併用不可 | per-event メトリクス名に変更                       | MetricFilter の制約を事前に把握             |
+| #69  | ログがロールバックで消える + NAT Gateway 不要 | RETAIN + natGateways:0                               | ephemeral スタックでもログは RETAIN         |
+| #70-72 | LIVEKIT_KEYS の組み立て (sh -c)           | entryPoint/command の試行錯誤                           | Docker image の ENTRYPOINT と ECS の挙動差  |
+| #73  | LIVEKIT_KEYS を Secret から直接注入         | livekitKeys フィールド追加、シェル不要に               | ECS Secret で "key: secret" 形式を直接渡すのが最も確実 |
+| #74  | CaptionWorker プレースホルダが即終了        | command: ["sleep", "infinity"]                          | node:24-alpine は引数なしで即終了する       |
+| #75  | ECR 未 push のイメージ参照                  | CAPTION_WORKER_IMAGE を一時コメントアウト               | イメージが存在しない ECR URI を参照するとタスク起動失敗 |
 
 ---
 
