@@ -26,6 +26,8 @@ import {
   aws_cloudwatch_actions as cwActions,
   aws_sns as sns,
   aws_s3_deployment as s3deploy,
+  aws_certificatemanager as acm,
+  aws_route53 as route53,
 } from "aws-cdk-lib";
 import type { Construct } from "constructs";
 
@@ -117,6 +119,29 @@ export class ControlPlaneStack extends Stack {
         { description: "keep last 10 images", maxImageCount: 10 },
       ],
     });
+
+    // --- LiveKit シグナリング用ドメイン / ACM 証明書 (ADR 0009 D-3) ---
+    // EventMediaStack の NLB に attach するワイルドカード証明書を 1 つだけ作成し、全イベントで共有。
+    // DNS validation で HostedZone に自動で CNAME を追加して検証する。
+    // 親 HostedZone は Route53 で運用者が事前作成し、CDK context で名前を渡す:
+    //   cdk deploy -c mediaHostedZoneName=example.com
+    // 未指定なら ADR 0008 D-4 の Public IP 直接公開にフォールバック (TLS スタックを構築しない)。
+    const mediaHostedZoneName = this.node.tryGetContext("mediaHostedZoneName") as
+      | string
+      | undefined;
+    const tlsConfig = mediaHostedZoneName
+      ? (() => {
+          const mediaDomainName = `media.${mediaHostedZoneName}`;
+          const mediaHostedZone = route53.HostedZone.fromLookup(this, "MediaHostedZone", {
+            domainName: mediaHostedZoneName,
+          });
+          const mediaCertificate = new acm.Certificate(this, "MediaCertificate", {
+            domainName: `*.${mediaDomainName}`,
+            validation: acm.CertificateValidation.fromDns(mediaHostedZone),
+          });
+          return { mediaDomainName, mediaHostedZone, mediaCertificate };
+        })()
+      : undefined;
 
     // --- S3 + CloudFront: 管理 SPA / 登壇者 SPA の静的ホスティング (DESIGN.md 3.1, T6) ---
     const adminWebBucket = this.buildSpaBucket("AdminWebBucket");
@@ -282,6 +307,7 @@ export class ControlPlaneStack extends Stack {
         COGNITO_USER_POOL_ID: adminUserPool.userPoolId,
         COGNITO_USER_POOL_CLIENT_ID: adminUserPoolClient.userPoolClientId,
         INVITE_TOKEN_SECRET_ARN: inviteTokenSecret.secretArn,
+        INVITE_BASE_URL: `https://${stageWebDistribution.domainName}/join`,
         LIVEKIT_SECRET_ARN: livekitSecret.secretArn,
         // 運用設定 (LiveKit / YouTube) を管理画面から更新できるようにする。
         YOUTUBE_SECRET_ARN: youtubeSecret.secretArn,
@@ -430,12 +456,20 @@ export class ControlPlaneStack extends Stack {
     new CfnOutput(this, "InviteTokenSecretArn", { value: inviteTokenSecret.secretArn });
     new CfnOutput(this, "LiveKitSecretArn", { value: livekitSecret.secretArn });
     new CfnOutput(this, "YouTubeSecretArn", { value: youtubeSecret.secretArn });
+    // LiveKit シグナリング TLS 用のドメイン / 証明書 (ADR 0009 D-3)。EventMediaStack の NLB が attach する。
+    // context `mediaHostedZoneName` 未指定時は CfnOutput も作らない (TLS スタック構築をスキップ)。
+    if (tlsConfig) {
+      new CfnOutput(this, "MediaCertificateArn", { value: tlsConfig.mediaCertificate.certificateArn });
+      new CfnOutput(this, "MediaHostedZoneId", { value: tlsConfig.mediaHostedZone.hostedZoneId });
+      new CfnOutput(this, "MediaHostedZoneName", { value: mediaHostedZoneName! });
+      new CfnOutput(this, "MediaDomainName", { value: tlsConfig.mediaDomainName });
+    }
 
     // --- EventMediaStack 作成用 CloudFormation サービスロール (R5, ADR 0005 D-5) ---
     // 広い権限 (ec2/ecs/elasticache/iam/logs/cw/sns) はこのロールに集約し、
     // cloudformation.amazonaws.com からのみ assume 可能にする。reconcile Lambda 自身は
     // これらを直接持たず、CFN にロールを渡す (iam:PassRole) だけにして攻撃面を絞る。
-    // ADR 0008 D-4 で NLB を廃止したため elasticloadbalancing 権限も不要になった。
+    // ADR 0009 で NLB をシグナリング用に復活させたため elasticloadbalancing と route53 権限を追加。
     const eventMediaCfnRole = new iam.Role(this, "EventMediaCfnExecRole", {
       assumedBy: new iam.ServicePrincipal("cloudformation.amazonaws.com"),
       description: "CloudFormation execution role for EventMediaStack (ADR 0005 D-5)",
@@ -449,6 +483,8 @@ export class ControlPlaneStack extends Stack {
           "logs:*",
           "cloudwatch:*",
           "sns:*",
+          // ADR 0009 D-1: NLB + TLS Listener + TargetGroup の作成・削除に必要。
+          "elasticloadbalancing:*",
           // CDK テンプレートは CFN deploy 時に bootstrap バージョン (/cdk-bootstrap/hnb659fds/version)
           // を SSM Parameter Store から読み取る。この権限が無いと CreateStack が AccessDenied で失敗する。
           "ssm:GetParameter",
@@ -470,6 +506,28 @@ export class ControlPlaneStack extends Stack {
           "iam:TagRole",
           "iam:UntagRole",
         ],
+        resources: ["*"],
+      }),
+    );
+    // ADR 0009 D-4: Route53 ARecord (per-event DNS) の作成・削除に必要。
+    // 親 HostedZone を ARN で絞り込み、他ゾーンへの誤書き込みを防ぐ。
+    // tlsConfig 未指定時 (mediaHostedZoneName が context に無い) はこのポリシーも付与しない。
+    if (tlsConfig) {
+      eventMediaCfnRole.addToPolicy(
+        new iam.PolicyStatement({
+          actions: [
+            "route53:ChangeResourceRecordSets",
+            "route53:GetHostedZone",
+            "route53:ListResourceRecordSets",
+          ],
+          resources: [`arn:aws:route53:::hostedzone/${tlsConfig.mediaHostedZone.hostedZoneId}`],
+        }),
+      );
+    }
+    // CFN が ChangeResourceRecordSets のステータスをポーリングするのに必要。
+    eventMediaCfnRole.addToPolicy(
+      new iam.PolicyStatement({
+        actions: ["route53:GetChange"],
         resources: ["*"],
       }),
     );
@@ -502,13 +560,22 @@ export class ControlPlaneStack extends Stack {
       environment: {
         CDK_DEFAULT_ACCOUNT: this.account,
         CDK_DEFAULT_REGION: this.region,
-        // EventMediaStack の caption-worker イメージに使う (R4)。ECR にイメージが push されるまでは
-        // コメントアウトし、プレースホルダ (node:24-alpine + sleep infinity) にフォールバックさせる。
-        // ECR push 後にここを戻す。
-        // CAPTION_WORKER_IMAGE: `${captionWorkerRepo.repositoryUri}:latest`,
+        // EventMediaStack の caption-worker イメージに使う (R4)。
+        CAPTION_WORKER_IMAGE: `${captionWorkerRepo.repositoryUri}:latest`,
         // Egress 録画の出力先 (制御層の成果物バケットを共用)。未設定だと EventMediaStack 既定の
         // ハードコード名にフォールバックし、実在しないバケットを参照してしまう (ADR 0006 D-4)。
         RECORDINGS_BUCKET_NAME: assetsBucket.bucketName,
+        // ADR 0009: LiveKit シグナリングを NLB + ACM で TLS 終端する。EventMediaStack が
+        // これらを使って NLB の TLS Listener と Route53 ARecord を作成する。
+        // tlsConfig 未指定なら env を渡さず、EventMediaStack は ADR 0008 D-4 の Public IP 直接公開にフォールバック。
+        ...(tlsConfig
+          ? {
+              MEDIA_CERTIFICATE_ARN: tlsConfig.mediaCertificate.certificateArn,
+              MEDIA_HOSTED_ZONE_ID: tlsConfig.mediaHostedZone.hostedZoneId,
+              MEDIA_HOSTED_ZONE_NAME: mediaHostedZoneName!,
+              MEDIA_DOMAIN_NAME: tlsConfig.mediaDomainName,
+            }
+          : {}),
       },
     });
 

@@ -21,6 +21,22 @@ function synth(customApi = false): Template {
   return Template.fromStack(stack);
 }
 
+/** ADR 0009 D-1: TLS Props を渡したときの synth (NLB + Route53 ARecord あり)。 */
+function synthWithTls(): Template {
+  const app = new App();
+  const stack = new EventMediaStack(app, eventMediaStackName("evt-tls"), {
+    env: { account: "111111111111", region: "ap-northeast-1" },
+    eventId: "evt-tls",
+    captionEngine: "transcribe",
+    customCaptionApi: false,
+    tlsCertificateArn: "arn:aws:acm:ap-northeast-1:111111111111:certificate/test-cert",
+    hostedZoneId: "Z0000TESTZONE",
+    hostedZoneName: "aws.example.com",
+    mediaDomainName: "media.aws.example.com",
+  });
+  return Template.fromStack(stack);
+}
+
 describe("EventMediaStack (DESIGN.md 7.1/7.3, N-5)", () => {
   const template = synth();
 
@@ -73,10 +89,11 @@ describe("EventMediaStack (DESIGN.md 7.1/7.3, N-5)", () => {
     expect(portMapped.length).toBe(1);
   });
 
-  it("ADR 0008 D-4: NLB は廃止 (LoadBalancer も Listener も持たない)", () => {
+  it("ADR 0009 D-1: TLS Props 未指定時は NLB を作らない (後方互換、Public IP 直接公開にフォールバック)", () => {
     template.resourceCountIs("AWS::ElasticLoadBalancingV2::LoadBalancer", 0);
     template.resourceCountIs("AWS::ElasticLoadBalancingV2::Listener", 0);
     template.resourceCountIs("AWS::ElasticLoadBalancingV2::TargetGroup", 0);
+    template.resourceCountIs("AWS::Route53::RecordSet", 0);
   });
 
   it("ADR 0008 D-4: SFU ECS service は Public IP 直接公開 + 固定 service 名", () => {
@@ -264,5 +281,60 @@ describe("liveKitServerConfig (R1)", () => {
     // signaling/RTC ポートが NLB リスナと一致する。
     expect(yaml).toContain("port: 7880");
     expect(yaml).toContain("udp_port: 7882");
+  });
+
+  it("ADR 0009 D-1: dev_mode は無効 (TLS 終端は NLB が担う)", () => {
+    const yaml = liveKitServerConfig("my-valkey.cache.amazonaws.com");
+    expect(yaml).not.toContain("dev_mode");
+  });
+
+  it("ADR 0009 D-2: ICE candidate に SFU の Public IP を広告するため use_external_ip を維持", () => {
+    const yaml = liveKitServerConfig("my-valkey.cache.amazonaws.com");
+    expect(yaml).toContain("use_external_ip: true");
+  });
+});
+
+describe("EventMediaStack with TLS props (ADR 0009)", () => {
+  const template = synthWithTls();
+
+  it("ADR 0009 D-1: internet-facing NLB を 1 つ作る", () => {
+    template.resourceCountIs("AWS::ElasticLoadBalancingV2::LoadBalancer", 1);
+    template.hasResourceProperties("AWS::ElasticLoadBalancingV2::LoadBalancer", {
+      Type: "network",
+      Scheme: "internet-facing",
+    });
+  });
+
+  it("ADR 0009 D-1: TLS Listener (port 443) が ACM 証明書を attach する", () => {
+    template.hasResourceProperties("AWS::ElasticLoadBalancingV2::Listener", {
+      Port: 443,
+      Protocol: "TLS",
+      Certificates: [
+        {
+          CertificateArn: "arn:aws:acm:ap-northeast-1:111111111111:certificate/test-cert",
+        },
+      ],
+    });
+  });
+
+  it("ADR 0009 D-1: TargetGroup は SFU の TCP 7880 を狙う", () => {
+    template.hasResourceProperties("AWS::ElasticLoadBalancingV2::TargetGroup", {
+      Port: 7880,
+      Protocol: "TCP",
+      TargetType: "ip",
+    });
+  });
+
+  it("ADR 0009 D-4: per-event DNS は event-{eventId.slice(0,8)} prefix で作られる", () => {
+    template.hasResourceProperties("AWS::Route53::RecordSet", {
+      Type: "A",
+      Name: "event-evt-tls.media.aws.example.com.",
+    });
+  });
+
+  it("ADR 0009 D-1: LivekitDomainName CfnOutput を持つ (reconcile が DescribeStacks で取得する)", () => {
+    template.hasOutput("LivekitDomainName", Match.objectLike({
+      Value: "event-evt-tls.media.aws.example.com",
+    }));
   });
 });

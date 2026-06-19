@@ -31,10 +31,11 @@
 | **R6** | S5    | Cognito 管理者 Custom Resource (✅) + CloudFront カスタムドメイン + ACM (未) | `claude/cognito-admin-bootstrap` (CR 完)   | `-c initialAdmins=...` で初期管理者を IaC 投入。ACM/独自ドメインは要ドメインで別途 |
 | **R7** | S5    | 統合テスト CI workflow + YouTube ingestion URL 自動取得                      | `claude/integration-ci-youtube`            | 1 イベントを実 YouTube Live に配信、SLO 観測                                       |
 | **R8** | S3+   | LiveKit per-event URL ルーティング + NLB 廃止 (ADR 0008)                     | `claude/livekit-per-event-url` (**✅ 完**)  | events.media.livekitUrl を reconcile が書き戻し、/join が per-event URL を返す。並列 2 イベントで相互干渉なし (ADR 0008 受け入れ基準) |
-| **R9** | S3+   | stage-web → 実 LiveKit 接続の E2E 確認                                       |                                            | 招待 URL 発行 → stage-web で /join → LiveKit Server に WebSocket 接続成功          |
-| **R10** | S3+  | イベント終了で EventMediaStack が破棄されること確認                           |                                            | status=ended → reconcile が stack destroy → events.media がクリア                    |
-| **R11** | S4   | caption-worker イメージを ECR に push + CAPTION_WORKER_IMAGE 有効化          |                                            | GHA build/push → ECR に latest → control-plane-stack.ts のコメントアウトを戻す → CaptionWorker が実イメージで起動 |
+| **R9** | S3+   | stage-web → 実 LiveKit 接続の E2E 確認 (TLS 込み)                            | `claude/r11-caption-worker-ecr-push` (ADR 0009)  | 招待 URL 発行 → stage-web で /join → LiveKit Server に WebSocket 接続成功。**ADR 0009 で NLB + ACM + Route53 による TLS 終端を実装**。確認は実機デプロイ後 |
+| **R10** | S3+  | イベント終了で EventMediaStack が破棄されること確認                           | `claude/r11-caption-worker-ecr-push` (**✅ 完**)  | status=ended → reconcile が stack destroy → events.media がクリア。実機で確認済み (2026-06-19) |
+| **R11** | S4   | caption-worker イメージを ECR に push + CAPTION_WORKER_IMAGE 有効化          | `claude/r11-caption-worker-ecr-push` (**✅ 完**)  | docker build (arm64) + ECR push 完了。control-plane-stack.ts のコメントアウトを解除 → CaptionWorker が実イメージで起動 |
 | **R12** | S5   | YouTube Live RTMP 送出の E2E 確認                                            |                                            | イベントに RTMP URL + Stream Key → Egress が YouTube に映像を送出 → YouTube Live で視聴 |
+| **R13** | S3+   | 将来の SFU 冗長化時に NLB UDP も検討 (ADR 0009 D-5)                          |                                            | 1 イベント 1000 人以上のキャパや TURN over TLS が必要になったタイミングで、シグナリングとメディアの両方を NLB 経由にする案を別 ADR で評価する |
 
 ---
 
@@ -54,6 +55,16 @@
 | #73  | LIVEKIT_KEYS を Secret から直接注入         | livekitKeys フィールド追加、シェル不要に               | ECS Secret で "key: secret" 形式を直接渡すのが最も確実 |
 | #74  | CaptionWorker プレースホルダが即終了        | command: ["sleep", "infinity"]                          | node:24-alpine は引数なしで即終了する       |
 | #75  | ECR 未 push のイメージ参照                  | CAPTION_WORKER_IMAGE を一時コメントアウト               | イメージが存在しない ECR URI を参照するとタスク起動失敗 |
+
+### 2026-06-19 R9/R10/R11 検証で判明した修正
+
+| 問題                                     | 修正                                                  | 教訓                                                 |
+| ---------------------------------------- | ----------------------------------------------------- | ---------------------------------------------------- |
+| 招待 URL が `app.stagecast.local` で発行 | `INVITE_BASE_URL` を stage-web CloudFront URL に設定  | フォールバックURLは開発用なので CDK で必ず上書きする |
+| caption-worker イメージが arm64 のみ     | `runtimePlatform: ARM64` を Fargate Task Definition に追加 | local docker build が arm64 → Fargate デフォルト x86_64 と不整合 |
+| caption-worker が `LIVEKIT_URL` 無しで即終了 | `CAPTION_BUS=valkey` + Valkey 接続でイベントループ維持 | Node.js は待機ハンドルが無いと即終了する             |
+| caption-pipeline に `ioredis` 未宣言     | `dependencies` に `ioredis` を追加                    | dynamic import でも prod bundle に必要なものは dependencies へ |
+| `wss://` 接続が `ERR_SSL_PROTOCOL_ERROR` | ADR 0009: NLB + ACM + Route53 で TLS 終端             | LiveKit は config に TLS 直接サポートなし、`dev_mode` も TLS は有効化しない |
 
 ---
 

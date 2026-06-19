@@ -15,6 +15,10 @@ import {
   aws_cloudwatch as cloudwatch,
   aws_sns as sns,
   aws_cloudwatch_actions as cwActions,
+  aws_elasticloadbalancingv2 as elbv2,
+  aws_route53 as route53,
+  aws_route53_targets as route53Targets,
+  aws_certificatemanager as acm,
 } from "aws-cdk-lib";
 import type { Construct } from "constructs";
 import type { CaptionEngineKind, CaptionSinkKind } from "@stagecast/shared";
@@ -58,6 +62,18 @@ export interface EventMediaStackProps extends StackProps {
    * (実バケットは deploy 時に解決、ADR 0006 D-4)。
    */
   recordingsBucketName?: string;
+  /**
+   * LiveKit シグナリング TLS 用 ACM 証明書 ARN (ADR 0009 D-1, D-3)。
+   * 指定時のみ NLB + TLS Listener + Route53 ARecord を作成する。
+   * 未指定時は ADR 0008 D-4 の Public IP 直接公開にフォールバック (後方互換)。
+   */
+  tlsCertificateArn?: string;
+  /** LiveKit per-event DNS 用 Route53 HostedZone ID (ADR 0009 D-4)。tlsCertificateArn と同時に指定する。 */
+  hostedZoneId?: string;
+  /** LiveKit per-event DNS 用 Route53 HostedZone 名 (例: `example.com`)。 */
+  hostedZoneName?: string;
+  /** LiveKit シグナリング用ドメイン (例: `media.example.com`)。`event-XXXXXXXX.${mediaDomainName}` で per-event 名を組み立てる。 */
+  mediaDomainName?: string;
 }
 
 /**
@@ -189,6 +205,11 @@ export class EventMediaStack extends Stack {
         cpu: 1024,
         memoryLimitMiB: 2048,
         taskRole: opts.taskRole,
+        // caption-worker の ECR イメージは arm64 でビルドするため全サービスを arm64 で統一。
+        runtimePlatform: {
+          cpuArchitecture: ecs.CpuArchitecture.ARM64,
+          operatingSystemFamily: ecs.OperatingSystemFamily.LINUX,
+        },
       });
       // ECR プライベートイメージ (R4) は実行ロールに pull 権限が要る。
       // fromRegistry は自動付与しないため、ECR URI のときだけ最小権限を足す。
@@ -274,25 +295,112 @@ export class EventMediaStack extends Stack {
         // プレースホルダイメージ (node:24-alpine) は引数なしで即終了する。
         // 実 caption-worker イメージが ECR に push されるまで sleep で生かしておく。
         ...(!images.captionWorker ? { command: ["sleep", "infinity"] } : {}),
+        // CAPTION_BUS=valkey で Valkey Streams への常時接続を確立し、
+        // LIVEKIT_URL 未設定時もイベントループを維持してプロセスが即終了しないようにする。
+        // 字幕を Valkey Streams 経由で配信するのは本来の設計でもある (T3, ADR 0002)。
+        ...(images.captionWorker ? {
+          environment: { CAPTION_BUS: "valkey" },
+          secrets: livekitSecrets,
+        } : {}),
       },
     );
 
     // --- 外部到達性: Fargate task の Public IP 直接公開 (ADR 0008 D-4) ---
-    // NLB は ADR 0008 で廃止。task の ENI に Public IP を付与し、SG で 7880/7881/7882 のみ
-    // 開放する。reconcile Lambda が task の Public IP を取得して
-    // events.media.livekitUrl に書き戻す (ADR 0008 D-2)。
+    // task の ENI に Public IP を付与し、SG で 7880/7881/7882 を開放する。
+    // ADR 0009 D-2: メディア (7881/7882) は引き続き Public IP 直接。
+    // ADR 0009 D-1: シグナリング (7880) は NLB 経由が推奨。後方互換のため 0.0.0.0/0 → 7880 も維持する。
     sfu.connections.allowFromAnyIpv4(
       ec2.Port.tcp(LIVEKIT_PORTS.signaling),
-      "LiveKit signaling (public, ADR 0008 D-4)",
+      "LiveKit signaling (public, fallback - ADR 0009 D-1)",
     );
     sfu.connections.allowFromAnyIpv4(
       ec2.Port.tcp(LIVEKIT_PORTS.rtcTcp),
-      "WebRTC ICE/TCP fallback (public, ADR 0008 D-4)",
+      "WebRTC ICE/TCP fallback (public, ADR 0008 D-4 / ADR 0009 D-2)",
     );
     sfu.connections.allowFromAnyIpv4(
       ec2.Port.udp(LIVEKIT_PORTS.rtcUdp),
-      "WebRTC media/UDP (public, ADR 0008 D-4)",
+      "WebRTC media/UDP (public, ADR 0008 D-4 / ADR 0009 D-2)",
     );
+
+    // --- NLB + TLS + Route53 でシグナリングを wss:// 化 (ADR 0009 D-1, D-3, D-4) ---
+    // 4 つのプロパティが全て揃っているときのみ作成。揃っていなければ ADR 0008 D-4 の
+    // Public IP 直接公開にフォールバックする (後方互換)。
+    const tlsProps =
+      props.tlsCertificateArn && props.hostedZoneId && props.hostedZoneName && props.mediaDomainName
+        ? {
+            certificateArn: props.tlsCertificateArn,
+            hostedZoneId: props.hostedZoneId,
+            hostedZoneName: props.hostedZoneName,
+            mediaDomainName: props.mediaDomainName,
+          }
+        : undefined;
+    if (tlsProps) {
+      // internet-facing NLB。NLB は無料の cross-zone load balancing を有効化して
+      // SFU タスクの配置 AZ に依存せず到達できるようにする。
+      const nlb = new elbv2.NetworkLoadBalancer(this, "SfuNlb", {
+        vpc,
+        internetFacing: true,
+        crossZoneEnabled: true,
+        vpcSubnets: { subnetType: ec2.SubnetType.PUBLIC },
+      });
+      // SFU の SG が NLB の listener からのトラフィックを受け取るための許可。
+      // NLB はクライアント IP をそのまま転送する (preserve client IP) ため、SG ルールは
+      // 0.0.0.0/0 ベース。既存の allowFromAnyIpv4(7880) で既にカバーされている。
+
+      const certificate = acm.Certificate.fromCertificateArn(
+        this,
+        "SfuTlsCertificate",
+        tlsProps.certificateArn,
+      );
+      const tgGroup = new elbv2.NetworkTargetGroup(this, "SfuSignalingTargetGroup", {
+        vpc,
+        port: LIVEKIT_PORTS.signaling,
+        protocol: elbv2.Protocol.TCP,
+        targetType: elbv2.TargetType.IP,
+        targets: [
+          sfu.loadBalancerTarget({
+            containerName: "SfuContainer",
+            containerPort: LIVEKIT_PORTS.signaling,
+          }),
+        ],
+        healthCheck: {
+          protocol: elbv2.Protocol.TCP,
+          interval: Duration.seconds(10),
+        },
+        // ephemeral スタックなので速い deregister で破棄時間を短縮。
+        deregistrationDelay: Duration.seconds(10),
+      });
+      nlb.addListener("SfuTlsListener", {
+        port: 443,
+        protocol: elbv2.Protocol.TLS,
+        certificates: [certificate],
+        sslPolicy: elbv2.SslPolicy.TLS13_RES,
+        defaultAction: elbv2.NetworkListenerAction.forward([tgGroup]),
+      });
+
+      // per-event DNS: event-{eventId.slice(0,8)}.{mediaDomainName} (ADR 0009 D-4)。
+      const livekitDomainName = `event-${props.eventId.slice(0, 8)}.${tlsProps.mediaDomainName}`;
+      const hostedZone = route53.HostedZone.fromHostedZoneAttributes(this, "MediaHostedZoneRef", {
+        hostedZoneId: tlsProps.hostedZoneId,
+        zoneName: tlsProps.hostedZoneName,
+      });
+      new route53.ARecord(this, "SfuAliasRecord", {
+        zone: hostedZone,
+        recordName: livekitDomainName,
+        target: route53.RecordTarget.fromAlias(new route53Targets.LoadBalancerTarget(nlb)),
+      });
+
+      // CfnOutput: reconcile Lambda が DescribeStacks で取得し events.media.livekitUrl に書き戻す。
+      new CfnOutput(this, "LivekitDomainName", {
+        value: livekitDomainName,
+        description:
+          "LiveKit シグナリング用ドメイン (NLB + ACM + Route53, ADR 0009)。reconcile が wss:// に変換して events.media に書き戻す",
+      });
+      new CfnOutput(this, "SfuNlbDnsName", {
+        value: nlb.loadBalancerDnsName,
+        description: "NLB の AWS-managed DNS (alias 解決確認用)",
+      });
+    }
 
     // --- オブザーバビリティ (T9, ADR 0003 監視・検知) ---
     // 通知 SNS Topic (運用者が後で email/Slack を購読する想定)。
@@ -568,12 +676,15 @@ export function serverlessCacheName(eventId: string): string {
 export function liveKitServerConfig(valkeyEndpoint: string): string {
   return [
     `port: ${LIVEKIT_PORTS.signaling}`,
+    // ADR 0009 D-1: TLS 終端は NLB が行う (LiveKit 自身は plain HTTP/WS のまま)。
+    // クライアントは wss://event-XXXXXXXX.{mediaDomainName} で接続する。
     "rtc:",
     `  tcp_port: ${LIVEKIT_PORTS.rtcTcp}`,
     `  udp_port: ${LIVEKIT_PORTS.rtcUdp}`,
     `  port_range_start: ${LIVEKIT_PORTS.rtcUdp}`,
     `  port_range_end: ${LIVEKIT_PORTS.rtcUdp}`,
-    // ENI 越しの ICE candidate を正しく広告するため外部 IP を使う。
+    // ADR 0009 D-2: メディア (UDP/TCP fallback) は SFU の Public IP に直接接続させるため
+    // ENI 越しの外部 IP を ICE candidate に広告する。NLB は経由しない。
     "  use_external_ip: true",
     "redis:",
     // ElastiCache serverless は in-transit 暗号化必須なので TLS を有効化。

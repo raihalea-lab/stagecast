@@ -70,7 +70,7 @@ async function deps(): Promise<HandlerDeps> {
   const { DynamoDBDocumentClient, QueryCommand, UpdateCommand } = await import(
     "@aws-sdk/lib-dynamodb"
   );
-  const { CloudFormationClient, ListStacksCommand } =
+  const { CloudFormationClient, ListStacksCommand, DescribeStacksCommand } =
     await import("@aws-sdk/client-cloudformation");
   const { ECSClient, ListTasksCommand, DescribeTasksCommand } = await import(
     "@aws-sdk/client-ecs"
@@ -81,9 +81,26 @@ async function deps(): Promise<HandlerDeps> {
   const ecs = new ECSClient({});
   const ec2 = new EC2Client({});
 
-  // ADR 0008 D-2: ECS task の Public IP を解決する MediaResolver。
+  // ADR 0009 D-1: EventMediaStack の CfnOutput `LivekitDomainName` を優先して採用する。
+  // 取得できなかった場合は ADR 0008 D-2 の Public IP 取得にフォールバック (後方互換)。
   const resolver: MediaResolver = {
     resolveLivekitUrl: async (eventId) => {
+      // 1) CFN Output から NLB + ACM 構成の per-event ドメインを引く (ADR 0009)
+      try {
+        const stackName = eventMediaStackName(eventId);
+        const stacks = await cfn.send(new DescribeStacksCommand({ StackName: stackName }));
+        const outputs = stacks.Stacks?.[0]?.Outputs ?? [];
+        const livekitDomain = outputs.find(
+          (o: { OutputKey?: string }) => o.OutputKey === "LivekitDomainName",
+        )?.OutputValue;
+        if (livekitDomain) {
+          return `wss://${livekitDomain}`;
+        }
+      } catch {
+        // スタック存在しない / Output 未定義 → Public IP fallback に進む。
+      }
+
+      // 2) Fallback: ECS task の Public IP を解決する (ADR 0008 D-2)。
       const cluster = clusterName(eventId);
       const listed = await ecs.send(
         new ListTasksCommand({

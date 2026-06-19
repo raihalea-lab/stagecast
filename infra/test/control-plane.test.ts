@@ -7,7 +7,16 @@ import { Match, Template } from "aws-cdk-lib/assertions";
 import { ControlPlaneStack } from "../lib/control-plane-stack";
 
 function synth(): Template {
-  const app = new App();
+  const app = new App({
+    context: {
+      mediaHostedZoneName: "example.com",
+      // HostedZone.fromLookup の dummy 値（テストでは Route53 を実際に叩かない）。
+      "hosted-zone:account=111111111111:domainName=example.com:region=ap-northeast-1": {
+        Id: "/hostedzone/ZTESTEXAMPLE",
+        Name: "example.com.",
+      },
+    },
+  });
   const stack = new ControlPlaneStack(app, "TestControlPlane", {
     env: { account: "111111111111", region: "ap-northeast-1" },
   });
@@ -245,16 +254,67 @@ describe("ControlPlaneStack", () => {
         ]),
       },
     });
-    // 広い実リソース作成権限はこのロール側に集約される (ADR 0008 で elasticloadbalancing は除去)。
+    // 広い実リソース作成権限はこのロール側に集約される。
+    // ADR 0009 D-1 で elasticloadbalancing を復活、ADR 0009 D-4 で route53 を追加。
     template.hasResourceProperties("AWS::IAM::Policy", {
       PolicyDocument: {
         Statement: Match.arrayWith([
           Match.objectLike({
-            Action: Match.arrayWith(["ec2:*", "ecs:*"]),
+            Action: Match.arrayWith(["ec2:*", "ecs:*", "elasticloadbalancing:*"]),
           }),
         ]),
       },
     });
+  });
+
+  it("ADR 0009 D-4: EventMediaCfnExecRole に Route53 ChangeResourceRecordSets を HostedZone ARN 限定で付与する", () => {
+    template.hasResourceProperties("AWS::IAM::Policy", {
+      PolicyDocument: {
+        Statement: Match.arrayWith([
+          Match.objectLike({
+            Action: Match.arrayWith([
+              "route53:ChangeResourceRecordSets",
+              "route53:GetHostedZone",
+              "route53:ListResourceRecordSets",
+            ]),
+          }),
+        ]),
+      },
+    });
+  });
+
+  it("ADR 0009 D-3: LiveKit 用 ACM ワイルドカード証明書を 1 つ持つ", () => {
+    template.resourceCountIs("AWS::CertificateManager::Certificate", 1);
+    template.hasResourceProperties("AWS::CertificateManager::Certificate", {
+      DomainName: Match.stringLikeRegexp("^\\*\\.media\\."),
+      ValidationMethod: "DNS",
+    });
+  });
+
+  it("ADR 0009: MediaCertificateArn / MediaHostedZone* / MediaDomainName を CfnOutput する", () => {
+    template.hasOutput("MediaCertificateArn", {});
+    template.hasOutput("MediaHostedZoneId", {});
+    template.hasOutput("MediaHostedZoneName", {});
+    template.hasOutput("MediaDomainName", {});
+  });
+
+  it("ADR 0009: RenderTemplateFunction に MEDIA_* 環境変数 4 種を渡す", () => {
+    const fns = template.findResources("AWS::Lambda::Function");
+    const renderFn = Object.values(fns).find((f) => {
+      const envText = JSON.stringify(
+        (f.Properties as { Environment?: { Variables?: unknown } }).Environment?.Variables ?? {},
+      );
+      return envText.includes("CAPTION_WORKER_IMAGE") && envText.includes("MEDIA_CERTIFICATE_ARN");
+    });
+    expect(renderFn).toBeDefined();
+    const envText = JSON.stringify(
+      (renderFn?.Properties as { Environment?: { Variables?: unknown } }).Environment?.Variables ??
+        {},
+    );
+    expect(envText).toContain("MEDIA_CERTIFICATE_ARN");
+    expect(envText).toContain("MEDIA_HOSTED_ZONE_ID");
+    expect(envText).toContain("MEDIA_HOSTED_ZONE_NAME");
+    expect(envText).toContain("MEDIA_DOMAIN_NAME");
   });
 
   it("reconcile Lambda は ECS describe-tasks / EC2 describe-network-interfaces を持つ (ADR 0008 D-2)", () => {
@@ -326,7 +386,16 @@ describe("ControlPlaneStack", () => {
 
 describe("ControlPlaneStack 初期管理者ブートストラップ (R6, ADR 0005 D-4)", () => {
   // synth は esbuild バンドルを伴い重いので describe スコープで 1 度だけ実行する。
-  const app = new App({ context: { initialAdmins: "a@x.com,b@y.com" } });
+  const app = new App({
+    context: {
+      initialAdmins: "a@x.com,b@y.com",
+      mediaHostedZoneName: "example.com",
+      "hosted-zone:account=111111111111:domainName=example.com:region=ap-northeast-1": {
+        Id: "/hostedzone/ZTESTEXAMPLE",
+        Name: "example.com.",
+      },
+    },
+  });
   const stack = new ControlPlaneStack(app, "TestCPAdmins", {
     env: { account: "111111111111", region: "ap-northeast-1" },
   });
@@ -360,7 +429,15 @@ describe("ControlPlaneStack SPA 配信 (webAssets)", () => {
   writeFileSync(join(adminWebDir, "index.html"), "<!doctype html>admin");
   writeFileSync(join(stageWebDir, "index.html"), "<!doctype html>stage");
 
-  const app = new App();
+  const app = new App({
+    context: {
+      mediaHostedZoneName: "example.com",
+      "hosted-zone:account=111111111111:domainName=example.com:region=ap-northeast-1": {
+        Id: "/hostedzone/ZTESTEXAMPLE",
+        Name: "example.com.",
+      },
+    },
+  });
   const stack = new ControlPlaneStack(app, "TestCPWeb", {
     env: { account: "111111111111", region: "ap-northeast-1" },
     webAssets: { adminWebDir, stageWebDir },
