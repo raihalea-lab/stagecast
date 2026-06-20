@@ -444,9 +444,11 @@ export class EventMediaStack extends Stack {
         //   - LiveKit yaml の rtc.turn_servers にも同じ credential を入れる (sed 置換)。
         {
           name: "Coturn",
-          // R12-followup-15: 公式 `coturn/coturn:latest` は debian-slim で wget が無く external-ip 解決に失敗。
-          // alpine + wget 同梱の `instrumentisto/coturn:latest` に変更 (信頼できる maintainer)。
-          image: "instrumentisto/coturn:latest",
+          // R12-followup-15/16:
+          //   - 公式 `coturn/coturn:latest` (debian) は wget 無し → entryPoint で external-ip 解決失敗
+          //   - `instrumentisto/coturn:latest` は amd64 のみで arm64 (Fargate ARM64) と不整合
+          //   - **公式 `coturn/coturn:alpine`** は multi-arch (arm64 含む) + busybox wget 同梱で両方の問題を解決
+          image: "coturn/coturn:alpine",
           essential: false,
           environment: {},
           secrets: {
