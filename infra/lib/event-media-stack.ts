@@ -416,9 +416,11 @@ export class EventMediaStack extends Stack {
       entryPoint: [
         "sh",
         "-c",
-        // R12-followup-12 (debug): yaml の実際の中身と LIVEKIT_KEYS 長さをログに出して原因特定。
-        // LIVEKIT_KEYS は dev 環境の TURN credential なのでログ出力可。本番までに削除。
-        'NODE_IP=$(wget -qO- --timeout=5 https://ifconfig.io || wget -qO- --timeout=5 https://api.ipify.org) && echo "Resolved NODE_IP=$NODE_IP" && echo "LIVEKIT_KEYS_LEN=${#LIVEKIT_KEYS}" && printf "%s\\nkeys:\\n  %s\\n" "$LIVEKIT_CONFIG" "$LIVEKIT_KEYS" > /tmp/livekit.yaml && echo "--- BEGIN /tmp/livekit.yaml ---" && cat /tmp/livekit.yaml && echo "--- END /tmp/livekit.yaml ---" && exec /livekit-server --config /tmp/livekit.yaml --node-ip "$NODE_IP"',
+        // R12-followup-12 (debug): yaml の構造だけ trace (secret は出さない)。
+        // LIVEKIT_KEYS の値や yaml 本文全体は CloudWatch Logs に書かない。
+        // 確認したいのは: (1) LIVEKIT_KEYS env が container に届いているか (長さのみ)、
+        // (2) printf が yaml に `keys:` セクションを正しく書いているか (行数 / セクション存在のみ)。
+        'NODE_IP=$(wget -qO- --timeout=5 https://ifconfig.io || wget -qO- --timeout=5 https://api.ipify.org) && echo "Resolved NODE_IP=$NODE_IP" && echo "LIVEKIT_KEYS_LEN=${#LIVEKIT_KEYS}" && printf "%s\\nkeys:\\n  %s\\n" "$LIVEKIT_CONFIG" "$LIVEKIT_KEYS" > /tmp/livekit.yaml && echo "YAML_TOTAL_LINES=$(wc -l < /tmp/livekit.yaml)" && echo "YAML_HAS_KEYS_SECTION=$(grep -c \"^keys:$\" /tmp/livekit.yaml)" && echo "YAML_KEYS_LINE_LEN=$(awk \"/^keys:$/{getline; print length(\\$0)}\" /tmp/livekit.yaml)" && exec /livekit-server --config /tmp/livekit.yaml --node-ip "$NODE_IP"',
       ],
       sidecars: [
         {
