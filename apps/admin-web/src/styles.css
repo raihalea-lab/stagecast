@@ -178,3 +178,28 @@ code {
   background: #999;
   color: #fff;
 }
+
+/* 一覧取得中の skeleton (N6 残課題, 2026-06-20) */
+.skeleton {
+  background: linear-gradient(90deg, #eee 25%, #f5f5f7 50%, #eee 75%);
+  background-size: 200% 100%;
+  border-radius: 8px;
+  animation: skeleton-shimmer 1.4s ease-in-out infinite;
+}
+.skeleton-row {
+  height: 36px;
+  margin: 4px 0;
+}
+@keyframes skeleton-shimmer {
+  0% {
+    background-position: 200% 0;
+  }
+  100% {
+    background-position: -200% 0;
+  }
+}
+.empty {
+  color: #888;
+  font-size: 0.9em;
+  margin: 8px 0;
+}

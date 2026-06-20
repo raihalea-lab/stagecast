@@ -372,8 +372,9 @@ D / L / N は R を進めながら **思い出した時に PR を切る** のが
 ## 次の改善候補 (deploy 不要で着手可能)
 
 - ✅ **stage-web の操作ボタン連打防止 (済み, App.tsx の `wrap()` で busy 共有)**
-- stage-web カメラライブプレビュー / セッション中のデバイス切替 / Audio only フォールバック
-- admin-web のローディングスケルトン (一覧取得中の skeleton 表示)
+- ✅ **stage-web カメラのライブプレビュー (済み, 2026-06-20)**: 入室前に選択中のカメラ映像を確認できる
+- stage-web セッション中のデバイス切替 / Audio only フォールバック (未)
+- ✅ **admin-web 一覧取得中の skeleton 表示 (済み, 2026-06-20)**
 - エンジン ASR 経路 (Transcribe streaming) の一過性エラー再試行 (二重字幕回避を設計)
 - 招待レート制限 (発行回数の上限・スロットリング) ※ /invites は admin 認可済みで優先度低
 - ~~`reconcile` の stale stack 検知/通知 (L3)~~ ✅ #54 検知+警告ログ / #55 制御層に

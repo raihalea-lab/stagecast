@@ -10,6 +10,7 @@ import {
   savePreferredDevices,
   smoothLevel,
   splitDevices,
+  type CameraPreview,
   type DeviceInfo,
   type KeyValueStore,
   type MediaDevicesProvider,
@@ -41,6 +42,8 @@ export function DeviceCheck(props: {
   const meterRef = useRef<MicMeter | undefined>(undefined);
   const rafRef = useRef<number | undefined>(undefined);
   const smoothedRef = useRef(0);
+  const videoRef = useRef<HTMLVideoElement | null>(null);
+  const previewRef = useRef<CameraPreview | undefined>(undefined);
 
   // 初回: 権限要求 + 列挙 + 保存済み選択の復元。
   useEffect(() => {
@@ -66,6 +69,33 @@ export function DeviceCheck(props: {
     };
     // 初回のみ実行する (provider/store/onChange は安定参照を前提)。
   }, []);
+
+  // 選択カメラが変わるたびにプレビュー stream を開き直す (N7 入室前プレビュー)。
+  useEffect(() => {
+    let stopped = false;
+    void (async () => {
+      if (!camId) return;
+      try {
+        const preview = await provider.openCameraPreview(camId);
+        if (stopped) {
+          preview.stop();
+          return;
+        }
+        previewRef.current = preview;
+        if (videoRef.current) {
+          videoRef.current.srcObject = preview.stream;
+        }
+      } catch {
+        // プレビューはベストエフォート (権限拒否などは無視)。
+      }
+    })();
+    return () => {
+      stopped = true;
+      if (videoRef.current) videoRef.current.srcObject = null;
+      previewRef.current?.stop();
+      previewRef.current = undefined;
+    };
+  }, [camId, provider]);
 
   // 選択マイクが変わるたびにメーターを開き直す。
   useEffect(() => {
@@ -139,6 +169,14 @@ export function DeviceCheck(props: {
           ))}
         </select>
       </label>
+      <video
+        ref={videoRef}
+        className="camera-preview"
+        autoPlay
+        playsInline
+        muted
+        aria-label="カメラプレビュー"
+      />
     </section>
   );
 }
