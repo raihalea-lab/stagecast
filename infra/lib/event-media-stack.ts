@@ -379,7 +379,10 @@ export class EventMediaStack extends Stack {
         { containerPort: LIVEKIT_PORTS.rtcTcp, protocol: ecs.Protocol.TCP },
         { containerPort: LIVEKIT_PORTS.rtcUdp, protocol: ecs.Protocol.UDP },
       ],
-      environment: { LIVEKIT_CONFIG_BODY: liveKitServerConfig(valkeyEndpoint) },
+      // R12-followup-4: LiveKit Server は config-body 用の env 名が `LIVEKIT_CONFIG` (cmd/server/main.go)。
+      // 過去 `LIVEKIT_CONFIG_BODY` を渡していたため config が読まれず single-node routing で起動し、
+      // redis が認識されず Egress と通信できなかった。正しい名前 `LIVEKIT_CONFIG` に修正。
+      environment: { LIVEKIT_CONFIG: liveKitServerConfig(valkeyEndpoint) },
       secrets: livekitSecrets,
       sidecars: [
         {
