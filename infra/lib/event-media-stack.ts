@@ -422,7 +422,11 @@ export class EventMediaStack extends Stack {
         // R12-followup-14: yaml 内の `__NODE_IP__` / `__TURN_CREDENTIAL__` を sed で実値に置換。
         // - NODE_IP: ifconfig.io で取得した Task の Public IP (coturn の host にもなる)
         // - TURN_CREDENTIAL: LIVEKIT_API_SECRET を流用 (coturn sidecar の static-auth password と同じ値)
-        'NODE_IP=$(wget -qO- --timeout=5 https://ifconfig.io || wget -qO- --timeout=5 https://api.ipify.org) && echo "Resolved NODE_IP=$NODE_IP" && printf "%s\\nkeys:\\n  %s\\n" "$LIVEKIT_CONFIG" "$LIVEKIT_KEYS" > /tmp/livekit.yaml && sed -i "s|__NODE_IP__|$NODE_IP|g; s|__TURN_CREDENTIAL__|$LIVEKIT_API_SECRET|g" /tmp/livekit.yaml && exec /livekit-server --config /tmp/livekit.yaml --keys "$LIVEKIT_KEYS" --node-ip "$NODE_IP"',
+        //
+        // R12-followup-17: `unset LIVEKIT_CONFIG` が必要。 viper は env > file の優先順位なので、
+        // env LIVEKIT_CONFIG (置換前テンプレ) が file /tmp/livekit.yaml (sed で置換済) を上書きしてしまう。
+        // env を消すことで `--config` flag で渡した file 内容だけが反映される。
+        'NODE_IP=$(wget -qO- --timeout=5 https://ifconfig.io || wget -qO- --timeout=5 https://api.ipify.org) && echo "Resolved NODE_IP=$NODE_IP" && printf "%s\\nkeys:\\n  %s\\n" "$LIVEKIT_CONFIG" "$LIVEKIT_KEYS" > /tmp/livekit.yaml && sed -i "s|__NODE_IP__|$NODE_IP|g; s|__TURN_CREDENTIAL__|$LIVEKIT_API_SECRET|g" /tmp/livekit.yaml && unset LIVEKIT_CONFIG && exec /livekit-server --config /tmp/livekit.yaml --keys "$LIVEKIT_KEYS" --node-ip "$NODE_IP"',
       ],
       sidecars: [
         {
