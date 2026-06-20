@@ -276,7 +276,10 @@ describe("EventMediaStack ECR pull 権限 (R4)", () => {
 describe("liveKitServerConfig (R1)", () => {
   it("Valkey を TLS つき redis アダプタとして参照する", () => {
     const yaml = liveKitServerConfig("my-valkey.cache.amazonaws.com");
-    expect(yaml).toContain("address: my-valkey.cache.amazonaws.com:6379");
+    // R12-followup: ElastiCache Valkey Serverless は cluster mode 必須なので
+    // cluster_addresses を使う (livekit/protocol redis/redis.go 参照)
+    expect(yaml).toContain("cluster_addresses:");
+    expect(yaml).toContain("- my-valkey.cache.amazonaws.com:6379");
     expect(yaml).toContain("use_tls: true");
     // signaling/RTC ポートが NLB リスナと一致する。
     expect(yaml).toContain("port: 7880");

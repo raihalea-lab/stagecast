@@ -79,6 +79,41 @@ describe("ControlPlaneStack", () => {
     template.resourceCountIs("AWS::Events::Rule", 1);
   });
 
+  it("O1: 月額コスト Budget + SNS 通知トピックを持つ (デフォルト 50 USD)", () => {
+    template.hasResourceProperties("AWS::Budgets::Budget", {
+      Budget: Match.objectLike({
+        BudgetType: "COST",
+        TimeUnit: "MONTHLY",
+        BudgetLimit: { Amount: 50, Unit: "USD" },
+      }),
+      NotificationsWithSubscribers: Match.arrayWith([
+        Match.objectLike({
+          Notification: Match.objectLike({
+            NotificationType: "ACTUAL",
+            Threshold: 80,
+          }),
+        }),
+        Match.objectLike({
+          Notification: Match.objectLike({
+            NotificationType: "FORECASTED",
+            Threshold: 100,
+          }),
+        }),
+      ]),
+    });
+    // SNS Topic Policy で Budgets サービスからの Publish を許可している。
+    template.hasResourceProperties("AWS::SNS::TopicPolicy", {
+      PolicyDocument: Match.objectLike({
+        Statement: Match.arrayWith([
+          Match.objectLike({
+            Action: "SNS:Publish",
+            Principal: { Service: "budgets.amazonaws.com" },
+          }),
+        ]),
+      }),
+    });
+  });
+
   it("stale スタック警告ログをメトリクス化しアラート + SNS する (L3, N-1)", () => {
     template.hasResourceProperties("AWS::Logs::MetricFilter", {
       FilterPattern: '{ $.msg = "stale event-media stack" }',
@@ -94,7 +129,8 @@ describe("ControlPlaneStack", () => {
       Namespace: "Stagecast/Orchestrator",
       AlarmActions: Match.anyValue(),
     });
-    template.resourceCountIs("AWS::SNS::Topic", 1);
+    // OrchestratorAlarmTopic と CostAlarmTopic (O1) の 2 つ。
+    template.resourceCountIs("AWS::SNS::Topic", 2);
   });
 
   it("API Gateway に Cognito JWT オーソライザが定義されている (T5, F-12)", () => {

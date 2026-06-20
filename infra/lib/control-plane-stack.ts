@@ -28,6 +28,9 @@ import {
   aws_s3_deployment as s3deploy,
   aws_certificatemanager as acm,
   aws_route53 as route53,
+  aws_budgets as budgets,
+  aws_sns_subscriptions as snsSubscriptions,
+  aws_ec2 as ec2,
 } from "aws-cdk-lib";
 import type { Construct } from "constructs";
 
@@ -117,6 +120,19 @@ export class ControlPlaneStack extends Stack {
       lifecycleRules: [
         // 直近 10 イメージのみ保持してストレージ費を抑える。
         { description: "keep last 10 images", maxImageCount: 10 },
+      ],
+    });
+
+    // --- 共有 VPC (R12-followup, N-1: 無料リソースの事前作成でイベント起動時間を短縮) ---
+    // EventMediaStack で per-event VPC を作っていた経緯 (ADR 0008) だが、VPC + subnet 自体は無料で
+    // 隔離は SG で十分なので、共有することで起動時間 2-3 分の短縮 + リソース数削減のメリットが大きい。
+    // NAT Gateway は使わず Public Subnet のみ (Egress / SFU / CaptionWorker は assignPublicIp で
+    // インターネットに出る)。EventMediaStack が sharedVpc props に値が来ればこれを使う。
+    const sharedMediaVpc = new ec2.Vpc(this, "SharedMediaVpc", {
+      maxAzs: 2,
+      natGateways: 0,
+      subnetConfiguration: [
+        { name: "Public", subnetType: ec2.SubnetType.PUBLIC, cidrMask: 24 },
       ],
     });
 
@@ -226,6 +242,8 @@ export class ControlPlaneStack extends Stack {
             "import{createRequire}from'node:module';const require=createRequire(import.meta.url);",
         },
         timeout: Duration.minutes(2),
+        // N3: 管理者投入の Custom Resource 経路を可視化。
+        tracing: lambda.Tracing.ACTIVE,
       });
       adminUserPool.grant(adminBootstrapFn, "cognito-idp:AdminCreateUser");
       const adminBootstrapProvider = new cr.Provider(this, "AdminBootstrapProvider", {
@@ -302,6 +320,8 @@ export class ControlPlaneStack extends Stack {
       memorySize: 512,
       // R12: LiveKit Egress 起動 (HTTP リクエスト) のため 30s に延長 (cold start + LiveKit API)。
       timeout: Duration.seconds(30),
+      // N3: X-Ray でリクエストフローを可視化 (Lambda → DynamoDB → Secrets Manager 等)。
+      tracing: lambda.Tracing.ACTIVE,
       environment: {
         METADATA_TABLE_NAME: metadataTable.tableName,
         ASSETS_BUCKET_NAME: assetsBucket.bucketName,
@@ -558,6 +578,8 @@ export class ControlPlaneStack extends Stack {
       },
       memorySize: 1024, // CDK synth ピーク用
       timeout: Duration.minutes(1),
+      // N3: X-Ray でテンプレ生成にかかる時間を可視化。
+      tracing: lambda.Tracing.ACTIVE,
       environment: {
         CDK_DEFAULT_ACCOUNT: this.account,
         CDK_DEFAULT_REGION: this.region,
@@ -577,6 +599,11 @@ export class ControlPlaneStack extends Stack {
               MEDIA_DOMAIN_NAME: tlsConfig.mediaDomainName,
             }
           : {}),
+        // 共有 VPC を EventMediaStack に渡す (起動時間短縮)。
+        SHARED_VPC_ID: sharedMediaVpc.vpcId,
+        SHARED_VPC_CIDR: sharedMediaVpc.vpcCidrBlock,
+        SHARED_SUBNET_IDS: sharedMediaVpc.publicSubnets.map((s) => s.subnetId).join(","),
+        SHARED_SUBNET_AZS: sharedMediaVpc.publicSubnets.map((s) => s.availabilityZone).join(","),
       },
     });
 
@@ -612,6 +639,8 @@ export class ControlPlaneStack extends Stack {
       },
       memorySize: 256,
       timeout: Duration.minutes(2),
+      // N3: X-Ray で reconcile → CFN → ECS の trace を繋ぐ。
+      tracing: lambda.Tracing.ACTIVE,
       environment: {
         METADATA_TABLE_NAME: metadataTable.tableName,
         // CFN に渡す実行ロール ARN (R5)。reconcile は CreateStack 時に RoleARN として渡す。
@@ -696,6 +725,71 @@ export class ControlPlaneStack extends Stack {
 
     new CfnOutput(this, "ReconcileFunctionName", { value: reconcileFn.functionName });
     new CfnOutput(this, "OrchestratorAlarmTopicArn", { value: orchestratorAlarmTopic.topicArn });
+
+    // --- AWS Budgets: 月額コスト監視アラート (O1, L3) ---
+    // 暴走したリソースや想定外コストを早期検知。AWS Budgets 自体は無料 (アカウントあたり 2 つまで)。
+    // context で閾値とメール通知先を指定:
+    //   cdk deploy -c budgetMonthlyUsd=50 -c budgetEmail=ops@example.com
+    // メール未指定なら OrchestratorAlarmTopic に通知する (運用者が事前に subscribe しておく前提)。
+    const budgetMonthlyUsdRaw = this.node.tryGetContext("budgetMonthlyUsd") as string | undefined;
+    const budgetMonthlyUsd = budgetMonthlyUsdRaw ? Number(budgetMonthlyUsdRaw) : 50;
+    const budgetEmail = this.node.tryGetContext("budgetEmail") as string | undefined;
+
+    // Budgets 専用の SNS Topic (Cost アラート)。OrchestratorAlarmTopic と分けることで
+    // 受信者が Cost と Ops を別々に subscribe できるようにする。
+    const costAlarmTopic = new sns.Topic(this, "CostAlarmTopic", {
+      displayName: "Stagecast cost alarms",
+    });
+    if (budgetEmail) {
+      costAlarmTopic.addSubscription(new snsSubscriptions.EmailSubscription(budgetEmail));
+    }
+    // Budgets サービスから SNS:Publish を許可 (公式推奨ポリシー)。
+    costAlarmTopic.addToResourcePolicy(
+      new iam.PolicyStatement({
+        actions: ["SNS:Publish"],
+        effect: iam.Effect.ALLOW,
+        principals: [new iam.ServicePrincipal("budgets.amazonaws.com")],
+        resources: [costAlarmTopic.topicArn],
+        conditions: {
+          StringEquals: { "aws:SourceAccount": this.account },
+          ArnLike: { "aws:SourceArn": `arn:aws:budgets::${this.account}:*` },
+        },
+      }),
+    );
+
+    new budgets.CfnBudget(this, "MonthlyCostBudget", {
+      budget: {
+        budgetName: "stagecast-monthly-cost",
+        budgetType: "COST",
+        timeUnit: "MONTHLY",
+        budgetLimit: { amount: budgetMonthlyUsd, unit: "USD" },
+      },
+      notificationsWithSubscribers: [
+        {
+          // 実績が予算の 80% を超えたら WARN。
+          notification: {
+            notificationType: "ACTUAL",
+            comparisonOperator: "GREATER_THAN",
+            threshold: 80,
+            thresholdType: "PERCENTAGE",
+          },
+          subscribers: [{ subscriptionType: "SNS", address: costAlarmTopic.topicArn }],
+        },
+        {
+          // 月末予測が予算の 100% を超えたら CRITICAL (早期検知)。
+          notification: {
+            notificationType: "FORECASTED",
+            comparisonOperator: "GREATER_THAN",
+            threshold: 100,
+            thresholdType: "PERCENTAGE",
+          },
+          subscribers: [{ subscriptionType: "SNS", address: costAlarmTopic.topicArn }],
+        },
+      ],
+    });
+    new CfnOutput(this, "CostAlarmTopicArn", { value: costAlarmTopic.topicArn });
+    new CfnOutput(this, "BudgetMonthlyUsd", { value: String(budgetMonthlyUsd) });
+    new CfnOutput(this, "SharedMediaVpcId", { value: sharedMediaVpc.vpcId });
   }
 
   /** SPA 用 S3 バケットの共通設定 (private + KMS なしの S3 管理暗号化)。 */

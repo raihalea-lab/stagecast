@@ -80,7 +80,7 @@
   vp run --filter @stagecast/infra cdk -- bootstrap aws://<account>/us-east-1   # Bedrock 用
   ```
 - [ ] Bedrock のモデルアクセス申請 (`us.anthropic.claude-sonnet-4-5-...`) を us-east-1 で実施
-- [ ] AWS Budgets でアカウント全体に **月額アラート** を設定 (例: 50 USD で通知, 100 USD で停止検討)
+- [x] **AWS Budgets でアカウント全体に月額アラート設定済み (2026-06-20)** — CDK で実装 (デフォルト 30 USD、80% で WARN・100% 予測で CRITICAL、専用 SNS Topic `CostAlarmTopic`)。`-c budgetEmail=foo@example.com -c budgetMonthlyUsd=50` で変更可能
 
 ### O2. GitHub OIDC IAM Role の作成 (deploy.yml が引き受ける)
 
@@ -203,7 +203,9 @@ reconcile Lambda 自身は `cloudformation:*` (スタック操作) + `iam:PassRo
 
 ### N3. 観測性の強化
 
-- AWS X-Ray の有効化 (Lambda / Fargate)。reconcile → CFN → ECS の trace が繋がる (未)
+- ✅ **AWS X-Ray の Lambda 有効化 (2026-06-20)**: control-api / render-template / reconcile /
+  admin-bootstrap の 4 つに `tracing: ACTIVE` を設定。CloudWatch ServiceLens でリクエストフロー
+  (Lambda → DynamoDB → Secrets Manager → LiveKit API) が可視化される。Fargate は未対応
 - ✅ 構造化ログ: `@stagecast/shared` の `createLogger` (1 行 1 JSON, `component`/`eventId` 束縛)
   に切替え。pino は使わず Lambda/Fargate バンドルを軽く保つ。caption-worker / audio-source /
   media-composer / reconcile で採用。CloudWatch Logs Insights で `eventId` 絞り込み可。
@@ -243,10 +245,11 @@ reconcile Lambda 自身は `cloudformation:*` (スタック操作) + `iam:PassRo
 
 ### L1. 利用規約 / プライバシーポリシー
 
-- YouTube Live に映像を流す = 視聴者の音声/字幕を収集する可能性 (字幕は登壇者のみだが)
-- 録画を S3 に保存 = データ保護法の対象になる場合あり
-- **公開配信を始める前に最低限の Terms / Privacy ページを用意**
-- Cognito 招待でも consent (利用同意) の UI を入れるかどうか決定
+- ✅ **テンプレート作成済み (2026-06-20)**: [`docs/legal/terms-template.md`](./legal/terms-template.md) と
+  [`docs/legal/privacy-template.md`](./legal/privacy-template.md)。公開配信前に運用者が編集し弁護士レビューを推奨
+- 配信中に取得する情報 (音声・映像・表示名)、YouTube Live への送出、S3 録画保管 (30日)、
+  Cognito 招待、字幕の AWS 送信 (Transcribe/Translate/Bedrock) を網羅
+- Cognito 招待でも consent (利用同意) の UI を入れるかどうか決定 (未)
 
 ### L2. YouTube 利用規約遵守
 
@@ -368,7 +371,7 @@ D / L / N は R を進めながら **思い出した時に PR を切る** のが
 
 ## 次の改善候補 (deploy 不要で着手可能)
 
-- stage-web の操作ボタン連打防止 (mic/camera/screen/slide/leave を処理中 disabled, admin #40 と統一)
+- ✅ **stage-web の操作ボタン連打防止 (済み, App.tsx の `wrap()` で busy 共有)**
 - stage-web カメラライブプレビュー / セッション中のデバイス切替 / Audio only フォールバック
 - admin-web のローディングスケルトン (一覧取得中の skeleton 表示)
 - エンジン ASR 経路 (Transcribe streaming) の一過性エラー再試行 (二重字幕回避を設計)

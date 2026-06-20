@@ -38,6 +38,23 @@ export function renderEventMediaTemplate(spec: RenderEventMediaSpec): string {
     tlsCertificateArn && hostedZoneId && hostedZoneName && mediaDomainName
       ? { tlsCertificateArn, hostedZoneId, hostedZoneName, mediaDomainName }
       : {};
+  // 共有 VPC (ControlPlaneStack の SharedMediaVpc) を ControlPlaneStack から env 経由で受け取る。
+  // 揃っていなければ EventMediaStack は per-event VPC を作成 (後方互換)。
+  const sharedVpcId = process.env.SHARED_VPC_ID;
+  const sharedVpcCidr = process.env.SHARED_VPC_CIDR;
+  const sharedSubnetIds = process.env.SHARED_SUBNET_IDS?.split(",").filter(Boolean) ?? [];
+  const sharedSubnetAzs = process.env.SHARED_SUBNET_AZS?.split(",").filter(Boolean) ?? [];
+  const sharedVpcProps =
+    sharedVpcId && sharedVpcCidr && sharedSubnetIds.length > 0 && sharedSubnetAzs.length > 0
+      ? {
+          sharedVpc: {
+            vpcId: sharedVpcId,
+            vpcCidr: sharedVpcCidr,
+            availabilityZones: sharedSubnetAzs,
+            publicSubnetIds: sharedSubnetIds,
+          },
+        }
+      : {};
   new EventMediaStack(app, stackName, {
     eventId: spec.eventId,
     captionEngine: spec.captionEngine,
@@ -45,6 +62,7 @@ export function renderEventMediaTemplate(spec: RenderEventMediaSpec): string {
     ...(captionWorkerImage ? { images: { captionWorker: captionWorkerImage } } : {}),
     ...(recordingsBucketName ? { recordingsBucketName } : {}),
     ...tlsProps,
+    ...sharedVpcProps,
     ...(spec.rtmpUrl ? { rtmpUrl: spec.rtmpUrl } : {}),
     ...(spec.streamKeyRef ? { streamKeyRef: spec.streamKeyRef } : {}),
   });
