@@ -17,6 +17,8 @@ export interface EventMediaSpec {
   customCaptionApi: boolean;
   /** YouTube RTMP 送出先 (任意。未指定はモック送出)。 */
   rtmpUrl?: string | undefined;
+  /** YouTube ストリームキー参照名 (Secret 内のフィールド名)。R12, ADR 0006 D-4。 */
+  streamKeyRef?: string | undefined;
 }
 
 export type StackStatus = "provisioning" | "running" | "destroying" | "destroyed";

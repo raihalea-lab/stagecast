@@ -19,7 +19,7 @@ import type {
   YouTubeSettingsStatus,
 } from "@stagecast/shared";
 import type { CreateEventInput } from "@stagecast/control-api";
-import type { ControlApiClient, IssuedInvite } from "./types.js";
+import type { ControlApiClient, EgressStartResult, IssuedInvite } from "./types.js";
 
 const ADMIN_AUTH = "Bearer fake:admin-local:admin@stagecast.local";
 
@@ -63,6 +63,9 @@ export class LocalControlApiClient implements ControlApiClient {
   }
   issueInvite(eventId: string, role: InvitedRole, ttlSec: number): Promise<IssuedInvite> {
     return this.call("POST", `/events/${eventId}/invites`, { role, ttlSec });
+  }
+  startEgress(eventId: string): Promise<EgressStartResult> {
+    return this.call("POST", `/events/${eventId}/egress/start`);
   }
   getPresentation(eventId: string): Promise<PresentationState> {
     return this.call("GET", `/events/${eventId}/presentation`);

@@ -478,11 +478,11 @@ describe("settings (LiveKit / YouTube) HTTP", () => {
       }),
     );
     expect(put.status).toBe(200);
-    expect(put.body).toEqual({ configured: true });
+    expect(put.body).toEqual({ configured: true, streamKeyConfigured: false });
 
     const get = await app.handle(
       req({ method: "GET", path: "/settings/youtube", headers: adminAuth }),
     );
-    expect(get.body).toEqual({ configured: true });
+    expect(get.body).toEqual({ configured: true, streamKeyConfigured: false });
   });
 });

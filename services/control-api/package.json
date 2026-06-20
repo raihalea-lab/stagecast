@@ -20,7 +20,8 @@
     "@aws-sdk/s3-request-presigner": "^3.1068.0",
     "@stagecast/media-composer": "workspace:*",
     "@stagecast/shared": "workspace:*",
-    "aws-jwt-verify": "^5.2.1"
+    "aws-jwt-verify": "^5.2.1",
+    "livekit-server-sdk": "^2.15.4"
   },
   "devDependencies": {
     "@types/aws-lambda": "^8.10.162",

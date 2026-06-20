@@ -24,6 +24,7 @@ export function EventDetail(props: {
   const [artifactList, setArtifactList] = useState<Artifact[] | undefined>();
   const [error, setError] = useState<string | undefined>();
   const [busy, setBusy] = useState(false);
+  const [egressInfo, setEgressInfo] = useState<{ egressId: string } | undefined>();
 
   // 操作を共通ラップ: 失敗をエラーバナーに出し、実行中は busy で連打を防ぐ (admin-web 全体と統一)。
   const guard = (fn: () => Promise<void>) => async () => {
@@ -66,6 +67,12 @@ export function EventDetail(props: {
       onChanged();
     })();
 
+  // R12: Egress (RTMP 送出) を起動して YouTube Live への配信を開始する。
+  const startEgress = guard(async () => {
+    const result = await client.startEgress(event.id);
+    setEgressInfo({ egressId: result.egressId });
+  });
+
   return (
     <section className="event-detail">
       <h2>
@@ -84,9 +91,22 @@ export function EventDetail(props: {
           </button>
         )}
         {event.status === "live" && (
-          <button onClick={() => changeStatus("ended")} disabled={busy}>
-            配信終了 (ended)
-          </button>
+          <>
+            <button onClick={() => changeStatus("ended")} disabled={busy}>
+              配信終了 (ended)
+            </button>
+            {/* R12: live + media.livekitUrl + youtube.rtmpUrl/streamKeyRef が揃ったら RTMP 送出可能。 */}
+            {event.media?.livekitUrl && event.youtube?.rtmpUrl && event.youtube.streamKeyRef && (
+              <button onClick={startEgress} disabled={busy}>
+                YouTube に配信開始 (Egress)
+              </button>
+            )}
+          </>
+        )}
+        {egressInfo && (
+          <p className="info">
+            Egress 起動済み: <code>{egressInfo.egressId}</code>
+          </p>
         )}
       </div>
 

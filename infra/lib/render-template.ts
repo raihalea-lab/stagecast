@@ -14,6 +14,10 @@ export interface RenderEventMediaSpec {
   eventId: string;
   captionEngine: CaptionEngineKind;
   customCaptionApi: boolean;
+  /** YouTube RTMP 取り込み URL。Egress が RTMP 送出する宛先 (R12, ADR 0006 D-4)。 */
+  rtmpUrl?: string;
+  /** YouTube ストリームキーを格納した Secrets Manager の参照名 (例: stagecast/youtube-stream-key)。 */
+  streamKeyRef?: string;
 }
 
 export function renderEventMediaTemplate(spec: RenderEventMediaSpec): string {
@@ -41,6 +45,8 @@ export function renderEventMediaTemplate(spec: RenderEventMediaSpec): string {
     ...(captionWorkerImage ? { images: { captionWorker: captionWorkerImage } } : {}),
     ...(recordingsBucketName ? { recordingsBucketName } : {}),
     ...tlsProps,
+    ...(spec.rtmpUrl ? { rtmpUrl: spec.rtmpUrl } : {}),
+    ...(spec.streamKeyRef ? { streamKeyRef: spec.streamKeyRef } : {}),
   });
   const assembly = app.synth();
   const template = assembly.getStackByName(stackName).template as unknown;

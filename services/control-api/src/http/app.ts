@@ -19,6 +19,7 @@ import type { createPresentationService } from "../usecases/presentation.js";
 import { ServiceUnavailableError, type createJoinService } from "../usecases/join.js";
 import type { createAssetUploadService } from "../assets/asset-upload.js";
 import type { createArtifactDownloadService } from "../assets/artifact-download.js";
+import type { EgressService } from "../usecases/egress.js";
 import type { SettingsService } from "../usecases/settings.js";
 
 export interface HttpRequest {
@@ -53,12 +54,14 @@ export interface AppDeps {
   artifacts?: ArtifactDownloadService;
   /** 運用設定 (LiveKit / YouTube 認証情報) 管理 (Secrets Manager 未設定なら省略され 503)。 */
   settings?: SettingsService;
+  /** Egress (RTMP 送出) 起動サービス (R12)。未設定なら省略され 503。 */
+  egress?: EgressService;
 }
 
 const json = (status: number, body: unknown): HttpResponse => ({ status, body });
 
 export function createApp(deps: AppDeps) {
-  const { auth, events, invites, presentation, join, assets, artifacts, settings } = deps;
+  const { auth, events, invites, presentation, join, assets, artifacts, settings, egress } = deps;
 
   async function requireAdmin(req: HttpRequest): Promise<void> {
     await auth.verify(req.headers["authorization"] ?? req.headers["Authorization"]);
@@ -161,6 +164,17 @@ export function createApp(deps: AppDeps) {
         // 配信成果物 (録画 / 確定字幕) のダウンロード URL 一覧 (N1)。
         if (!artifacts) throw new ServiceUnavailableError("asset storage not configured");
         return json(200, await artifacts.listArtifacts(eventId));
+      } else if (
+        segments[2] === "egress" &&
+        segments[3] === "start" &&
+        segments.length === 4 &&
+        req.method === "POST"
+      ) {
+        // R12: YouTube への RTMP 送出を開始する (LiveKit Egress 起動)。
+        // 事前条件: event.status === "live", event.media.livekitUrl 確定済み,
+        //          event.youtube.rtmpUrl と event.youtube.streamKeyRef が設定済み。
+        if (!egress) throw new ServiceUnavailableError("egress not configured");
+        return json(202, await egress.start(eventId));
       }
     }
 

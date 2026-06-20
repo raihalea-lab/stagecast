@@ -74,6 +74,19 @@ export interface EventMediaStackProps extends StackProps {
   hostedZoneName?: string;
   /** LiveKit シグナリング用ドメイン (例: `media.example.com`)。`event-XXXXXXXX.${mediaDomainName}` で per-event 名を組み立てる。 */
   mediaDomainName?: string;
+  /**
+   * YouTube RTMP 取り込み URL (R12, ADR 0006 D-4)。
+   * 例: `rtmp://a.rtmp.youtube.com/live2`。control-api の Egress 起動 API が参照し、
+   * `startRoomCompositeEgress` の `streamOutputs.urls = [${rtmpUrl}/${streamKey}]` を組み立てる。
+   * 現状の EventMediaStack 内では参照されない (将来 Egress 自動起動時の予約フィールド)。
+   */
+  rtmpUrl?: string;
+  /**
+   * YouTube ストリームキーを格納した Secret のフィールド名 (R12)。
+   * 既存の `stagecast/youtube` Secret 内のキーを指す (例: `defaultStreamKey`)。
+   * control-api の Egress 起動 API が Secret 値を取得して使う。
+   */
+  streamKeyRef?: string;
 }
 
 /**
@@ -268,6 +281,19 @@ export class EventMediaStack extends Stack {
     // ADR 0008 D-4: Public IP を直接公開し、NLB を廃止。reconcile Lambda が ECS から
     // task の Public IP を引いて events.media.livekitUrl に書き戻す (ADR 0008 D-2)。
     // LIVEKIT_KEYS は Secret の livekitKeys フィールドから ECS Secret で直接注入 (シェル不要)。
+    // 4 つのプロパティが全て揃っているときのみ NLB + TLS 構成。揃っていなければ ADR 0008 D-4 の
+    // Public IP 直接公開にフォールバックする (後方互換)。tlsProps は Egress の LIVEKIT_WS_URL
+    // 解決にも使うので、SFU 作成より前に宣言する。
+    const tlsProps =
+      props.tlsCertificateArn && props.hostedZoneId && props.hostedZoneName && props.mediaDomainName
+        ? {
+            certificateArn: props.tlsCertificateArn,
+            hostedZoneId: props.hostedZoneId,
+            hostedZoneName: props.hostedZoneName,
+            mediaDomainName: props.mediaDomainName,
+          }
+        : undefined;
+
     const sfu = addService("Sfu", images.sfu ?? "livekit/livekit-server:latest", {
       serviceName: SFU_SERVICE_NAME,
       ports: [
@@ -280,9 +306,21 @@ export class EventMediaStack extends Stack {
     });
 
     // Egress: Chrome ヘッドレスで合成 → RTMP/S3。Valkey で SFU とジョブ共有 (R2, ADR 0006 D-4)。
+    // R12 修正: LiveKit Egress は LIVEKIT_WS_URL 環境変数で SFU の signal URL を直接読む
+    // (Go ソース: ServiceConfig が os.Getenv("LIVEKIT_WS_URL") を参照)。
+    // ws://localhost:7880 はデフォルト config に書かれているが、Egress が SFU と
+    // 別タスクの場合は到達不可。NLB 経由の wss://event-XXX で接続する (ADR 0009)。
+    // tlsConfig (= mediaHostedZoneName context) がないときは localhost:7880 のまま
+    // (= ADR 0008 D-4 の Public IP 直接公開シナリオではこの経路は機能しない)。
+    const egressEnvironment: Record<string, string> = {
+      EGRESS_CONFIG_BODY: liveKitEgressConfig(valkey.attrEndpointAddress),
+    };
+    if (tlsProps) {
+      egressEnvironment.LIVEKIT_WS_URL = `wss://event-${props.eventId.slice(0, 8)}.${tlsProps.mediaDomainName}`;
+    }
     const egress = addService("Egress", images.egress ?? "livekit/egress:latest", {
       taskRole: egressTaskRole,
-      environment: { EGRESS_CONFIG_BODY: liveKitEgressConfig(valkey.attrEndpointAddress) },
+      environment: egressEnvironment,
       secrets: livekitSecrets,
     });
 
@@ -323,17 +361,6 @@ export class EventMediaStack extends Stack {
     );
 
     // --- NLB + TLS + Route53 でシグナリングを wss:// 化 (ADR 0009 D-1, D-3, D-4) ---
-    // 4 つのプロパティが全て揃っているときのみ作成。揃っていなければ ADR 0008 D-4 の
-    // Public IP 直接公開にフォールバックする (後方互換)。
-    const tlsProps =
-      props.tlsCertificateArn && props.hostedZoneId && props.hostedZoneName && props.mediaDomainName
-        ? {
-            certificateArn: props.tlsCertificateArn,
-            hostedZoneId: props.hostedZoneId,
-            hostedZoneName: props.hostedZoneName,
-            mediaDomainName: props.mediaDomainName,
-          }
-        : undefined;
     if (tlsProps) {
       // internet-facing NLB。NLB は無料の cross-zone load balancing を有効化して
       // SFU タスクの配置 AZ に依存せず到達できるようにする。
@@ -708,6 +735,13 @@ export function liveKitEgressConfig(valkeyEndpoint: string): string {
     `  address: ${valkeyEndpoint}:6379`,
     "  use_tls: true",
     `ws_url: ws://localhost:${LIVEKIT_PORTS.signaling}`,
+    // R12: Fargate の 2 vCPU で RoomComposite Egress を許可する (デフォルト 4 を 1 に緩和)。
+    // LiveKit 公式推奨は 4 vCPU だが、検証/小規模配信向けに緩める。
+    // 品質劣化や Chrome がフリーズする可能性があるため、本番では cpu/memory を増やす方が安全。
+    "cpu_cost:",
+    "  room_composite_cpu_cost: 1",
+    "  audio_room_composite_cpu_cost: 1",
+    "  web_cpu_cost: 1",
     "logging:",
     "  level: info",
     "  json: true",

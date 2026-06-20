@@ -29,6 +29,13 @@ export interface IssuedInvite {
   version: number;
 }
 
+/** Egress 起動結果 (R12)。 */
+export interface EgressStartResult {
+  egressId: string;
+  /** ストリームキーを含む完全な RTMP URL (機密情報を含むので UI には表示しない)。 */
+  rtmpUrl: string;
+}
+
 export interface ControlApiClient {
   listEvents(): Promise<EventDefinition[]>;
   createEvent(input: CreateEventInput): Promise<EventDefinition>;
@@ -38,6 +45,9 @@ export interface ControlApiClient {
   deleteEvent(id: string): Promise<void>;
 
   issueInvite(eventId: string, role: InvitedRole, ttlSec: number): Promise<IssuedInvite>;
+
+  /** Egress (RTMP 送出) を起動する (R12, ADR 0006 D-4)。 */
+  startEgress(eventId: string): Promise<EgressStartResult>;
 
   getPresentation(eventId: string): Promise<PresentationState>;
   setSpeakerVisibility(

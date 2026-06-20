@@ -300,7 +300,8 @@ export class ControlPlaneStack extends Stack {
           "import{createRequire}from'node:module';const require=createRequire(import.meta.url);",
       },
       memorySize: 512,
-      timeout: Duration.seconds(15),
+      // R12: LiveKit Egress 起動 (HTTP リクエスト) のため 30s に延長 (cold start + LiveKit API)。
+      timeout: Duration.seconds(30),
       environment: {
         METADATA_TABLE_NAME: metadataTable.tableName,
         ASSETS_BUCKET_NAME: assetsBucket.bucketName,

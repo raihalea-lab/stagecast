@@ -210,6 +210,9 @@ importers:
       aws-jwt-verify:
         specifier: ^5.2.1
         version: 5.2.1
+      livekit-server-sdk:
+        specifier: ^2.15.4
+        version: 2.15.4
     devDependencies:
       '@types/aws-lambda':
         specifier: ^8.10.162

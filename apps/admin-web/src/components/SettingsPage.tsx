@@ -133,26 +133,30 @@ function YouTubeForm(props: {
   const [apiKey, setApiKey] = useState("");
   const [oauthClientId, setOauthClientId] = useState("");
   const [oauthClientSecret, setOauthClientSecret] = useState("");
+  const [streamKey, setStreamKey] = useState("");
   const [submitError, setSubmitError] = useState<string | undefined>();
   const [busy, setBusy] = useState(false);
 
+  // R12: 差分更新対応。入力されたフィールドだけ送信する (既存値は維持)。
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
     setSubmitError(undefined);
-    if (!apiKey.trim() || !oauthClientId.trim() || !oauthClientSecret.trim()) {
-      setSubmitError("すべての項目を入力してください。");
+    const patch: YouTubeCredentials = {};
+    if (apiKey.trim()) patch.apiKey = apiKey.trim();
+    if (oauthClientId.trim()) patch.oauthClientId = oauthClientId.trim();
+    if (oauthClientSecret.trim()) patch.oauthClientSecret = oauthClientSecret.trim();
+    if (streamKey.trim()) patch.streamKey = streamKey.trim();
+    if (Object.keys(patch).length === 0) {
+      setSubmitError("更新したい項目を 1 つ以上入力してください。");
       return;
     }
     setBusy(true);
     try {
-      await props.onSave({
-        apiKey: apiKey.trim(),
-        oauthClientId: oauthClientId.trim(),
-        oauthClientSecret: oauthClientSecret.trim(),
-      });
+      await props.onSave(patch);
       setApiKey("");
       setOauthClientId("");
       setOauthClientSecret("");
+      setStreamKey("");
     } catch (err) {
       setSubmitError(toErrorMessage(err));
     } finally {
@@ -165,6 +169,10 @@ function YouTubeForm(props: {
       <h3>
         YouTube <StatusBadge configured={props.status?.configured} />
       </h3>
+      <p className="hint">
+        ストリームキー:{" "}
+        {props.status?.streamKeyConfigured ? "✅ 設定済み" : "未設定"}
+      </p>
       <label>
         Data API Key
         <input
@@ -182,6 +190,7 @@ function YouTubeForm(props: {
           value={oauthClientId}
           onChange={(e) => setOauthClientId(e.target.value)}
           autoComplete="off"
+          placeholder={props.status?.configured ? "再入力する場合のみ" : ""}
         />
       </label>
       <label>
@@ -191,6 +200,18 @@ function YouTubeForm(props: {
           value={oauthClientSecret}
           onChange={(e) => setOauthClientSecret(e.target.value)}
           placeholder={props.status?.configured ? "再入力する場合のみ" : ""}
+          autoComplete="off"
+        />
+      </label>
+      <label>
+        Stream Key (R12: 配信用ストリームキー)
+        <input
+          type="password"
+          value={streamKey}
+          onChange={(e) => setStreamKey(e.target.value)}
+          placeholder={
+            props.status?.streamKeyConfigured ? "再入力する場合のみ" : "YouTube Studio で取得"
+          }
           autoComplete="off"
         />
       </label>

@@ -34,7 +34,8 @@
 | **R9** | S3+   | stage-web → 実 LiveKit 接続の E2E 確認 (TLS 込み)                            | `claude/r11-caption-worker-ecr-push` (ADR 0009)  | 招待 URL 発行 → stage-web で /join → LiveKit Server に WebSocket 接続成功。**ADR 0009 で NLB + ACM + Route53 による TLS 終端を実装**。確認は実機デプロイ後 |
 | **R10** | S3+  | イベント終了で EventMediaStack が破棄されること確認                           | `claude/r11-caption-worker-ecr-push` (**✅ 完**)  | status=ended → reconcile が stack destroy → events.media がクリア。実機で確認済み (2026-06-19) |
 | **R11** | S4   | caption-worker イメージを ECR に push + CAPTION_WORKER_IMAGE 有効化          | `claude/r11-caption-worker-ecr-push` (**✅ 完**)  | docker build (arm64) + ECR push 完了。control-plane-stack.ts のコメントアウトを解除 → CaptionWorker が実イメージで起動 |
-| **R12** | S5   | YouTube Live RTMP 送出の E2E 確認                                            |                                            | イベントに RTMP URL + Stream Key → Egress が YouTube に映像を送出 → YouTube Live で視聴 |
+| **R12** | S5   | YouTube Live RTMP 送出の E2E 確認 (実装 ✅・最終 E2E 未完)                  | `claude/r12-youtube-rtmp` (PR #78, **コードは完**)  | 実装は全て完了 (control-api/admin-web/Egress 配線・YouTube ストリームキー管理画面投入)。実機 E2E は LiveKit Egress + Valkey/psrpc 問題で未完。R12-followup を参照 |
+| **R12-followup** | S5 | LiveKit Egress が SFU からジョブを受け取れない問題の根本対策             |                                            | SFU ログで `topic: [""]` (Egress 発見テーブル空)、Egress ログは "service ready" 止まり。試行: `LIVEKIT_WS_URL` 注入・SFU/Egress イメージタグ変更 (`v1.10.0/v1.13.0` / `latest`) 効果なし。**残仮説**: (1) ElastiCache Valkey Serverless の cluster mode 制約で psrpc pub/sub が動かない (2) Valkey TLS 接続で psrpc が認識する topic が空になる。対策候補: ElastiCache Redis (非 Serverless) への切替、または Egress を ECS on EC2 で動かす |
 | **R13** | S3+   | 将来の SFU 冗長化時に NLB UDP も検討 (ADR 0009 D-5)                          |                                            | 1 イベント 1000 人以上のキャパや TURN over TLS が必要になったタイミングで、シグナリングとメディアの両方を NLB 経由にする案を別 ADR で評価する |
 
 ---

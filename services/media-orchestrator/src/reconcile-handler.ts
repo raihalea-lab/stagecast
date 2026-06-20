@@ -233,12 +233,13 @@ export function toDesiredEvent(it: Record<string, unknown>): DesiredEvent {
   const caption = it.caption as
     | { engine?: DesiredEvent["captionEngine"]; customApiEnabled?: boolean }
     | undefined;
-  const youtube = it.youtube as { rtmpUrl?: string } | undefined;
+  const youtube = it.youtube as { rtmpUrl?: string; streamKeyRef?: string } | undefined;
   return {
     eventId: String(it.eventId ?? it.id ?? ""),
     captionEngine: caption?.engine ?? "transcribe",
     customCaptionApi: Boolean(caption?.customApiEnabled),
     rtmpUrl: youtube?.rtmpUrl,
+    streamKeyRef: youtube?.streamKeyRef,
   };
 }
 
@@ -274,6 +275,10 @@ function makeExecutor(): ReconcileExecutor {
                   eventId: spec.eventId,
                   captionEngine: spec.captionEngine,
                   customCaptionApi: spec.customCaptionApi,
+                  // R12: youtube.rtmpUrl と streamKeyRef を RenderTemplateFunction にも伝播させる。
+                  // 現時点では Egress コンテナ起動時に直接使われないが、将来の自動 Egress 起動に備える。
+                  ...(spec.rtmpUrl ? { rtmpUrl: spec.rtmpUrl } : {}),
+                  ...(spec.streamKeyRef ? { streamKeyRef: spec.streamKeyRef } : {}),
                 }),
               ),
             }),

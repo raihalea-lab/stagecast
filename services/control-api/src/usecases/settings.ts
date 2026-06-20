@@ -37,11 +37,14 @@ export interface SettingsServiceDeps {
 export type SettingsService = ReturnType<typeof createSettingsService>;
 
 const LIVEKIT_FIELDS: ReadonlyArray<keyof LiveKitCredentials> = ["apiKey", "apiSecret"];
-const YOUTUBE_FIELDS: ReadonlyArray<keyof YouTubeCredentials> = [
+/** YouTube の OAuth/API 設定 (`configured` 判定対象)。streamKey は別系統で判定する (R12)。 */
+const YOUTUBE_OAUTH_FIELDS = [
   "apiKey",
   "oauthClientId",
   "oauthClientSecret",
-];
+] as const;
+/** ストリームキーのフィールド名 (Secret 内で R12 が参照する `streamKeyRef`)。 */
+const YOUTUBE_STREAM_KEY_FIELD = "streamKey";
 
 function requireString(field: string, value: unknown): string {
   if (typeof value !== "string" || !value.trim()) {
@@ -57,12 +60,23 @@ function parseLiveKitInput(body: unknown): LiveKitCredentials {
   return { apiKey, apiSecret };
 }
 
+/**
+ * YouTube 設定入力をパースする (差分更新, R12)。
+ * 指定されたフィールドのみ返す。1 つも指定がなければ ValidationError。
+ */
 function parseYouTubeInput(body: unknown): YouTubeCredentials {
   const b = (body ?? {}) as Record<string, unknown>;
-  const apiKey = requireString("apiKey", b.apiKey);
-  const oauthClientId = requireString("oauthClientId", b.oauthClientId);
-  const oauthClientSecret = requireString("oauthClientSecret", b.oauthClientSecret);
-  return { apiKey, oauthClientId, oauthClientSecret };
+  const result: YouTubeCredentials = {};
+  if (b.apiKey !== undefined) result.apiKey = requireString("apiKey", b.apiKey);
+  if (b.oauthClientId !== undefined)
+    result.oauthClientId = requireString("oauthClientId", b.oauthClientId);
+  if (b.oauthClientSecret !== undefined)
+    result.oauthClientSecret = requireString("oauthClientSecret", b.oauthClientSecret);
+  if (b.streamKey !== undefined) result.streamKey = requireString("streamKey", b.streamKey);
+  if (Object.keys(result).length === 0) {
+    throw new ValidationError("at least one of apiKey/oauthClientId/oauthClientSecret/streamKey is required");
+  }
+  return result;
 }
 
 function allFieldsPresent<T extends string>(
@@ -120,14 +134,34 @@ export function createSettingsService(deps: SettingsServiceDeps) {
   async function getYouTube(): Promise<YouTubeSettingsStatus> {
     const arn = requireYouTubeArn();
     const data = await reader.getSecretJson(arn);
-    return { configured: allFieldsPresent(data, YOUTUBE_FIELDS) };
+    return {
+      configured: allFieldsPresent(data, YOUTUBE_OAUTH_FIELDS),
+      streamKeyConfigured:
+        typeof data[YOUTUBE_STREAM_KEY_FIELD] === "string" &&
+        data[YOUTUBE_STREAM_KEY_FIELD]!.length > 0,
+    };
   }
 
+  /**
+   * YouTube 設定を差分更新する (R12)。
+   * 指定されたフィールドだけを書き換え、既存値はそのまま保持する。
+   * Secrets Manager は PUT で全体置換しか出来ないため、まず現値を読んで merge する。
+   */
   async function putYouTube(body: unknown): Promise<YouTubeSettingsStatus> {
     const arn = requireYouTubeArn();
-    const creds = parseYouTubeInput(body);
-    await writer.putSecretJson(arn, { ...creds });
-    return { configured: true };
+    const patch = parseYouTubeInput(body);
+    const current = await reader.getSecretJson(arn).catch(() => ({}) as Record<string, string>);
+    const merged: Record<string, string> = { ...current };
+    for (const [k, v] of Object.entries(patch)) {
+      if (typeof v === "string") merged[k] = v;
+    }
+    await writer.putSecretJson(arn, merged);
+    return {
+      configured: allFieldsPresent(merged, YOUTUBE_OAUTH_FIELDS),
+      streamKeyConfigured:
+        typeof merged[YOUTUBE_STREAM_KEY_FIELD] === "string" &&
+        merged[YOUTUBE_STREAM_KEY_FIELD]!.length > 0,
+    };
   }
 
   return {

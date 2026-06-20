@@ -21,6 +21,8 @@ export interface DesiredEvent {
   captionEngine: CaptionEngineKind;
   customCaptionApi: boolean;
   rtmpUrl?: string | undefined;
+  /** YouTube ストリームキー参照名 (`stagecast/youtube` Secret 内のフィールド名)。R12, ADR 0006 D-4。 */
+  streamKeyRef?: string | undefined;
 }
 
 /** CloudFormation 観測時点のスタック状態。 */
@@ -141,6 +143,7 @@ function toSpec(d: DesiredEvent): EventMediaSpec {
     captionEngine: d.captionEngine,
     customCaptionApi: d.customCaptionApi,
     rtmpUrl: d.rtmpUrl,
+    streamKeyRef: d.streamKeyRef,
   };
 }
 

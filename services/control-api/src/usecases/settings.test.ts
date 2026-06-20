@@ -99,24 +99,59 @@ describe("SettingsService LiveKit (ADR 0008 D-7: URL 削除後)", () => {
 describe("SettingsService YouTube", () => {
   const youtubeSecretArn = "arn:aws:secretsmanager:ap-northeast-1:1:secret:stagecast/youtube";
 
-  it("初期は configured:false", async () => {
+  it("初期は configured:false / streamKeyConfigured:false", async () => {
     const { reader, writer } = fakeStorage();
     const svc = createSettingsService({ reader, writer, youtubeSecretArn });
-    await expect(svc.getYouTube()).resolves.toEqual({ configured: false });
+    await expect(svc.getYouTube()).resolves.toEqual({
+      configured: false,
+      streamKeyConfigured: false,
+    });
   });
 
-  it("全フィールド設定済みなら configured:true (機密は返さない)", async () => {
+  it("OAuth 全フィールド設定済みなら configured:true (機密は返さない)", async () => {
     const { reader, writer } = fakeStorage();
     const svc = createSettingsService({ reader, writer, youtubeSecretArn });
     await svc.putYouTube({ apiKey: "K", oauthClientId: "id", oauthClientSecret: "sec" });
-    await expect(svc.getYouTube()).resolves.toEqual({ configured: true });
+    await expect(svc.getYouTube()).resolves.toEqual({
+      configured: true,
+      streamKeyConfigured: false,
+    });
   });
 
-  it("どれか欠けたら 400 (ValidationError)", async () => {
+  it("差分更新: streamKey だけ送ると streamKeyConfigured が true になる (R12)", async () => {
+    const { reader, writer } = fakeStorage();
+    const svc = createSettingsService({ reader, writer, youtubeSecretArn });
+    await svc.putYouTube({ streamKey: "yt-key-123" });
+    await expect(svc.getYouTube()).resolves.toEqual({
+      configured: false,
+      streamKeyConfigured: true,
+    });
+  });
+
+  it("差分更新: 既存値は保持される (apiKey 保存後に streamKey だけ送る)", async () => {
+    const { store, reader, writer } = fakeStorage();
+    const svc = createSettingsService({ reader, writer, youtubeSecretArn });
+    await svc.putYouTube({ apiKey: "K", oauthClientId: "id", oauthClientSecret: "sec" });
+    await svc.putYouTube({ streamKey: "yt-key-123" });
+    expect(store.get(youtubeSecretArn)).toEqual({
+      apiKey: "K",
+      oauthClientId: "id",
+      oauthClientSecret: "sec",
+      streamKey: "yt-key-123",
+    });
+  });
+
+  it("空ボディは ValidationError (どれか 1 つは必要)", async () => {
+    const { reader, writer } = fakeStorage();
+    const svc = createSettingsService({ reader, writer, youtubeSecretArn });
+    await expect(svc.putYouTube({})).rejects.toBeInstanceOf(ValidationError);
+  });
+
+  it("空文字列のフィールドは ValidationError", async () => {
     const { reader, writer } = fakeStorage();
     const svc = createSettingsService({ reader, writer, youtubeSecretArn });
     await expect(
-      svc.putYouTube({ apiKey: "K", oauthClientId: "", oauthClientSecret: "s" }),
+      svc.putYouTube({ oauthClientId: "" }),
     ).rejects.toBeInstanceOf(ValidationError);
   });
 

@@ -20,6 +20,11 @@ import { createEventService } from "./usecases/events.js";
 import { createInviteService } from "./usecases/invites.js";
 import { createPresentationService } from "./usecases/presentation.js";
 import { createJoinService } from "./usecases/join.js";
+import {
+  createEgressService,
+  type EgressStarter,
+  type StreamKeyResolver,
+} from "./usecases/egress.js";
 import { DefaultLiveKitTokenMinter, type LiveKitTokenMinter } from "./auth/livekit-minter.js";
 import { dynamoRepositories } from "./repo/dynamo.js";
 import {
@@ -50,6 +55,10 @@ export interface FactoryConfig {
   artifactStore?: ArtifactStore;
   /** 運用設定 (LiveKit / YouTube 認証情報) 管理サービス。注入 > 環境変数解決 (lambda.ts 側で行う) > 503。 */
   settings?: SettingsService;
+  /** LiveKit Egress を起動するアダプタ (R12)。指定時のみ `egress` サービスが構築される。 */
+  egressStarter?: EgressStarter;
+  /** YouTube ストリームキーを解決するアダプタ (R12)。egressStarter と組み合わせて使う。 */
+  streamKeyResolver?: StreamKeyResolver;
   now?: () => number;
   newId?: () => string;
 }
@@ -112,6 +121,16 @@ export function buildControlApi(config: FactoryConfig = {}) {
     ? createArtifactDownloadService({ store: artifactStore })
     : undefined;
 
+  // R12: Egress 起動サービス。starter と resolver の両方が注入されたときのみ有効化する。
+  const egress =
+    config.egressStarter && config.streamKeyResolver
+      ? createEgressService({
+          events,
+          starter: config.egressStarter,
+          streamKeyResolver: config.streamKeyResolver,
+        })
+      : undefined;
+
   return createApp({
     auth: config.auth ?? new FakeAdminAuthVerifier(),
     events,
@@ -121,5 +140,6 @@ export function buildControlApi(config: FactoryConfig = {}) {
     assets,
     artifacts,
     settings: config.settings,
+    egress,
   });
 }

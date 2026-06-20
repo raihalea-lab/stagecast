@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { classifyStackStatus, toDesiredEvent } from "./reconcile-handler.js";
 
 describe("toDesiredEvent (gsi-live item → DesiredEvent)", () => {
-  it("caption.engine / caption.customApiEnabled / youtube.rtmpUrl を正しく取り出す", () => {
+  it("caption.engine / caption.customApiEnabled / youtube.rtmpUrl / streamKeyRef を正しく取り出す (R12)", () => {
     // dynamo-mapper.eventToItem が格納する EventDefinition 相当の item。
     const item = {
       id: "evt-1",
@@ -16,6 +16,7 @@ describe("toDesiredEvent (gsi-live item → DesiredEvent)", () => {
       captionEngine: "llm",
       customCaptionApi: true,
       rtmpUrl: "rtmp://a/b",
+      streamKeyRef: "stagecast/sk",
     });
   });
 
@@ -25,6 +26,7 @@ describe("toDesiredEvent (gsi-live item → DesiredEvent)", () => {
       captionEngine: "transcribe",
       customCaptionApi: false,
       rtmpUrl: undefined,
+      streamKeyRef: undefined,
     });
   });
 });

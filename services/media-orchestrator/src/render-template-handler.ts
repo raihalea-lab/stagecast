@@ -16,6 +16,10 @@ export interface RenderRequest {
   eventId: string;
   captionEngine: CaptionEngineKind;
   customCaptionApi: boolean;
+  /** YouTube RTMP 取り込み URL (例: rtmp://a.rtmp.youtube.com/live2)。R12, ADR 0006 D-4。 */
+  rtmpUrl?: string;
+  /** ストリームキーを格納した AWS Secrets Manager の参照名 (例: stagecast/youtube-stream-key)。 */
+  streamKeyRef?: string;
 }
 
 export async function handler(event: RenderRequest): Promise<{ template: string }> {
@@ -23,6 +27,8 @@ export async function handler(event: RenderRequest): Promise<{ template: string 
     eventId: event.eventId,
     captionEngine: event.captionEngine,
     customCaptionApi: event.customCaptionApi,
+    ...(event.rtmpUrl ? { rtmpUrl: event.rtmpUrl } : {}),
+    ...(event.streamKeyRef ? { streamKeyRef: event.streamKeyRef } : {}),
   });
   return { template };
 }

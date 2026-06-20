@@ -18,14 +18,26 @@ export interface LiveKitCredentials {
   apiSecret: string;
 }
 
-/** YouTube Data API / OAuth クライアントの認証情報。 */
+/**
+ * YouTube Data API / OAuth / 配信用ストリームキーの認証情報。
+ *
+ * すべてのフィールドは optional で、指定されたフィールドのみ更新する (差分更新)。
+ * フィールドを省略すると Secrets Manager に保存された既存値が保持される。
+ * 例: ストリームキーだけを更新したい場合は `{ streamKey: "..." }` だけを送る。
+ */
 export interface YouTubeCredentials {
   /** YouTube Data API キー (視聴者数取得など)。 */
-  apiKey: string;
+  apiKey?: string;
   /** OAuth クライアント ID (配信先連携)。 */
-  oauthClientId: string;
+  oauthClientId?: string;
   /** OAuth クライアントシークレット。 */
-  oauthClientSecret: string;
+  oauthClientSecret?: string;
+  /**
+   * 配信用ストリームキー (R12, ADR 0006 D-4)。Egress が RTMP 送出時に
+   * `${event.youtube.rtmpUrl}/${streamKey}` の形で組み立てる。
+   * `event.youtube.streamKeyRef` がこのフィールド名 (例: `streamKey`) を指す。
+   */
+  streamKey?: string;
 }
 
 /**
@@ -41,6 +53,8 @@ export interface LiveKitSettingsStatus {
 
 /** YouTube 設定の状態 (機密値は一切返さない)。 */
 export interface YouTubeSettingsStatus {
-  /** 全フィールドが設定済みかどうか。 */
+  /** apiKey / oauthClientId / oauthClientSecret 全てが設定済みかどうか。 */
   configured: boolean;
+  /** 配信用ストリームキー (R12) が設定済みかどうか。 */
+  streamKeyConfigured: boolean;
 }

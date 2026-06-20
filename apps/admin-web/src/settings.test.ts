@@ -59,16 +59,28 @@ describe("admin-web SettingsPage 連携 (ADR D-10, ADR 0008)", () => {
 
   it("YouTube を保存すると configured:true (機密は GET で返らない)", async () => {
     const { client } = buildClient();
-    expect(await client.getYouTubeSettings()).toEqual({ configured: false });
+    expect(await client.getYouTubeSettings()).toEqual({
+      configured: false,
+      streamKeyConfigured: false,
+    });
 
     const next = await client.putYouTubeSettings({
       apiKey: "K",
       oauthClientId: "id",
       oauthClientSecret: "sec",
     });
-    expect(next).toEqual({ configured: true });
+    expect(next).toEqual({ configured: true, streamKeyConfigured: false });
 
-    expect(await client.getYouTubeSettings()).toEqual({ configured: true });
+    expect(await client.getYouTubeSettings()).toEqual({
+      configured: true,
+      streamKeyConfigured: false,
+    });
+  });
+
+  it("YouTube ストリームキーだけ送ると streamKeyConfigured:true (R12)", async () => {
+    const { client } = buildClient();
+    const next = await client.putYouTubeSettings({ streamKey: "yt-key-123" });
+    expect(next).toEqual({ configured: false, streamKeyConfigured: true });
   });
 
   it("regenerateLiveKitKeys は機密値も URL も返さず configured を返す", async () => {
