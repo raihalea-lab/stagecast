@@ -347,15 +347,18 @@ describe("liveKitServerConfig (R1)", () => {
     expect(yaml).not.toContain("- 10.0.0.0/16");
   });
 
-  it("R12-followup-10: 内蔵 TURN server を有効化 (シンメトリック NAT 救済)", () => {
-    // ADR 0011 案 B: クライアント側がシンメトリック NAT 配下 (実機検証で確認) のとき、
-    // SFU 直接 UDP では NAT 応答が抜けられないので TURN over UDP で救済する。
+  it("R12-followup-14 (ADR 0011 案 C): 内蔵 TURN は無効化し coturn sidecar を rtc.turn_servers 経由で利用", () => {
+    // 内蔵 TURN (v1.13.1) は iceServers の credential を wire 上に乗せない不具合 (R12-followup-10〜13) があり、
+    // 代わりに coturn sidecar + 静的 username/credential を JoinResponse で配信する。
     const yaml = liveKitServerConfig("my-valkey.cache.amazonaws.com");
     expect(yaml).toContain("turn:");
-    expect(yaml).toContain("enabled: true");
-    expect(yaml).toContain("udp_port: 3478");
-    expect(yaml).toContain("relay_range_start: 50300");
-    expect(yaml).toContain("relay_range_end: 50400");
+    expect(yaml).toContain("enabled: false");
+    expect(yaml).toContain("turn_servers:");
+    expect(yaml).toContain("- host: __NODE_IP__");
+    expect(yaml).toContain("port: 3478");
+    expect(yaml).toContain("protocol: udp");
+    expect(yaml).toContain("username: stagecast");
+    expect(yaml).toContain("credential: __TURN_CREDENTIAL__");
   });
 });
 

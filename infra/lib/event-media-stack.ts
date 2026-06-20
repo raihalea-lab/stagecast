@@ -256,6 +256,8 @@ export class EventMediaStack extends Stack {
       secrets?: Record<string, ecs.Secret>;
       /** essential=false で sidecar クラッシュが Task 再起動を起こさないよう保護 (ADR 0010 D-1) */
       essential?: boolean;
+      /** R12-followup-14: coturn は entryPoint で external-ip を解決する必要があるため上書き可能に */
+      entryPoint?: string[];
     }
     interface ServiceOptions {
       ports?: { containerPort: number; protocol?: ecs.Protocol }[];
@@ -348,6 +350,7 @@ export class EventMediaStack extends Stack {
             ...sidecar.environment,
           },
           ...(sidecar.secrets ? { secrets: sidecar.secrets } : {}),
+          ...(sidecar.entryPoint ? { entryPoint: sidecar.entryPoint } : {}),
         });
       }
       return new ecs.FargateService(this, `${name}Service`, {
@@ -416,13 +419,10 @@ export class EventMediaStack extends Stack {
       entryPoint: [
         "sh",
         "-c",
-        // R12-followup-12 (debug): yaml の構造だけ trace (secret は出さない)。
-        // LIVEKIT_KEYS の値や yaml 本文全体は CloudWatch Logs に書かない。
-        // 確認したいのは: (1) LIVEKIT_KEYS env が container に届いているか (長さのみ)、
-        // (2) printf が yaml に `keys:` セクションを正しく書いているか (行数 / セクション存在のみ)。
-        // R12-followup-13: yaml 由来の keys に加えて --keys CLI flag も明示的に渡す (二重保険)。
-        // logging.level: debug と組み合わせて iceServers 生成パスを観察する。
-        'NODE_IP=$(wget -qO- --timeout=5 https://ifconfig.io || wget -qO- --timeout=5 https://api.ipify.org) && echo "Resolved NODE_IP=$NODE_IP" && echo "LIVEKIT_KEYS_LEN=${#LIVEKIT_KEYS}" && printf "%s\\nkeys:\\n  %s\\n" "$LIVEKIT_CONFIG" "$LIVEKIT_KEYS" > /tmp/livekit.yaml && echo "YAML_TOTAL_LINES=$(wc -l < /tmp/livekit.yaml)" && echo "YAML_HAS_KEYS_SECTION=$(grep -c \"^keys:$\" /tmp/livekit.yaml)" && echo "YAML_KEYS_LINE_LEN=$(awk \"/^keys:$/{getline; print length(\\$0)}\" /tmp/livekit.yaml)" && exec /livekit-server --config /tmp/livekit.yaml --keys "$LIVEKIT_KEYS" --node-ip "$NODE_IP"',
+        // R12-followup-14: yaml 内の `__NODE_IP__` / `__TURN_CREDENTIAL__` を sed で実値に置換。
+        // - NODE_IP: ifconfig.io で取得した Task の Public IP (coturn の host にもなる)
+        // - TURN_CREDENTIAL: LIVEKIT_API_SECRET を流用 (coturn sidecar の static-auth password と同じ値)
+        'NODE_IP=$(wget -qO- --timeout=5 https://ifconfig.io || wget -qO- --timeout=5 https://api.ipify.org) && echo "Resolved NODE_IP=$NODE_IP" && printf "%s\\nkeys:\\n  %s\\n" "$LIVEKIT_CONFIG" "$LIVEKIT_KEYS" > /tmp/livekit.yaml && sed -i "s|__NODE_IP__|$NODE_IP|g; s|__TURN_CREDENTIAL__|$LIVEKIT_API_SECRET|g" /tmp/livekit.yaml && exec /livekit-server --config /tmp/livekit.yaml --keys "$LIVEKIT_KEYS" --node-ip "$NODE_IP"',
       ],
       sidecars: [
         {
@@ -435,6 +435,30 @@ export class EventMediaStack extends Stack {
             LIVEKIT_WS_URL: `ws://localhost:${LIVEKIT_PORTS.signaling}`,
           },
           secrets: livekitSecrets,
+        },
+        // R12-followup-14 / ADR 0011 案 C: coturn TURN server を SFU と同一 Task に sidecar 同居。
+        // LiveKit 内蔵 TURN (v1.13.1) は iceServers の username/credential が wire 上に乗らない不具合 (R12-followup-10〜13 で確認) があり、
+        // 代替として coturn を立てる。同 Task なので SFU と Public IP を共有、 SG は既存の TURN ポート (3478) + relay range (50300-50400) を流用。
+        // 認証: static-auth (username=stagecast, password=LIVEKIT_API_SECRET)。
+        //   - LIVEKIT_API_SECRET を流用するのは Secret 数を減らすため (本来別 Secret が筋だが MVP 簡略化)。
+        //   - LiveKit yaml の rtc.turn_servers にも同じ credential を入れる (sed 置換)。
+        {
+          name: "Coturn",
+          image: "coturn/coturn:latest",
+          essential: false,
+          environment: {},
+          secrets: {
+            TURN_SECRET: livekitSecrets.LIVEKIT_API_SECRET,
+          },
+          entryPoint: [
+            "sh",
+            "-c",
+            // entrypoint で external-ip を解決して turnserver を起動。
+            // - --no-tls / --no-dtls / --no-cli: 余計なポート (5349 / 5766) を開かない (今回は UDP TURN のみ)。
+            // - --lt-cred-mech: long-term credential。 username=stagecast, password=$TURN_SECRET で認証。
+            // - relay-ip は明示せず listen-ip 0.0.0.0 + external-ip で十分。
+            'EXT_IP=$(wget -qO- --timeout=5 https://ifconfig.io || wget -qO- --timeout=5 https://api.ipify.org) && echo "coturn external-ip=$EXT_IP" && exec turnserver --listening-port=3478 --listening-ip=0.0.0.0 --external-ip="$EXT_IP" --min-port=50300 --max-port=50400 --realm=stagecast.local --lt-cred-mech --user="stagecast:$TURN_SECRET" --no-tls --no-dtls --no-cli --log-file=stdout --no-stdout-log=false',
+          ],
         },
       ],
     });
@@ -872,17 +896,21 @@ export function liveKitServerConfig(valkeyEndpoint: string, vpcCidr?: string): s
     // SharedMediaVpc の CIDR (例: 10.0.0.0/16) を CDK で `vpc.vpcCidrBlock` から動的に渡す。
     // vpcCidr 未指定 (テスト等) のときは link-local だけ除外し、当該行はスキップする。
     ...(vpcCidr ? [`      - ${vpcCidr}`] : []),
-    // R12-followup-10 / ADR 0011 案 B: LiveKit 内蔵 TURN server を有効化する。
-    // シンメトリック NAT 越しのクライアントは SFU 直接 UDP (rtcUdp 7882) で binding response が
-    // NAT を抜けられない (送信先ごとに NAT mapping port が変わる)。TURN over UDP ならクライアントは
-    // TURN サーバ 1 箇所への単一接続を維持するので NAT mapping が安定し、relay 経由でメディアが届く。
-    // domain/cert は省略 (UDP のみ運用、TLS は不要)。クライアントには LiveKit が JoinResponse で
-    // `iceServers: [{urls: "turn:<node-ip>:3478?transport=udp", ...}]` を自動配信する (HMAC 短期 credential)。
+    // R12-followup-14 / ADR 0011 案 C: LiveKit 内蔵 TURN を廃止し coturn sidecar に切替。
+    // 内蔵 TURN は v1.13.1 で iceServers の username/credential が wire 上に乗らない問題があり、
+    // クライアントが TURN authentication できずメディア未確立 (R12-followup-10〜13 で確認)。
+    // 代わりに coturn を SFU TaskDef に sidecar 同居させ、 LiveKit は `rtc.turn_servers` で
+    // 静的 username/credential を JoinResponse に含めて配信する (proto3 空文字 omit 問題回避)。
+    // 内蔵 TURN は `enabled: false` で完全停止 (port 3478 を coturn に明け渡す)。
+    // host と credential は entryPoint の sed で `__NODE_IP__` / `__TURN_CREDENTIAL__` を置換。
+    "  turn_servers:",
+    "    - host: __NODE_IP__",
+    `      port: ${LIVEKIT_PORTS.turnUdp}`,
+    "      protocol: udp",
+    "      username: stagecast",
+    "      credential: __TURN_CREDENTIAL__",
     "turn:",
-    "  enabled: true",
-    `  udp_port: ${LIVEKIT_PORTS.turnUdp}`,
-    `  relay_range_start: ${LIVEKIT_PORTS.turnRelayStart}`,
-    `  relay_range_end: ${LIVEKIT_PORTS.turnRelayEnd}`,
+    "  enabled: false",
     "redis:",
     // ADR 0010 D-6: Valkey は cluster-mode-disabled の単一ノードに切替えた。
     // 単一クライアントモード (redis.NewClient) で接続するため `address` を使う。
@@ -891,9 +919,7 @@ export function liveKitServerConfig(valkeyEndpoint: string, vpcCidr?: string): s
     // ElastiCache transit encryption を有効化しているので TLS で接続する。
     "  use_tls: true",
     "logging:",
-    // R12-followup-13 (debug): TURN credential 生成パスを観察するため一時的に debug。
-    // 確定したら info に戻す。
-    "  level: debug",
+    "  level: info",
     "  json: true",
   ].join("\n");
 }
