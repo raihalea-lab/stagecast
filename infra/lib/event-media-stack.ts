@@ -462,10 +462,11 @@ export class EventMediaStack extends Stack {
             "sh",
             "-c",
             // entrypoint で external-ip を解決して turnserver を起動。
-            // - --no-tls / --no-dtls / --no-cli: 余計なポート (5349 / 5766) を開かない (今回は UDP TURN のみ)。
-            // - --lt-cred-mech: long-term credential。 username=stagecast, password=$TURN_SECRET で認証。
+            // - --no-tls / --no-dtls: TLS 系ポート (5349) を開かない (今回は UDP TURN のみ)。
+            // - --use-auth-secret + --static-auth-secret: HMAC-SHA1 短期 credential 認証
+            //   (R12-followup-18: LiveKit Server の `secret:` field との組み合わせで動的 credential を発行する)。
             // - relay-ip は明示せず listen-ip 0.0.0.0 + external-ip で十分。
-            'EXT_IP=$(wget -qO- --timeout=5 https://ifconfig.io || wget -qO- --timeout=5 https://api.ipify.org) && echo "coturn external-ip=$EXT_IP" && exec turnserver --listening-port=3478 --listening-ip=0.0.0.0 --external-ip="$EXT_IP" --min-port=50300 --max-port=50400 --realm=stagecast.local --lt-cred-mech --user="stagecast:$TURN_SECRET" --no-tls --no-dtls --no-cli --log-file=stdout --no-stdout-log=false',
+            'EXT_IP=$(wget -qO- --timeout=5 https://ifconfig.io || wget -qO- --timeout=5 https://api.ipify.org) && echo "coturn external-ip=$EXT_IP" && exec turnserver --listening-port=3478 --listening-ip=0.0.0.0 --external-ip="$EXT_IP" --min-port=50300 --max-port=50400 --realm=stagecast.local --use-auth-secret --static-auth-secret="$TURN_SECRET" --no-tls --no-dtls --log-file=stdout --no-stdout-log=false',
           ],
         },
       ],
@@ -904,19 +905,17 @@ export function liveKitServerConfig(valkeyEndpoint: string, vpcCidr?: string): s
     // SharedMediaVpc の CIDR (例: 10.0.0.0/16) を CDK で `vpc.vpcCidrBlock` から動的に渡す。
     // vpcCidr 未指定 (テスト等) のときは link-local だけ除外し、当該行はスキップする。
     ...(vpcCidr ? [`      - ${vpcCidr}`] : []),
-    // R12-followup-14 / ADR 0011 案 C: LiveKit 内蔵 TURN を廃止し coturn sidecar に切替。
-    // 内蔵 TURN は v1.13.1 で iceServers の username/credential が wire 上に乗らない問題があり、
-    // クライアントが TURN authentication できずメディア未確立 (R12-followup-10〜13 で確認)。
-    // 代わりに coturn を SFU TaskDef に sidecar 同居させ、 LiveKit は `rtc.turn_servers` で
-    // 静的 username/credential を JoinResponse に含めて配信する (proto3 空文字 omit 問題回避)。
-    // 内蔵 TURN は `enabled: false` で完全停止 (port 3478 を coturn に明け渡す)。
-    // host と credential は entryPoint の sed で `__NODE_IP__` / `__TURN_CREDENTIAL__` を置換。
+    // R12-followup-14〜18 / ADR 0011 案 C: LiveKit 内蔵 TURN を廃止し coturn sidecar に切替。
+    // 静的 username/credential 方式 (R12-followup-14〜17) では LiveKit Server v1.13.1 が
+    // wire 上に username/credential を乗せない (静的 field を proto に書かないバグ?) ことを実機検証で確認。
+    // R12-followup-18: `secret:` field を使った **動的 HMAC credential 方式** に切替。
+    // LiveKit が `time + participantID` で username/credential を生成 → wire に確実に乗る。
+    // coturn 側も `--use-auth-secret --static-auth-secret=<value>` で対応する HMAC 認証モードに変更。
     "  turn_servers:",
     "    - host: __NODE_IP__",
     `      port: ${LIVEKIT_PORTS.turnUdp}`,
     "      protocol: udp",
-    "      username: stagecast",
-    "      credential: __TURN_CREDENTIAL__",
+    "      secret: __TURN_CREDENTIAL__",
     "turn:",
     "  enabled: false",
     "redis:",
