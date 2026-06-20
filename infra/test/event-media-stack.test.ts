@@ -347,9 +347,9 @@ describe("liveKitServerConfig (R1)", () => {
     expect(yaml).not.toContain("- 10.0.0.0/16");
   });
 
-  it("R12-followup-14 (ADR 0011 案 C): 内蔵 TURN は無効化し coturn sidecar を rtc.turn_servers 経由で利用", () => {
-    // 内蔵 TURN (v1.13.1) は iceServers の credential を wire 上に乗せない不具合 (R12-followup-10〜13) があり、
-    // 代わりに coturn sidecar + 静的 username/credential を JoinResponse で配信する。
+  it("R12-followup-18 (ADR 0011 案 C 更新): 動的 HMAC credential のため secret field を使用", () => {
+    // R12-followup-14〜17 の静的 username/credential 方式では LiveKit Server v1.13.1 が
+    // wire に乗せないため、 secret field 経由で HMAC-SHA1 動的 credential 生成に切替。
     const yaml = liveKitServerConfig("my-valkey.cache.amazonaws.com");
     expect(yaml).toContain("turn:");
     expect(yaml).toContain("enabled: false");
@@ -357,8 +357,9 @@ describe("liveKitServerConfig (R1)", () => {
     expect(yaml).toContain("- host: __NODE_IP__");
     expect(yaml).toContain("port: 3478");
     expect(yaml).toContain("protocol: udp");
-    expect(yaml).toContain("username: stagecast");
-    expect(yaml).toContain("credential: __TURN_CREDENTIAL__");
+    expect(yaml).toContain("secret: __TURN_CREDENTIAL__");
+    // 静的 username/credential field は使わない (動的生成に統一)
+    expect(yaml).not.toContain("username: stagecast");
   });
 });
 
