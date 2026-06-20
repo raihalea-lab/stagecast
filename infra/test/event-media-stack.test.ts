@@ -303,6 +303,15 @@ describe("liveKitServerConfig (R1)", () => {
     const yaml = liveKitServerConfig("my-valkey.cache.amazonaws.com");
     expect(yaml).not.toContain("use_external_ip: true");
   });
+
+  it("R12-followup-7: port_range は使わず udp_port 単独 (UDP mux mode)", () => {
+    // port_range_start/end と udp_port を同時指定すると LiveKit のログは
+    // `rtc.portUDP: {Start: 7882, End: 0}` のまま ICE pair が `failed` になった。
+    // 公式に推奨される mux mode 単独 (1 ポートで多重化) に統一する。
+    const yaml = liveKitServerConfig("my-valkey.cache.amazonaws.com");
+    expect(yaml).not.toContain("port_range_start");
+    expect(yaml).not.toContain("port_range_end");
+  });
 });
 
 describe("EventMediaStack with TLS props (ADR 0009)", () => {
