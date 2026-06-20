@@ -49,8 +49,9 @@ describe("EventMediaStack (DESIGN.md 7.1/7.3, N-5)", () => {
     template.hasResourceProperties("AWS::ElastiCache::ServerlessCache", { Engine: "valkey" });
   });
 
-  it("runs SFU/Egress/caption-worker as Fargate services (ADR D-6)", () => {
-    template.resourceCountIs("AWS::ECS::Service", 3);
+  it("runs SFU(+Egress sidecar)/caption-worker as Fargate services (ADR 0010 D-1)", () => {
+    // ADR 0010 で Egress は SFU の sidecar として同一 Task に同居するため、独立 Service は 2 つ。
+    template.resourceCountIs("AWS::ECS::Service", 2);
     template.resourceCountIs("AWS::ECS::Cluster", 1);
   });
 
@@ -134,8 +135,13 @@ describe("EventMediaStack (DESIGN.md 7.1/7.3, N-5)", () => {
     const withSecret = Object.values(taskDefs).filter((d) =>
       JSON.stringify(d).includes("LIVEKIT_API_KEY"),
     );
-    // SFU と Egress の 2 タスク定義に注入される。
-    expect(withSecret.length).toBe(2);
+    // ADR 0010: Egress は SFU と同 TaskDef の sidecar なので、SFU TaskDef 1 つに両方の Secret が出る。
+    expect(withSecret.length).toBe(1);
+    const json = JSON.stringify(withSecret[0]);
+    // SFU container と Egress container の両方で同じ Secret が参照される (LIVEKIT_KEYS など)。
+    expect(json).toContain("LIVEKIT_KEYS");
+    // Egress sidecar が同 TaskDef に含まれていること: localhost で SFU に繋ぐ設定を確認。
+    expect(json).toContain("ws://localhost:7880");
   });
 
   it("Egress タスクロールは録画プレフィックスのみに S3 PUT を絞る (R2, ADR 0006 D-4)", () => {
@@ -174,8 +180,8 @@ describe("EventMediaStack (DESIGN.md 7.1/7.3, N-5)", () => {
   });
 
   it("CloudWatch アラーム/メトリクスフィルタ/ダッシュボードを定義する (T9, ADR 0003)", () => {
-    // タスク異常 3 + 字幕遅延 1 + RTMP 切断 1 + Sink エラー 2 (youtube/custom-api) + 翻訳失敗 1 = 8
-    template.resourceCountIs("AWS::CloudWatch::Alarm", 8);
+    // タスク異常 2 (SFU+CaptionWorker, Egress は ADR 0010 で SFU の sidecar) + 字幕遅延 1 + RTMP 切断 1 + Sink エラー 2 (youtube/custom-api) + 翻訳失敗 1 = 7
+    template.resourceCountIs("AWS::CloudWatch::Alarm", 7);
     template.resourceCountIs("AWS::Logs::MetricFilter", 1);
     template.resourceCountIs("AWS::CloudWatch::Dashboard", 1);
     template.resourceCountIs("AWS::SNS::Topic", 1);
@@ -336,8 +342,11 @@ describe("EventMediaStack with TLS props (ADR 0009)", () => {
   });
 
   it("ADR 0009 D-1: LivekitDomainName CfnOutput を持つ (reconcile が DescribeStacks で取得する)", () => {
-    template.hasOutput("LivekitDomainName", Match.objectLike({
-      Value: "event-evt-tls.media.aws.example.com",
-    }));
+    template.hasOutput(
+      "LivekitDomainName",
+      Match.objectLike({
+        Value: "event-evt-tls.media.aws.example.com",
+      }),
+    );
   });
 });

@@ -11,6 +11,7 @@ describe("render-template-handler (D1)", () => {
     const parsed = JSON.parse(template) as { Resources: Record<string, { Type: string }> };
     const types = Object.values(parsed.Resources).map((r) => r.Type);
     expect(types).toContain("AWS::ElastiCache::ServerlessCache");
-    expect(types.filter((t) => t === "AWS::ECS::Service")).toHaveLength(3);
+    // ADR 0010: Egress は SFU の sidecar として同 Task に同居するので独立 Service は 2 つ。
+    expect(types.filter((t) => t === "AWS::ECS::Service")).toHaveLength(2);
   });
 });
