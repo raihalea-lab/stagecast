@@ -122,7 +122,7 @@ describe("EventMediaStack (DESIGN.md 7.1/7.3, N-5)", () => {
   it("SFU に LiveKit config.yaml を注入し Valkey を redis アダプタにする (R1, ADR 0006 D-3)", () => {
     const taskDefs = template.findResources("AWS::ECS::TaskDefinition");
     const withConfig = Object.values(taskDefs).filter((d) =>
-      JSON.stringify(d).includes("LIVEKIT_CONFIG_BODY"),
+      JSON.stringify(d).includes('"Name":"LIVEKIT_CONFIG"'),
     );
     expect(withConfig.length).toBe(1);
     const json = JSON.stringify(withConfig[0]);
