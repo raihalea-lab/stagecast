@@ -45,8 +45,9 @@ describe("EventMediaStack (DESIGN.md 7.1/7.3, N-5)", () => {
   });
 
   it("provisions ElastiCache for Valkey Serverless (DESIGN.md 3.2, ADR D-7)", () => {
-    template.resourceCountIs("AWS::ElastiCache::ServerlessCache", 1);
-    template.hasResourceProperties("AWS::ElastiCache::ServerlessCache", { Engine: "valkey" });
+    // ADR 0010 D-6: Valkey は ServerlessCache から ReplicationGroup (cluster mode disabled) に切替。
+    template.resourceCountIs("AWS::ElastiCache::ReplicationGroup", 1);
+    template.hasResourceProperties("AWS::ElastiCache::ReplicationGroup", { Engine: "valkey" });
   });
 
   it("runs SFU(+Egress sidecar)/caption-worker as Fargate services (ADR 0010 D-1)", () => {
@@ -282,10 +283,9 @@ describe("EventMediaStack ECR pull 権限 (R4)", () => {
 describe("liveKitServerConfig (R1)", () => {
   it("Valkey を TLS つき redis アダプタとして参照する", () => {
     const yaml = liveKitServerConfig("my-valkey.cache.amazonaws.com");
-    // R12-followup: ElastiCache Valkey Serverless は cluster mode 必須なので
-    // cluster_addresses を使う (livekit/protocol redis/redis.go 参照)
-    expect(yaml).toContain("cluster_addresses:");
-    expect(yaml).toContain("- my-valkey.cache.amazonaws.com:6379");
+    // ADR 0010 D-6: Valkey は cluster-mode-disabled 単一ノードなので address を使う
+    // (livekit/protocol redis/redis.go の redis.NewClient 経路)。
+    expect(yaml).toContain("address: my-valkey.cache.amazonaws.com:6379");
     expect(yaml).toContain("use_tls: true");
     // signaling/RTC ポートが NLB リスナと一致する。
     expect(yaml).toContain("port: 7880");

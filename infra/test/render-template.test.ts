@@ -12,7 +12,8 @@ describe("renderEventMediaTemplate (DESIGN.md 7.1)", () => {
     const types = Object.values(template.Resources).map((r) => r.Type);
 
     // メディアスタックの要となるリソースが含まれること
-    expect(types).toContain("AWS::ElastiCache::ServerlessCache");
+    // ADR 0010 D-6: Valkey は ServerlessCache から ReplicationGroup (cluster mode disabled) に切替。
+    expect(types).toContain("AWS::ElastiCache::ReplicationGroup");
     // ADR 0010: Egress は SFU の sidecar として同 Task に同居するので独立 Service は 2 つ (SFU + CaptionWorker)。
     expect(types.filter((t) => t === "AWS::ECS::Service")).toHaveLength(2);
     expect(types).toContain("AWS::ECS::Cluster");

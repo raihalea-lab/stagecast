@@ -147,24 +147,39 @@ export class EventMediaStack extends Stack {
       containerInsightsV2: ecs.ContainerInsights.ENABLED,
     });
 
-    // --- 共有状態: ElastiCache for Valkey (Serverless) (DESIGN.md 3.2, 7.2) ---
+    // --- 共有状態: ElastiCache for Valkey (cluster mode disabled, ADR 0010 D-6) ---
+    // R12-followup-3 (ADR 0010 D-6): Serverless (cluster mode 強制) では LiveKit psrpc の
+    // service registration が SUBSCRIBE/PUBLISH の cluster shard 制約で機能しない (sidecar 同居でも不可)。
+    // cluster-mode-disabled の単一ノード ReplicationGroup に切替えて LiveKit が想定する標準 Redis モードで動かす。
+    // コスト: cache.t4g.micro ~$0.020/h × イベント起動時間 (1〜3h なら $0.02〜0.06 / イベント)。
     const valkeySg = new ec2.SecurityGroup(this, "ValkeySg", { vpc, allowAllOutbound: true });
-    // R12-followup: Valkey Serverless は dual-endpoint architecture を採用しており、
-    // port 6379 (write) と port 6380 (read) の両方が必要 (cluster mode discovery で
-    // node が両ポートを返す)。LiveKit Egress の psrpc は cluster mode で接続するため
-    // 両ポートが SG で許可されていないと "dial tcp X.X.X.X:6380: i/o timeout" になる。
     valkeySg.addIngressRule(
       ec2.Peer.ipv4(vpc.vpcCidrBlock),
-      ec2.Port.tcpRange(6379, 6380),
-      "Valkey write (6379) + read (6380) from within VPC",
+      ec2.Port.tcp(6379),
+      "Valkey port from within VPC",
     );
-    const valkey = new elasticache.CfnServerlessCache(this, "Valkey", {
-      engine: "valkey",
-      // eventId が長い/似ている場合の 40 文字クリップ衝突を short hash で回避 (D5)。
-      serverlessCacheName: serverlessCacheName(props.eventId),
-      securityGroupIds: [valkeySg.securityGroupId],
+    const valkeySubnetGroup = new elasticache.CfnSubnetGroup(this, "ValkeySubnetGroup", {
+      description: `Valkey subnet group for event ${props.eventId}`,
       subnetIds: vpc.selectSubnets({ subnetType: ec2.SubnetType.PUBLIC }).subnetIds,
     });
+    const valkey = new elasticache.CfnReplicationGroup(this, "Valkey", {
+      replicationGroupDescription: `Valkey for event ${props.eventId}`,
+      engine: "valkey",
+      cacheNodeType: "cache.t4g.micro",
+      numCacheClusters: 1,
+      automaticFailoverEnabled: false,
+      multiAzEnabled: false,
+      transitEncryptionEnabled: true,
+      atRestEncryptionEnabled: true,
+      port: 6379,
+      cacheSubnetGroupName: valkeySubnetGroup.ref,
+      securityGroupIds: [valkeySg.securityGroupId],
+      // ephemeral: 破棄を速くするため自動バックアップは行わない。
+      snapshotRetentionLimit: 0,
+    });
+    valkey.addDependency(valkeySubnetGroup);
+    // 単一ノード (cluster mode disabled) なので primary endpoint を使う (Serverless 時とは異なる属性名)。
+    const valkeyEndpoint = valkey.attrPrimaryEndPointAddress;
 
     // --- メディア/字幕の Fargate サービス群 ---
     const logGroup = new logs.LogGroup(this, "Logs", {
@@ -291,7 +306,7 @@ export class EventMediaStack extends Stack {
         logging: ecs.LogDrivers.awsLogs({ streamPrefix: name, logGroup }),
         environment: {
           STAGECAST_EVENT_ID: props.eventId,
-          VALKEY_ENDPOINT: valkey.attrEndpointAddress,
+          VALKEY_ENDPOINT: valkeyEndpoint,
           CAPTION_ENGINE: props.captionEngine,
           CUSTOM_CAPTION_API: String(props.customCaptionApi),
           ...opts.environment,
@@ -314,7 +329,7 @@ export class EventMediaStack extends Stack {
           essential: sidecar.essential ?? false,
           environment: {
             STAGECAST_EVENT_ID: props.eventId,
-            VALKEY_ENDPOINT: valkey.attrEndpointAddress,
+            VALKEY_ENDPOINT: valkeyEndpoint,
             ...sidecar.environment,
           },
           ...(sidecar.secrets ? { secrets: sidecar.secrets } : {}),
@@ -364,7 +379,7 @@ export class EventMediaStack extends Stack {
         { containerPort: LIVEKIT_PORTS.rtcTcp, protocol: ecs.Protocol.TCP },
         { containerPort: LIVEKIT_PORTS.rtcUdp, protocol: ecs.Protocol.UDP },
       ],
-      environment: { LIVEKIT_CONFIG_BODY: liveKitServerConfig(valkey.attrEndpointAddress) },
+      environment: { LIVEKIT_CONFIG_BODY: liveKitServerConfig(valkeyEndpoint) },
       secrets: livekitSecrets,
       sidecars: [
         {
@@ -372,7 +387,7 @@ export class EventMediaStack extends Stack {
           image: images.egress ?? "livekit/egress:latest",
           essential: false,
           environment: {
-            EGRESS_CONFIG_BODY: liveKitEgressConfig(valkey.attrEndpointAddress),
+            EGRESS_CONFIG_BODY: liveKitEgressConfig(valkeyEndpoint),
             // ADR 0010 D-2: 同一 Task 内なので localhost で素 WebSocket で繋ぐ (TLS 不要)。
             LIVEKIT_WS_URL: `ws://localhost:${LIVEKIT_PORTS.signaling}`,
           },
@@ -692,7 +707,7 @@ export class EventMediaStack extends Stack {
     );
 
     new CfnOutput(this, "EventId", { value: props.eventId });
-    new CfnOutput(this, "ValkeyEndpoint", { value: valkey.attrEndpointAddress });
+    new CfnOutput(this, "ValkeyEndpoint", { value: valkeyEndpoint });
     // ADR 0008 D-4: NLB を廃止。stage-web は events.media.livekitUrl (reconcile が書き戻す
     // Public IP ベース URL) で接続する。
     new CfnOutput(this, "ClusterName", { value: cluster.clusterName });
@@ -774,14 +789,11 @@ export function liveKitServerConfig(valkeyEndpoint: string): string {
     // ENI 越しの外部 IP を ICE candidate に広告する。NLB は経由しない。
     "  use_external_ip: true",
     "redis:",
-    // R12-followup: ElastiCache Valkey Serverless は cluster mode 必須。
-    // address だけだと LiveKit が単一クライアントモード (redis.NewClient) で接続するため
-    // psrpc の SUBSCRIBE/PUBLISH が sharded pub/sub と整合せず、Egress が SFU に発見されない。
-    // cluster_addresses を指定すると redis.NewClusterClient で接続し、cluster mode で正常動作する。
-    // (livekit/protocol redis/redis.go の構築ロジック参照)
-    "  cluster_addresses:",
-    `    - ${valkeyEndpoint}:6379`,
-    // ElastiCache serverless は in-transit 暗号化必須なので TLS を有効化。
+    // ADR 0010 D-6: Valkey は cluster-mode-disabled の単一ノードに切替えた。
+    // 単一クライアントモード (redis.NewClient) で接続するため `address` を使う。
+    // psrpc の SUBSCRIBE/PUBLISH は標準 Redis pub/sub で動作する。
+    `  address: ${valkeyEndpoint}:6379`,
+    // ElastiCache transit encryption を有効化しているので TLS で接続する。
     "  use_tls: true",
     "logging:",
     "  level: info",
@@ -798,9 +810,8 @@ export function liveKitServerConfig(valkeyEndpoint: string): string {
 export function liveKitEgressConfig(valkeyEndpoint: string): string {
   return [
     "redis:",
-    // R12-followup: cluster_addresses で Valkey Serverless の cluster mode を有効化 (上記同様)。
-    "  cluster_addresses:",
-    `    - ${valkeyEndpoint}:6379`,
+    // ADR 0010 D-6: SFU と同じく単一ノードに合わせて address を使う。
+    `  address: ${valkeyEndpoint}:6379`,
     "  use_tls: true",
     `ws_url: ws://localhost:${LIVEKIT_PORTS.signaling}`,
     // R12: Fargate の 2 vCPU で RoomComposite Egress を許可する (デフォルト 4 を 1 に緩和)。
