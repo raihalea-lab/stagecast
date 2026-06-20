@@ -42,6 +42,23 @@
 | **R12-followup-5** | S5    | `use_external_ip` を削除して Fargate panic 回避                              | `claude/r12-disable-use-external-ip` (PR #91 マージ) | LIVEKIT_CONFIG が読まれるようになった結果、`use_external_ip: true` + Fargate に EC2 metadata が無い組み合わせで `getNAT1to1IPsForConf` が `rand.Intn(0)` で panic。`use_external_ip` を削除して Public IP は別経路で渡す |
 | **R12-followup-6** | S5    | SFU 起動時に Public IP を解決して `--node-ip` 注入                            | `claude/r12-sfu-node-ip` (PR #92 マージ) | entryPoint を `sh -c` で wrap し `wget -qO- https://ifconfig.io` で Task の Public IP を取得 → `--node-ip` フラグで LiveKit Server に渡す。**実機検証**: SFU が `nodeIP=13.231.145.187` で起動、WSS シグナリング接続 ✅。だが **ICE pair が `failed` (UDP responsesReceived: 0)** で WebRTC メディア未確立。SFU が複数 NIC (eth0/eth1) で listen し ICE candidate が混在、Fargate task の二重 ENI 構造との相性が疑わしい |
 | **R12-followup-7** | S5    | ICE 設定の見直し (port_range vs udp_port mux mode)                           |                                                    | LiveKit config で `udp_port: 7882` + `port_range_start/end: 7882` が混在しており、ログには `rtc.portUDP: {Start: 7882, End: 0}` と出る。LiveKit 推奨は `udp_port` 単一 mux モード **か** `port_range` (50000-60000) のどちらか択一。**次の手**: (a) port_range を削除して mux mode 専念 (b) または **TURN server を Fargate Task に追加** して ICE 確立を強制 (c) または LiveKit Server v1.10.x にダウングレードして v1.13.1 の bind 挙動の差を確認 |
+
+### R12-followup-7 を次セッションで開始するときの一手目
+
+> 前提: PR #90/#91/#92 が main にマージ済 (2026-06-20)。SFU は `nodeIP=13.231.145.187` で起動し WSS は通るが、ICE pair は `failed`。SFU ログに `rtc.portUDP: {Start: 7882, End: 0}` が出ていた。
+
+**まず案 (a) を試す**(コスト最小、変更も最小):
+
+1. `infra/lib/event-media-stack.ts` の `liveKitServerConfig()` で `port_range_start: 7882` / `port_range_end: 7882` の 2 行を削除し、`udp_port: 7882` 単独 (mux mode) にする
+2. テスト更新:
+   - `infra/test/event-media-stack.test.ts` の `liveKitServerConfig (R1)` で `port_range_start` 検証をコメントアウトまたは削除
+3. ローカル `vp run -r test` で通ること確認 → PR
+4. ControlPlane 再デプロイ → 新規イベント → live → SFU ログで `rtc.portUDP: {Start: 7882, End: 7882}` か mux mode に切り替わったか確認
+5. stage-web で join → ICE pair `state: succeeded` に変わるか確認
+
+**案 (a) で駄目なら案 (b) (coturn sidecar) に進む**。案 (c) (v1.10.x ダウン) は最後の手段。
+
+参考: memory の `r12-livekit-fargate-gotchas.md` に踏破済みの 3 罠が記録されている。
 | **R13**            | S3+   | 将来の SFU 冗長化時に NLB UDP も検討 (ADR 0009 D-5)                          |                                                    | 1 イベント 1000 人以上のキャパや TURN over TLS が必要になったタイミングで、シグナリングとメディアの両方を NLB 経由にする案を別 ADR で評価する                                                                                                                                                                                                                                                                                               |
 
 ---
