@@ -197,10 +197,13 @@ export class ControlPlaneStack extends Stack {
       `https://${adminWebDistribution.domainName}/`,
       "http://localhost:5173/",
     ];
+    // セッション長 (2026-06-20): 1 イベント運営で 1〜2 時間のオペレーションが続くため、
+    // ID/Access Token を 6 時間に延長し、その間トークン再取得不要にする (UX 改善要望)。
+    // Cognito の上限: id/access は 1分〜24時間、refresh は 60分〜10年。
     const adminUserPoolClient = adminUserPool.addClient("AdminUserPoolClient", {
       authFlows: { userSrp: true },
-      accessTokenValidity: Duration.hours(1),
-      idTokenValidity: Duration.hours(1),
+      accessTokenValidity: Duration.hours(6),
+      idTokenValidity: Duration.hours(6),
       refreshTokenValidity: Duration.days(30),
       oAuth: {
         flows: { authorizationCodeGrant: true },
