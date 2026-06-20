@@ -330,6 +330,22 @@ describe("liveKitServerConfig (R1)", () => {
     expect(yaml).toContain("excludes:");
     expect(yaml).toContain("- 169.254.0.0/16");
   });
+
+  it("R12-followup-9: 第 2 引数で渡した VPC CIDR も excludes に積む", () => {
+    // ブラウザはインターネット経由で接続するので VPC Private IP には到達不可能。
+    // CDK 側は `vpc.vpcCidrBlock` を流し込む。Token でも文字列補間できる。
+    const yaml = liveKitServerConfig("my-valkey.cache.amazonaws.com", "10.0.0.0/16");
+    expect(yaml).toContain("- 169.254.0.0/16");
+    expect(yaml).toContain("- 10.0.0.0/16");
+  });
+
+  it("R12-followup-9: 引数なし呼び出しでは VPC CIDR 行は出ない (リンクローカルのみ)", () => {
+    const yaml = liveKitServerConfig("my-valkey.cache.amazonaws.com");
+    // link-local だけは常に excludes される
+    expect(yaml).toContain("- 169.254.0.0/16");
+    // 10.0.0.0/16 のような CIDR はテスト引数で渡していないので出ない
+    expect(yaml).not.toContain("- 10.0.0.0/16");
+  });
 });
 
 describe("EventMediaStack with TLS props (ADR 0009)", () => {
