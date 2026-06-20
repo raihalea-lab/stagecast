@@ -408,10 +408,15 @@ export class EventMediaStack extends Stack {
       // private IP のみ返すため、外部 echo service (ifconfig.io) で Public IP を取得する。
       // 取得した IP を `--node-ip` フラグで LiveKit Server に渡す (cmd/server/main.go の NODE_IP env / --node-ip flag)。
       // `wget -qO-` を使うのは livekit/livekit-server image が alpine ベースで wget が同梱されているため。
+      //
+      // R12-followup-11: LIVEKIT_KEYS env だけでは TURN credential 生成時の keys map に反映されないため、
+      // LIVEKIT_CONFIG yaml に `keys:` セクションを動的注入する。 実機検証 (PR #101 後) で
+      // JoinResponse の iceServers に username/credential が空のまま配信され TURN authentication 失敗を確認。
+      // /tmp は tmpfs (Fargate ephemeral storage) なので Secret は永続化されない。
       entryPoint: [
         "sh",
         "-c",
-        'NODE_IP=$(wget -qO- --timeout=5 https://ifconfig.io || wget -qO- --timeout=5 https://api.ipify.org) && echo "Resolved NODE_IP=$NODE_IP" && exec /livekit-server --node-ip "$NODE_IP"',
+        'NODE_IP=$(wget -qO- --timeout=5 https://ifconfig.io || wget -qO- --timeout=5 https://api.ipify.org) && echo "Resolved NODE_IP=$NODE_IP" && printf "%s\\nkeys:\\n  %s\\n" "$LIVEKIT_CONFIG" "$LIVEKIT_KEYS" > /tmp/livekit.yaml && exec /livekit-server --config /tmp/livekit.yaml --node-ip "$NODE_IP"',
       ],
       sidecars: [
         {
