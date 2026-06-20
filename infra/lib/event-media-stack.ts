@@ -388,7 +388,8 @@ export class EventMediaStack extends Stack {
       // R12-followup-4: LiveKit Server は config-body 用の env 名が `LIVEKIT_CONFIG` (cmd/server/main.go)。
       // 過去 `LIVEKIT_CONFIG_BODY` を渡していたため config が読まれず single-node routing で起動し、
       // redis が認識されず Egress と通信できなかった。正しい名前 `LIVEKIT_CONFIG` に修正。
-      environment: { LIVEKIT_CONFIG: liveKitServerConfig(valkeyEndpoint) },
+      // R12-followup-9: 第 2 引数で VPC CIDR を渡し、Pion の host candidate から VPC Private IP を除外する。
+      environment: { LIVEKIT_CONFIG: liveKitServerConfig(valkeyEndpoint, vpc.vpcCidrBlock) },
       secrets: livekitSecrets,
       // R12-followup-6: Fargate Task の Public IP を ICE candidate に広告するため起動時に解決する。
       // ECS Container metadata V4 ($ECS_CONTAINER_METADATA_URI_V4/task) → Networks[0].IPv4Addresses[0] は
@@ -793,8 +794,12 @@ export function serverlessCacheName(eventId: string): string {
  * Valkey を redis アダプタとして接続し、複数ノード/Egress と状態を共有する。ポートは
  * NLB リスナ (LIVEKIT_PORTS) と一致させる。api key/secret は config に直書きせず
  * LIVEKIT_API_KEY/SECRET (Secrets Manager 由来) を image entrypoint 経由で与える。
+ *
+ * @param vpcCidr R12-followup-9: 渡すと VPC Private IP も ICE host candidate から除外する
+ *                (ブラウザはインターネット経由で接続するので VPC 内 IP には到達不可)。
+ *                CDK で `vpc.vpcCidrBlock` を渡す想定。テストでは固定値を渡す。
  */
-export function liveKitServerConfig(valkeyEndpoint: string): string {
+export function liveKitServerConfig(valkeyEndpoint: string, vpcCidr?: string): string {
   return [
     `port: ${LIVEKIT_PORTS.signaling}`,
     // ADR 0009 D-1: TLS 終端は NLB が行う (LiveKit 自身は plain HTTP/WS のまま)。
@@ -826,6 +831,10 @@ export function liveKitServerConfig(valkeyEndpoint: string): string {
     "  ips:",
     "    excludes:",
     "      - 169.254.0.0/16",
+    // R12-followup-9: VPC Private IP もブラウザからは到達不可なので除外する。
+    // SharedMediaVpc の CIDR (例: 10.0.0.0/16) を CDK で `vpc.vpcCidrBlock` から動的に渡す。
+    // vpcCidr 未指定 (テスト等) のときは link-local だけ除外し、当該行はスキップする。
+    ...(vpcCidr ? [`      - ${vpcCidr}`] : []),
     "redis:",
     // ADR 0010 D-6: Valkey は cluster-mode-disabled の単一ノードに切替えた。
     // 単一クライアントモード (redis.NewClient) で接続するため `address` を使う。
