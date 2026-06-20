@@ -788,9 +788,11 @@ export function liveKitServerConfig(valkeyEndpoint: string): string {
     `  udp_port: ${LIVEKIT_PORTS.rtcUdp}`,
     `  port_range_start: ${LIVEKIT_PORTS.rtcUdp}`,
     `  port_range_end: ${LIVEKIT_PORTS.rtcUdp}`,
-    // ADR 0009 D-2: メディア (UDP/TCP fallback) は SFU の Public IP に直接接続させるため
-    // ENI 越しの外部 IP を ICE candidate に広告する。NLB は経由しない。
-    "  use_external_ip: true",
+    // R12-followup-5: Fargate には EC2 instance metadata service が無いので、
+    // `use_external_ip: true` を有効にすると livekit/mediatransportutil の
+    // getNAT1to1IPsForConf が空配列に対し rand.Intn(0) で panic する (実機確認済み)。
+    // 代わりに LiveKit のデフォルト (STUN 経由で external IP を解決) に任せる。
+    // ADR 0009 D-2 で想定していた「ENI Public IP を ICE candidate に広告」は STUN で代替される。
     "redis:",
     // ADR 0010 D-6: Valkey は cluster-mode-disabled の単一ノードに切替えた。
     // 単一クライアントモード (redis.NewClient) で接続するため `address` を使う。
