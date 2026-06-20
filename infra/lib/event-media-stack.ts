@@ -149,10 +149,14 @@ export class EventMediaStack extends Stack {
 
     // --- 共有状態: ElastiCache for Valkey (Serverless) (DESIGN.md 3.2, 7.2) ---
     const valkeySg = new ec2.SecurityGroup(this, "ValkeySg", { vpc, allowAllOutbound: true });
+    // R12-followup: Valkey Serverless は dual-endpoint architecture を採用しており、
+    // port 6379 (write) と port 6380 (read) の両方が必要 (cluster mode discovery で
+    // node が両ポートを返す)。LiveKit Egress の psrpc は cluster mode で接続するため
+    // 両ポートが SG で許可されていないと "dial tcp X.X.X.X:6380: i/o timeout" になる。
     valkeySg.addIngressRule(
       ec2.Peer.ipv4(vpc.vpcCidrBlock),
-      ec2.Port.tcp(6379),
-      "Valkey from within VPC",
+      ec2.Port.tcpRange(6379, 6380),
+      "Valkey write (6379) + read (6380) from within VPC",
     );
     const valkey = new elasticache.CfnServerlessCache(this, "Valkey", {
       engine: "valkey",
