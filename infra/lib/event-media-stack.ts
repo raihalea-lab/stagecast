@@ -257,6 +257,11 @@ export class EventMediaStack extends Stack {
       serviceName?: string;
       /** コンテナの command を上書きする (プレースホルダイメージの即終了防止用)。 */
       command?: string[];
+      /**
+       * コンテナの entryPoint を上書きする (SFU の Public IP 注入用)。
+       * `["sh", "-c", "..."]` 等を渡し、内部でランタイム IP を解決してから真の binary を exec する。
+       */
+      entryPoint?: string[];
       /** TaskDef の vCPU。指定なしは 1024 (1 vCPU)。 */
       cpu?: number;
       /** TaskDef のメモリ MiB。指定なしは 2048。 */
@@ -313,6 +318,7 @@ export class EventMediaStack extends Stack {
         },
         ...(opts.secrets ? { secrets: opts.secrets } : {}),
         ...(opts.command ? { command: opts.command } : {}),
+        ...(opts.entryPoint ? { entryPoint: opts.entryPoint } : {}),
       });
       for (const p of opts.ports ?? []) {
         container.addPortMappings({
@@ -384,6 +390,16 @@ export class EventMediaStack extends Stack {
       // redis が認識されず Egress と通信できなかった。正しい名前 `LIVEKIT_CONFIG` に修正。
       environment: { LIVEKIT_CONFIG: liveKitServerConfig(valkeyEndpoint) },
       secrets: livekitSecrets,
+      // R12-followup-6: Fargate Task の Public IP を ICE candidate に広告するため起動時に解決する。
+      // ECS Container metadata V4 ($ECS_CONTAINER_METADATA_URI_V4/task) → Networks[0].IPv4Addresses[0] は
+      // private IP のみ返すため、外部 echo service (ifconfig.io) で Public IP を取得する。
+      // 取得した IP を `--node-ip` フラグで LiveKit Server に渡す (cmd/server/main.go の NODE_IP env / --node-ip flag)。
+      // `wget -qO-` を使うのは livekit/livekit-server image が alpine ベースで wget が同梱されているため。
+      entryPoint: [
+        "sh",
+        "-c",
+        'NODE_IP=$(wget -qO- --timeout=5 https://ifconfig.io || wget -qO- --timeout=5 https://api.ipify.org) && echo "Resolved NODE_IP=$NODE_IP" && exec /livekit-server --node-ip "$NODE_IP"',
+      ],
       sidecars: [
         {
           name: "Egress",
