@@ -68,6 +68,13 @@
 | caption-pipeline に `ioredis` 未宣言         | `dependencies` に `ioredis` を追加                         | dynamic import でも prod bundle に必要なものは dependencies へ              |
 | `wss://` 接続が `ERR_SSL_PROTOCOL_ERROR`     | ADR 0009: NLB + ACM + Route53 で TLS 終端                  | LiveKit は config に TLS 直接サポートなし、`dev_mode` も TLS は有効化しない |
 
+### 2026-06-20 UX 改善
+
+| 問題                                            | 修正                                                | 教訓                                                              |
+| ----------------------------------------------- | --------------------------------------------------- | ----------------------------------------------------------------- |
+| 配信中に Cognito ID Token (1h) が期限切れになる | `accessTokenValidity` / `idTokenValidity` を 6h に  | 1 イベント運営は 1〜2h 続くので、トークン寿命を運用に合わせる     |
+| 管理 UI / stage UI に UX 不足                   | admin-web 一覧スケルトン + stage-web カメラプレビュー | 入室前に「映っている」確認できると主催者の不安が大幅に下がる (N7) |
+
 ---
 
 ## O: 運用準備 (初回デプロイ前にやること)
