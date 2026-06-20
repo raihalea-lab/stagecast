@@ -416,7 +416,9 @@ export class EventMediaStack extends Stack {
       entryPoint: [
         "sh",
         "-c",
-        'NODE_IP=$(wget -qO- --timeout=5 https://ifconfig.io || wget -qO- --timeout=5 https://api.ipify.org) && echo "Resolved NODE_IP=$NODE_IP" && printf "%s\\nkeys:\\n  %s\\n" "$LIVEKIT_CONFIG" "$LIVEKIT_KEYS" > /tmp/livekit.yaml && exec /livekit-server --config /tmp/livekit.yaml --node-ip "$NODE_IP"',
+        // R12-followup-12 (debug): yaml の実際の中身と LIVEKIT_KEYS 長さをログに出して原因特定。
+        // LIVEKIT_KEYS は dev 環境の TURN credential なのでログ出力可。本番までに削除。
+        'NODE_IP=$(wget -qO- --timeout=5 https://ifconfig.io || wget -qO- --timeout=5 https://api.ipify.org) && echo "Resolved NODE_IP=$NODE_IP" && echo "LIVEKIT_KEYS_LEN=${#LIVEKIT_KEYS}" && printf "%s\\nkeys:\\n  %s\\n" "$LIVEKIT_CONFIG" "$LIVEKIT_KEYS" > /tmp/livekit.yaml && echo "--- BEGIN /tmp/livekit.yaml ---" && cat /tmp/livekit.yaml && echo "--- END /tmp/livekit.yaml ---" && exec /livekit-server --config /tmp/livekit.yaml --node-ip "$NODE_IP"',
       ],
       sidecars: [
         {
