@@ -49,22 +49,43 @@
 > 「Fargate + NLB 上の LiveKit Server で WebRTC ICE を確立するための設定群」として 6 つの決定 (D-1〜D-6) と
 > 受け入れ基準・フォールバック方針 (案 B/C/D) を一箇所にまとめた。実機検証時はこの ADR の受け入れ基準を満たすかをチェック。
 
-### R12-followup-7 を次セッションで開始するときの一手目
+### R12-followup-7〜9 マージ後の実機検証手順 (次セッションの一手目)
 
-> 前提: PR #90/#91/#92 が main にマージ済 (2026-06-20)。SFU は `nodeIP=13.231.145.187` で起動し WSS は通るが、ICE pair は `failed`。SFU ログに `rtc.portUDP: {Start: 7882, End: 0}` が出ていた。
+> 前提: PR #90〜#98 が main にマージ済 (2026-06-20)。yaml 設定 + CDK で打てる対策は全て入った。
+> 残るは ControlPlane を再デプロイして実機 ICE pair が succeeded になるかの検証のみ。
 
-**まず案 (a) を試す**(コスト最小、変更も最小):
+**手順** (所要 ~30 分):
 
-1. `infra/lib/event-media-stack.ts` の `liveKitServerConfig()` で `port_range_start: 7882` / `port_range_end: 7882` の 2 行を削除し、`udp_port: 7882` 単独 (mux mode) にする
-2. テスト更新:
-   - `infra/test/event-media-stack.test.ts` の `liveKitServerConfig (R1)` で `port_range_start` 検証をコメントアウトまたは削除
-3. ローカル `vp run -r test` で通ること確認 → PR
-4. ControlPlane 再デプロイ → 新規イベント → live → SFU ログで `rtc.portUDP: {Start: 7882, End: 7882}` か mux mode に切り替わったか確認
-5. stage-web で join → ICE pair `state: succeeded` に変わるか確認
+1. **再デプロイ**: `vp run --filter @stagecast/infra cdk -- deploy StagecastControlPlane`
+   - SharedMediaVpc 配下なので EventMediaStack 自体は新規イベント作成時に reconcile が立ち上げる
+2. **新規イベント作成 → live 遷移**: admin-web で配信用イベントを作って status を `live` に
+3. **SFU 起動ログを確認** (CloudWatch Logs / log group `/aws/ecs/stagecast-event-XXX/sfu`):
+   - `Resolved NODE_IP=<Public IP>` (R12-followup-6)
+   - config 反映確認 — 以下が yaml に含まれているか:
+     - `udp_port: 7882` のみで `port_range_*` が無い (R12-followup-7)
+     - `skip_external_ip_validation: true` (R12-followup-8)
+     - `ips.excludes:` に `169.254.0.0/16` と VPC CIDR の 2 行 (R12-followup-8/9)
+4. **stage-web で /join**: 招待 URL を発行してブラウザで開く → カメラ/マイク publish
+5. **ICE pair 状態確認**:
+   - Chrome `chrome://webrtc-internals` で当該 RTCPeerConnection を開く
+   - `iceConnectionState: connected` / `selectedCandidatePair.state: succeeded` を確認
+   - host candidate に `169.254.x.x` も VPC Private IP も流れていないこと
+   - `responsesReceived` がインクリメントしていること (R12-followup-6 で 0 のままだった)
 
-**案 (a) で駄目なら案 (b) (coturn sidecar) に進む**。案 (c) (v1.10.x ダウン) は最後の手段。
+**全部 OK なら**: R12 完了。NEXT_WORK.md の R12 行を ✅ 化。R7 (YouTube 統合テスト) に進む。
 
-参考: memory の `r12-livekit-fargate-gotchas.md` に踏破済みの 3 罠が記録されている。
+**ICE pair がまだ `failed` なら**: [ADR 0011](./decisions/0011-livekit-ice-fargate-config.md) のフォールバックに従う:
+
+1. **案 B**: `turn.enabled: true` で LiveKit 内蔵 TURN を有効化、relay_range を 50300-50400 程度に絞り NLB or SG で開放
+2. **案 C**: coturn sidecar (ADR 0010 と同型に新規 ADR 0012 を起票)
+3. **案 D**: LiveKit Server v1.10.x にダウングレード
+
+参考:
+
+- ADR 0011 (Fargate ICE 設定の正本) … 6 つの決定 D-1〜D-6 と受け入れ基準
+- memory `r12-livekit-fargate-gotchas.md` … 踏破済みの 6 罠
+- LiveKit Issue [#3508](https://github.com/livekit/livekit/issues/3508) (Dual NIC) / [#4049](https://github.com/livekit/livekit/issues/4049) (--node-ip 無視) / [#4095](https://github.com/livekit/livekit/issues/4095) (TURN 経由 NAT GW 漏れ)
+
 | **R13**            | S3+   | 将来の SFU 冗長化時に NLB UDP も検討 (ADR 0009 D-5)                          |                                                    | 1 イベント 1000 人以上のキャパや TURN over TLS が必要になったタイミングで、シグナリングとメディアの両方を NLB 経由にする案を別 ADR で評価する                                                                                                                                                                                                                                                                                               |
 
 ---
