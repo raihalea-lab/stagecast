@@ -84,4 +84,13 @@ describe("FakeMediaDevicesProvider (N7)", () => {
     meter.stop();
     expect(provider.stopped).toBe(1);
   });
+
+  it("カメラプレビューを開いて stop を数える", async () => {
+    const provider = new FakeMediaDevicesProvider(devices);
+    const preview = await provider.openCameraPreview("cam-1");
+    expect(preview.stream).toBeDefined();
+    expect(provider.cameraOpens).toEqual(["cam-1"]);
+    preview.stop();
+    expect(provider.cameraStopped).toBe(1);
+  });
 });

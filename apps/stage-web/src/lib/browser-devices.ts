@@ -3,7 +3,13 @@
  * navigator.mediaDevices + AudioContext を使うため本番 (main.tsx / App) のみで生成し、
  * テストでは `FakeMediaDevicesProvider` を注入する。
  */
-import type { DeviceInfo, MediaDevicesProvider, MicMeter, StageDeviceKind } from "./devices.js";
+import type {
+  CameraPreview,
+  DeviceInfo,
+  MediaDevicesProvider,
+  MicMeter,
+  StageDeviceKind,
+} from "./devices.js";
 
 export class BrowserMediaDevicesProvider implements MediaDevicesProvider {
   async list(): Promise<DeviceInfo[]> {
@@ -20,6 +26,18 @@ export class BrowserMediaDevicesProvider implements MediaDevicesProvider {
         label: d.label || `${d.kind} ${i + 1}`,
         kind: d.kind as StageDeviceKind,
       }));
+  }
+
+  async openCameraPreview(deviceId?: string): Promise<CameraPreview> {
+    const stream = await navigator.mediaDevices.getUserMedia({
+      video: deviceId ? { deviceId: { exact: deviceId } } : true,
+    });
+    return {
+      stream,
+      stop() {
+        stream.getTracks().forEach((t) => t.stop());
+      },
+    };
   }
 
   async openMicMeter(deviceId?: string): Promise<MicMeter> {

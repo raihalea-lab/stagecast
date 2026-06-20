@@ -59,6 +59,7 @@ export function App(props: {
 
   const [auth, setAuth] = useState<AuthState>({ status: "loading" });
   const [events, setEvents] = useState<EventDefinition[]>([]);
+  const [eventsLoaded, setEventsLoaded] = useState(false);
   const [selectedId, setSelectedId] = useState<string | undefined>();
   const [apiError, setApiError] = useState<string | undefined>();
   const [busy, setBusy] = useState(false);
@@ -117,6 +118,7 @@ export function App(props: {
   const refresh = useCallback(async () => {
     const list = await client.listEvents();
     setEvents(list);
+    setEventsLoaded(true);
   }, [client]);
 
   useEffect(() => {
@@ -168,10 +170,7 @@ export function App(props: {
       <header>
         <h1>Stagecast 管理コンソール</h1>
         <nav className="view-nav">
-          <button
-            onClick={() => setView("events")}
-            className={view === "events" ? "active" : ""}
-          >
+          <button onClick={() => setView("events")} className={view === "events" ? "active" : ""}>
             イベント
           </button>
           <button
@@ -196,18 +195,30 @@ export function App(props: {
           <aside>
             <EventForm onCreate={create} busy={busy} />
             <h2>イベント一覧</h2>
-            <ul className="event-list">
-              {events.map((e) => (
-                <li key={e.id}>
-                  <button
-                    onClick={() => setSelectedId(e.id)}
-                    className={e.id === selectedId ? "active" : ""}
-                  >
-                    {e.title} ({e.status})
-                  </button>
-                </li>
-              ))}
-            </ul>
+            {!eventsLoaded ? (
+              <ul className="event-list" aria-busy="true" aria-label="読み込み中">
+                {[0, 1, 2].map((i) => (
+                  <li key={i}>
+                    <div className="skeleton skeleton-row" />
+                  </li>
+                ))}
+              </ul>
+            ) : events.length === 0 ? (
+              <p className="empty">イベントはまだありません。</p>
+            ) : (
+              <ul className="event-list">
+                {events.map((e) => (
+                  <li key={e.id}>
+                    <button
+                      onClick={() => setSelectedId(e.id)}
+                      className={e.id === selectedId ? "active" : ""}
+                    >
+                      {e.title} ({e.status})
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
           </aside>
           <article>
             {selected ? (

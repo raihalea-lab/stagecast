@@ -21,11 +21,20 @@ export interface MicMeter {
   stop(): void;
 }
 
+/** カメラプレビュー stream。video 要素の srcObject に渡して使う。stop でトラックを止める。 */
+export interface CameraPreview {
+  /** <video srcObject> に渡すための MediaStream。 */
+  stream: MediaStream;
+  stop(): void;
+}
+
 export interface MediaDevicesProvider {
   /** 権限要求 + デバイス列挙。 */
   list(): Promise<DeviceInfo[]>;
   /** 指定マイクの音量メーターを開く (未指定は既定マイク)。 */
   openMicMeter(deviceId?: string): Promise<MicMeter>;
+  /** 指定カメラのプレビュー stream を開く (未指定は既定カメラ)。 */
+  openCameraPreview(deviceId?: string): Promise<CameraPreview>;
 }
 
 export interface PreferredDevices {
@@ -85,6 +94,8 @@ export function savePreferredDevices(store: KeyValueStore, prefs: PreferredDevic
 /** テスト/ローカル用フェイク。固定のデバイス一覧と擬似レベルを返す。 */
 export class FakeMediaDevicesProvider implements MediaDevicesProvider {
   stopped = 0;
+  cameraStopped = 0;
+  cameraOpens: Array<string | undefined> = [];
   constructor(
     private readonly devices: DeviceInfo[],
     private readonly levels: number[] = [0.5],
@@ -98,6 +109,17 @@ export class FakeMediaDevicesProvider implements MediaDevicesProvider {
       level: () => this.levels[i++ % this.levels.length] ?? 0,
       stop: () => {
         this.stopped += 1;
+      },
+    };
+  }
+  async openCameraPreview(deviceId?: string): Promise<CameraPreview> {
+    this.cameraOpens.push(deviceId);
+    // jsdom には MediaStream が無いので最小限のスタブ。
+    const stream = {} as unknown as MediaStream;
+    return {
+      stream,
+      stop: () => {
+        this.cameraStopped += 1;
       },
     };
   }

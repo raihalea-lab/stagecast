@@ -98,3 +98,14 @@ button:disabled {
   background: linear-gradient(90deg, #4caf50, #ffc107);
   transition: width 80ms linear;
 }
+/* カメラのライブプレビュー (N7, 2026-06-20) */
+.camera-preview {
+  display: block;
+  width: 100%;
+  max-width: 320px;
+  margin-top: 0.5rem;
+  border-radius: 6px;
+  background: #000;
+  aspect-ratio: 16 / 9;
+  object-fit: cover;
+}
