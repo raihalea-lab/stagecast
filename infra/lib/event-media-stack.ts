@@ -801,9 +801,12 @@ export function liveKitServerConfig(valkeyEndpoint: string): string {
     // クライアントは wss://event-XXXXXXXX.{mediaDomainName} で接続する。
     "rtc:",
     `  tcp_port: ${LIVEKIT_PORTS.rtcTcp}`,
+    // R12-followup-7: `udp_port` 単独で UDP mux mode を有効化する。
+    // LiveKit は `port_range_start/end` と `udp_port` を同時指定すると挙動が混在し
+    // (ログ上は `rtc.portUDP: {Start: 7882, End: 0}` のまま ICE pair が失敗した)、
+    // 公式には mux mode 単独 か port_range のどちらか択一が推奨されている。
+    // Fargate は NLB UDP リスナを単一ポートに絞っているので mux mode (1 ポートで多重化) を採用。
     `  udp_port: ${LIVEKIT_PORTS.rtcUdp}`,
-    `  port_range_start: ${LIVEKIT_PORTS.rtcUdp}`,
-    `  port_range_end: ${LIVEKIT_PORTS.rtcUdp}`,
     // R12-followup-5: Fargate には EC2 instance metadata service が無いので、
     // `use_external_ip: true` を有効にすると livekit/mediatransportutil の
     // getNAT1to1IPsForConf が空配列に対し rand.Intn(0) で panic する (実機確認済み)。
