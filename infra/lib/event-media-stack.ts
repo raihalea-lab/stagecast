@@ -812,6 +812,20 @@ export function liveKitServerConfig(valkeyEndpoint: string): string {
     // getNAT1to1IPsForConf が空配列に対し rand.Intn(0) で panic する (実機確認済み)。
     // 代わりに LiveKit のデフォルト (STUN 経由で external IP を解決) に任せる。
     // ADR 0009 D-2 で想定していた「ENI Public IP を ICE candidate に広告」は STUN で代替される。
+    //
+    // R12-followup-8: 以下 2 行は ICE 確立の信頼性を上げる調整 (LiveKit Issue #4049/#3508 参考)。
+    //   - skip_external_ip_validation: 起動時の self-ping による external_ip 検証をスキップ。
+    //     Fargate + NLB は NAT 越しで loopback できない (NLB は同 Task からの戻り通信を許さない) ため、
+    //     STUN 検証がタイムアウトして `--node-ip` のフォールバックも遅延 → ICE 失敗の遠因になりうる。
+    //     v1.13 で公式 config-sample に「NAT 環境で必要」と明記された設定。
+    //   - ips.excludes: Fargate awsvpc コンテナには eth0 (Task Metadata 用 veth, 169.254.0.0/16) と
+    //     eth1 (Task ENI, VPC Private IP) の 2 NIC が見える。Pion (LiveKit 内 ICE) は全 NIC の全 IP を
+    //     host candidate として列挙するため、169.254 系がブラウザ側に流れ ICE 候補を汚染する。
+    //     ECS Task Metadata Endpoint v4 は 169.254.170.2 で固定なので、リンクローカル全体を除外する。
+    "  skip_external_ip_validation: true",
+    "  ips:",
+    "    excludes:",
+    "      - 169.254.0.0/16",
     "redis:",
     // ADR 0010 D-6: Valkey は cluster-mode-disabled の単一ノードに切替えた。
     // 単一クライアントモード (redis.NewClient) で接続するため `address` を使う。

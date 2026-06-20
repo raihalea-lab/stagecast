@@ -312,6 +312,24 @@ describe("liveKitServerConfig (R1)", () => {
     expect(yaml).not.toContain("port_range_start");
     expect(yaml).not.toContain("port_range_end");
   });
+
+  it("R12-followup-8: NLB self-ping できないので external_ip validation をスキップ", () => {
+    // Fargate + NLB は同 Task からの loopback を許さないため、起動時の external_ip 検証が
+    // タイムアウトして `--node-ip` のフォールバックも遅延 → ICE 失敗の遠因。
+    // v1.13 で公式 config-sample に「NAT 環境で必要」と明記された設定。
+    const yaml = liveKitServerConfig("my-valkey.cache.amazonaws.com");
+    expect(yaml).toContain("skip_external_ip_validation: true");
+  });
+
+  it("R12-followup-8: 169.254/16 (Task Metadata 用 veth) を ICE candidate から除外", () => {
+    // Fargate awsvpc コンテナには eth0 (Task Metadata veth, 169.254.x.x) と
+    // eth1 (Task ENI, VPC Private IP) の 2 NIC が見える。Pion は全 NIC の全 IP を
+    // host candidate にしてしまうので、リンクローカルを除外する。
+    const yaml = liveKitServerConfig("my-valkey.cache.amazonaws.com");
+    expect(yaml).toContain("ips:");
+    expect(yaml).toContain("excludes:");
+    expect(yaml).toContain("- 169.254.0.0/16");
+  });
 });
 
 describe("EventMediaStack with TLS props (ADR 0009)", () => {
