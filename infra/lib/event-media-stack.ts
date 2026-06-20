@@ -469,13 +469,15 @@ export class EventMediaStack extends Stack {
     // シンメトリック NAT 越しのクライアントが SFU 直接 UDP では NAT を抜けられない場合の救済経路。
     // 実機検証 (2026-06-20) で publisherCandidates の srflx の related-port と STUN port が異なり
     // (例: srflx 14.8.39.x:46547 related 192.168.1.39:57015) シンメトリック NAT を確認済み。
+    // R12-followup-10 / ADR 0011 plan B: EC2 SG description は ASCII 限定 (日本語 NG)。
+    // 詳細な経緯コメントはコード本体に書き、description は短く英語のみ。
     sfu.connections.allowFromAnyIpv4(
       ec2.Port.udp(LIVEKIT_PORTS.turnUdp),
-      "LiveKit TURN/UDP for NAT traversal (R12-followup-10, ADR 0011 案 B)",
+      "LiveKit TURN/UDP for NAT traversal (R12-followup-10)",
     );
     sfu.connections.allowFromAnyIpv4(
       ec2.Port.udpRange(LIVEKIT_PORTS.turnRelayStart, LIVEKIT_PORTS.turnRelayEnd),
-      "LiveKit TURN relay UDP range (R12-followup-10, ADR 0011 案 B)",
+      "LiveKit TURN relay UDP range (R12-followup-10)",
     );
 
     // --- NLB + TLS + Route53 でシグナリングを wss:// 化 (ADR 0009 D-1, D-3, D-4) ---
