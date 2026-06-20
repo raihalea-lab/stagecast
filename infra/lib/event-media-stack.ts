@@ -420,7 +420,9 @@ export class EventMediaStack extends Stack {
         // LIVEKIT_KEYS の値や yaml 本文全体は CloudWatch Logs に書かない。
         // 確認したいのは: (1) LIVEKIT_KEYS env が container に届いているか (長さのみ)、
         // (2) printf が yaml に `keys:` セクションを正しく書いているか (行数 / セクション存在のみ)。
-        'NODE_IP=$(wget -qO- --timeout=5 https://ifconfig.io || wget -qO- --timeout=5 https://api.ipify.org) && echo "Resolved NODE_IP=$NODE_IP" && echo "LIVEKIT_KEYS_LEN=${#LIVEKIT_KEYS}" && printf "%s\\nkeys:\\n  %s\\n" "$LIVEKIT_CONFIG" "$LIVEKIT_KEYS" > /tmp/livekit.yaml && echo "YAML_TOTAL_LINES=$(wc -l < /tmp/livekit.yaml)" && echo "YAML_HAS_KEYS_SECTION=$(grep -c \"^keys:$\" /tmp/livekit.yaml)" && echo "YAML_KEYS_LINE_LEN=$(awk \"/^keys:$/{getline; print length(\\$0)}\" /tmp/livekit.yaml)" && exec /livekit-server --config /tmp/livekit.yaml --node-ip "$NODE_IP"',
+        // R12-followup-13: yaml 由来の keys に加えて --keys CLI flag も明示的に渡す (二重保険)。
+        // logging.level: debug と組み合わせて iceServers 生成パスを観察する。
+        'NODE_IP=$(wget -qO- --timeout=5 https://ifconfig.io || wget -qO- --timeout=5 https://api.ipify.org) && echo "Resolved NODE_IP=$NODE_IP" && echo "LIVEKIT_KEYS_LEN=${#LIVEKIT_KEYS}" && printf "%s\\nkeys:\\n  %s\\n" "$LIVEKIT_CONFIG" "$LIVEKIT_KEYS" > /tmp/livekit.yaml && echo "YAML_TOTAL_LINES=$(wc -l < /tmp/livekit.yaml)" && echo "YAML_HAS_KEYS_SECTION=$(grep -c \"^keys:$\" /tmp/livekit.yaml)" && echo "YAML_KEYS_LINE_LEN=$(awk \"/^keys:$/{getline; print length(\\$0)}\" /tmp/livekit.yaml)" && exec /livekit-server --config /tmp/livekit.yaml --keys "$LIVEKIT_KEYS" --node-ip "$NODE_IP"',
       ],
       sidecars: [
         {
@@ -889,7 +891,9 @@ export function liveKitServerConfig(valkeyEndpoint: string, vpcCidr?: string): s
     // ElastiCache transit encryption を有効化しているので TLS で接続する。
     "  use_tls: true",
     "logging:",
-    "  level: info",
+    // R12-followup-13 (debug): TURN credential 生成パスを観察するため一時的に debug。
+    // 確定したら info に戻す。
+    "  level: debug",
     "  json: true",
   ].join("\n");
 }
