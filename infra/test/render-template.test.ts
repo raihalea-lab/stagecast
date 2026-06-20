@@ -13,7 +13,8 @@ describe("renderEventMediaTemplate (DESIGN.md 7.1)", () => {
 
     // メディアスタックの要となるリソースが含まれること
     expect(types).toContain("AWS::ElastiCache::ServerlessCache");
-    expect(types.filter((t) => t === "AWS::ECS::Service")).toHaveLength(3);
+    // ADR 0010: Egress は SFU の sidecar として同 Task に同居するので独立 Service は 2 つ (SFU + CaptionWorker)。
+    expect(types.filter((t) => t === "AWS::ECS::Service")).toHaveLength(2);
     expect(types).toContain("AWS::ECS::Cluster");
     expect(types).toContain("AWS::EC2::VPC");
   });

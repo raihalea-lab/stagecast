@@ -209,12 +209,14 @@ export class EventMediaStack extends Stack {
       LIVEKIT_API_SECRET: ecs.Secret.fromSecretsManager(livekitSecret, "apiSecret"),
     };
 
-    // Egress は録画を S3 に直接 PUT する。出力先プレフィックスのみに絞る (R2, ADR 0006 D-4)。
-    const egressTaskRole = new iam.Role(this, "EgressTaskRole", {
+    // ADR 0010: SFU と Egress を同一 Task に sidecar 同居させるため、SFU の TaskRole に
+    // Egress 用 S3 書き込み権限を統合する。Egress 単独の TaskRole は廃止 (ADR 0010 D-3, D-5)。
+    const sfuTaskRole = new iam.Role(this, "SfuTaskRole", {
       assumedBy: new iam.ServicePrincipal("ecs-tasks.amazonaws.com"),
     });
     const recordingsBucketName = props.recordingsBucketName ?? "stagecast-recordings";
-    egressTaskRole.addToPolicy(
+    // Egress は録画を S3 に直接 PUT する。出力先プレフィックスのみに絞る (ADR 0006 D-4)。
+    sfuTaskRole.addToPolicy(
       new iam.PolicyStatement({
         actions: ["s3:PutObject", "s3:AbortMultipartUpload", "s3:ListMultipartUploadParts"],
         resources: [`arn:aws:s3:::${recordingsBucketName}/recordings/*`],
@@ -222,6 +224,15 @@ export class EventMediaStack extends Stack {
     );
 
     const images = props.images ?? {};
+    interface SidecarOptions {
+      /** sidecar container 名 (`${name}Container` で TaskDef に追加) */
+      name: string;
+      image: string;
+      environment?: Record<string, string>;
+      secrets?: Record<string, ecs.Secret>;
+      /** essential=false で sidecar クラッシュが Task 再起動を起こさないよう保護 (ADR 0010 D-1) */
+      essential?: boolean;
+    }
     interface ServiceOptions {
       ports?: { containerPort: number; protocol?: ecs.Protocol }[];
       taskRole?: iam.IRole;
@@ -231,6 +242,12 @@ export class EventMediaStack extends Stack {
       serviceName?: string;
       /** コンテナの command を上書きする (プレースホルダイメージの即終了防止用)。 */
       command?: string[];
+      /** TaskDef の vCPU。指定なしは 1024 (1 vCPU)。 */
+      cpu?: number;
+      /** TaskDef のメモリ MiB。指定なしは 2048。 */
+      memoryLimitMiB?: number;
+      /** sidecar コンテナ群 (ADR 0010: SFU TaskDef に Egress を同居)。 */
+      sidecars?: SidecarOptions[];
     }
     const addService = (
       name: string,
@@ -238,8 +255,8 @@ export class EventMediaStack extends Stack {
       opts: ServiceOptions = {},
     ): ecs.FargateService => {
       const taskDef = new ecs.FargateTaskDefinition(this, `${name}TaskDef`, {
-        cpu: 1024,
-        memoryLimitMiB: 2048,
+        cpu: opts.cpu ?? 1024,
+        memoryLimitMiB: opts.memoryLimitMiB ?? 2048,
         taskRole: opts.taskRole,
         // caption-worker の ECR イメージは arm64 でビルドするため全サービスを arm64 で統一。
         runtimePlatform: {
@@ -247,9 +264,10 @@ export class EventMediaStack extends Stack {
           operatingSystemFamily: ecs.OperatingSystemFamily.LINUX,
         },
       });
-      // ECR プライベートイメージ (R4) は実行ロールに pull 権限が要る。
-      // fromRegistry は自動付与しないため、ECR URI のときだけ最小権限を足す。
-      if (isEcrImage(image)) {
+      const grantEcrPull = (image: string): void => {
+        if (!isEcrImage(image)) return;
+        // ECR プライベートイメージ (R4) は実行ロールに pull 権限が要る。
+        // fromRegistry は自動付与しないため、ECR URI のときだけ最小権限を足す。
         taskDef.addToExecutionRolePolicy(
           new iam.PolicyStatement({
             actions: ["ecr:GetAuthorizationToken"],
@@ -266,7 +284,8 @@ export class EventMediaStack extends Stack {
             resources: [ecrRepositoryArnFromUri(image, this.partition)],
           }),
         );
-      }
+      };
+      grantEcrPull(image);
       const container = taskDef.addContainer(`${name}Container`, {
         image: ecs.ContainerImage.fromRegistry(image),
         logging: ecs.LogDrivers.awsLogs({ streamPrefix: name, logGroup }),
@@ -284,6 +303,21 @@ export class EventMediaStack extends Stack {
         container.addPortMappings({
           containerPort: p.containerPort,
           ...(p.protocol ? { protocol: p.protocol } : {}),
+        });
+      }
+      // sidecar コンテナを追加 (ADR 0010: SFU TaskDef に Egress を同居)。
+      for (const sidecar of opts.sidecars ?? []) {
+        grantEcrPull(sidecar.image);
+        taskDef.addContainer(`${sidecar.name}Container`, {
+          image: ecs.ContainerImage.fromRegistry(sidecar.image),
+          logging: ecs.LogDrivers.awsLogs({ streamPrefix: sidecar.name, logGroup }),
+          essential: sidecar.essential ?? false,
+          environment: {
+            STAGECAST_EVENT_ID: props.eventId,
+            VALKEY_ENDPOINT: valkey.attrEndpointAddress,
+            ...sidecar.environment,
+          },
+          ...(sidecar.secrets ? { secrets: sidecar.secrets } : {}),
         });
       }
       return new ecs.FargateService(this, `${name}Service`, {
@@ -317,8 +351,14 @@ export class EventMediaStack extends Stack {
           }
         : undefined;
 
+    // ADR 0010: SFU と Egress を同一 Task に sidecar 同居。Egress は localhost で SFU と疎通し
+    // (LIVEKIT_WS_URL=ws://localhost:7880)、psrpc は Valkey 経由で共有する。
+    // Task は SFU (1 vCPU) + Egress (Chrome ヘッドレス, 1 vCPU) で合計 2 vCPU / 4 GiB に増強。
     const sfu = addService("Sfu", images.sfu ?? "livekit/livekit-server:latest", {
       serviceName: SFU_SERVICE_NAME,
+      cpu: 2048,
+      memoryLimitMiB: 4096,
+      taskRole: sfuTaskRole,
       ports: [
         { containerPort: LIVEKIT_PORTS.signaling, protocol: ecs.Protocol.TCP },
         { containerPort: LIVEKIT_PORTS.rtcTcp, protocol: ecs.Protocol.TCP },
@@ -326,25 +366,19 @@ export class EventMediaStack extends Stack {
       ],
       environment: { LIVEKIT_CONFIG_BODY: liveKitServerConfig(valkey.attrEndpointAddress) },
       secrets: livekitSecrets,
-    });
-
-    // Egress: Chrome ヘッドレスで合成 → RTMP/S3。Valkey で SFU とジョブ共有 (R2, ADR 0006 D-4)。
-    // R12 修正: LiveKit Egress は LIVEKIT_WS_URL 環境変数で SFU の signal URL を直接読む
-    // (Go ソース: ServiceConfig が os.Getenv("LIVEKIT_WS_URL") を参照)。
-    // ws://localhost:7880 はデフォルト config に書かれているが、Egress が SFU と
-    // 別タスクの場合は到達不可。NLB 経由の wss://event-XXX で接続する (ADR 0009)。
-    // tlsConfig (= mediaHostedZoneName context) がないときは localhost:7880 のまま
-    // (= ADR 0008 D-4 の Public IP 直接公開シナリオではこの経路は機能しない)。
-    const egressEnvironment: Record<string, string> = {
-      EGRESS_CONFIG_BODY: liveKitEgressConfig(valkey.attrEndpointAddress),
-    };
-    if (tlsProps) {
-      egressEnvironment.LIVEKIT_WS_URL = `wss://event-${props.eventId.slice(0, 8)}.${tlsProps.mediaDomainName}`;
-    }
-    const egress = addService("Egress", images.egress ?? "livekit/egress:latest", {
-      taskRole: egressTaskRole,
-      environment: egressEnvironment,
-      secrets: livekitSecrets,
+      sidecars: [
+        {
+          name: "Egress",
+          image: images.egress ?? "livekit/egress:latest",
+          essential: false,
+          environment: {
+            EGRESS_CONFIG_BODY: liveKitEgressConfig(valkey.attrEndpointAddress),
+            // ADR 0010 D-2: 同一 Task 内なので localhost で素 WebSocket で繋ぐ (TLS 不要)。
+            LIVEKIT_WS_URL: `ws://localhost:${LIVEKIT_PORTS.signaling}`,
+          },
+          secrets: livekitSecrets,
+        },
+      ],
     });
 
     const captionWorker = addService(
@@ -359,10 +393,12 @@ export class EventMediaStack extends Stack {
         // CAPTION_BUS=valkey で Valkey Streams への常時接続を確立し、
         // LIVEKIT_URL 未設定時もイベントループを維持してプロセスが即終了しないようにする。
         // 字幕を Valkey Streams 経由で配信するのは本来の設計でもある (T3, ADR 0002)。
-        ...(images.captionWorker ? {
-          environment: { CAPTION_BUS: "valkey" },
-          secrets: livekitSecrets,
-        } : {}),
+        ...(images.captionWorker
+          ? {
+              environment: { CAPTION_BUS: "valkey" },
+              secrets: livekitSecrets,
+            }
+          : {}),
       },
     );
 
@@ -459,9 +495,10 @@ export class EventMediaStack extends Stack {
     });
 
     // タスク異常: ECS RunningCount が desiredCount を下回る (= タスク落ち) アラーム。
+    // ADR 0010: Egress は SFU の sidecar として同 Task に同居するので独立サービスとしては監視しない
+    // (essential: false で Egress 単独クラッシュは Task 再起動を起こさず、SFU の RunningTaskCount 経由で間接的に検知される)。
     const services: { name: string; service: ecs.FargateService }[] = [
       { name: "Sfu", service: sfu },
-      { name: "Egress", service: egress },
       { name: "CaptionWorker", service: captionWorker },
     ];
     const taskAlarms: cloudwatch.Alarm[] = [];
