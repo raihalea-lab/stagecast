@@ -297,9 +297,11 @@ describe("liveKitServerConfig (R1)", () => {
     expect(yaml).not.toContain("dev_mode");
   });
 
-  it("ADR 0009 D-2: ICE candidate に SFU の Public IP を広告するため use_external_ip を維持", () => {
+  it("R12-followup-5: Fargate で panic するため use_external_ip は無効", () => {
+    // Fargate に EC2 instance metadata 無し → rand.Intn(0) で panic するため削除した。
+    // ICE candidate の external IP は LiveKit のデフォルト (STUN) で解決される。
     const yaml = liveKitServerConfig("my-valkey.cache.amazonaws.com");
-    expect(yaml).toContain("use_external_ip: true");
+    expect(yaml).not.toContain("use_external_ip: true");
   });
 });
 
