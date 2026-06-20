@@ -346,6 +346,17 @@ describe("liveKitServerConfig (R1)", () => {
     // 10.0.0.0/16 のような CIDR はテスト引数で渡していないので出ない
     expect(yaml).not.toContain("- 10.0.0.0/16");
   });
+
+  it("R12-followup-10: 内蔵 TURN server を有効化 (シンメトリック NAT 救済)", () => {
+    // ADR 0011 案 B: クライアント側がシンメトリック NAT 配下 (実機検証で確認) のとき、
+    // SFU 直接 UDP では NAT 応答が抜けられないので TURN over UDP で救済する。
+    const yaml = liveKitServerConfig("my-valkey.cache.amazonaws.com");
+    expect(yaml).toContain("turn:");
+    expect(yaml).toContain("enabled: true");
+    expect(yaml).toContain("udp_port: 3478");
+    expect(yaml).toContain("relay_range_start: 50300");
+    expect(yaml).toContain("relay_range_end: 50400");
+  });
 });
 
 describe("EventMediaStack with TLS props (ADR 0009)", () => {

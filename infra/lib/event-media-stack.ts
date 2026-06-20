@@ -31,6 +31,15 @@ export const LIVEKIT_PORTS = {
   rtcTcp: 7881,
   /** WebRTC over UDP (主たる media 経路, ADR 0006 D-2)。 */
   rtcUdp: 7882,
+  /**
+   * R12-followup-10 / ADR 0011 案 B: LiveKit 内蔵 TURN server。
+   * シンメトリック NAT 越しのクライアント (実機検証で 14.8.39.x の Mac で確認) を救済する。
+   */
+  turnUdp: 3478,
+  /** TURN relay UDP range の開始 (実際の relay ポートはこの範囲から動的割当)。 */
+  turnRelayStart: 50300,
+  /** TURN relay UDP range の終端。100 ポート分。同時接続 ~50 まで耐える。 */
+  turnRelayEnd: 50400,
 } as const;
 
 /**
@@ -384,6 +393,9 @@ export class EventMediaStack extends Stack {
         { containerPort: LIVEKIT_PORTS.signaling, protocol: ecs.Protocol.TCP },
         { containerPort: LIVEKIT_PORTS.rtcTcp, protocol: ecs.Protocol.TCP },
         { containerPort: LIVEKIT_PORTS.rtcUdp, protocol: ecs.Protocol.UDP },
+        // R12-followup-10 / ADR 0011 案 B: LiveKit 内蔵 TURN server (UDP 3478)。
+        // awsvpc mode では SG が支配的なので relay range (50300-50400) は SG で開放するだけで動く。
+        { containerPort: LIVEKIT_PORTS.turnUdp, protocol: ecs.Protocol.UDP },
       ],
       // R12-followup-4: LiveKit Server は config-body 用の env 名が `LIVEKIT_CONFIG` (cmd/server/main.go)。
       // 過去 `LIVEKIT_CONFIG_BODY` を渡していたため config が読まれず single-node routing で起動し、
@@ -452,6 +464,18 @@ export class EventMediaStack extends Stack {
     sfu.connections.allowFromAnyIpv4(
       ec2.Port.udp(LIVEKIT_PORTS.rtcUdp),
       "WebRTC media/UDP (public, ADR 0008 D-4 / ADR 0009 D-2)",
+    );
+    // R12-followup-10 / ADR 0011 案 B: LiveKit 内蔵 TURN server (UDP 3478 + relay range)。
+    // シンメトリック NAT 越しのクライアントが SFU 直接 UDP では NAT を抜けられない場合の救済経路。
+    // 実機検証 (2026-06-20) で publisherCandidates の srflx の related-port と STUN port が異なり
+    // (例: srflx 14.8.39.x:46547 related 192.168.1.39:57015) シンメトリック NAT を確認済み。
+    sfu.connections.allowFromAnyIpv4(
+      ec2.Port.udp(LIVEKIT_PORTS.turnUdp),
+      "LiveKit TURN/UDP for NAT traversal (R12-followup-10, ADR 0011 案 B)",
+    );
+    sfu.connections.allowFromAnyIpv4(
+      ec2.Port.udpRange(LIVEKIT_PORTS.turnRelayStart, LIVEKIT_PORTS.turnRelayEnd),
+      "LiveKit TURN relay UDP range (R12-followup-10, ADR 0011 案 B)",
     );
 
     // --- NLB + TLS + Route53 でシグナリングを wss:// 化 (ADR 0009 D-1, D-3, D-4) ---
@@ -835,6 +859,17 @@ export function liveKitServerConfig(valkeyEndpoint: string, vpcCidr?: string): s
     // SharedMediaVpc の CIDR (例: 10.0.0.0/16) を CDK で `vpc.vpcCidrBlock` から動的に渡す。
     // vpcCidr 未指定 (テスト等) のときは link-local だけ除外し、当該行はスキップする。
     ...(vpcCidr ? [`      - ${vpcCidr}`] : []),
+    // R12-followup-10 / ADR 0011 案 B: LiveKit 内蔵 TURN server を有効化する。
+    // シンメトリック NAT 越しのクライアントは SFU 直接 UDP (rtcUdp 7882) で binding response が
+    // NAT を抜けられない (送信先ごとに NAT mapping port が変わる)。TURN over UDP ならクライアントは
+    // TURN サーバ 1 箇所への単一接続を維持するので NAT mapping が安定し、relay 経由でメディアが届く。
+    // domain/cert は省略 (UDP のみ運用、TLS は不要)。クライアントには LiveKit が JoinResponse で
+    // `iceServers: [{urls: "turn:<node-ip>:3478?transport=udp", ...}]` を自動配信する (HMAC 短期 credential)。
+    "turn:",
+    "  enabled: true",
+    `  udp_port: ${LIVEKIT_PORTS.turnUdp}`,
+    `  relay_range_start: ${LIVEKIT_PORTS.turnRelayStart}`,
+    `  relay_range_end: ${LIVEKIT_PORTS.turnRelayEnd}`,
     "redis:",
     // ADR 0010 D-6: Valkey は cluster-mode-disabled の単一ノードに切替えた。
     // 単一クライアントモード (redis.NewClient) で接続するため `address` を使う。
