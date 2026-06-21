@@ -1,6 +1,6 @@
 # 次セッション用 Claude Code プロンプト集
 
-> R12 完了 (2026-06-21) 後の優先順位は [`NEXT_WORK.md`](./NEXT_WORK.md) 冒頭参照。
+> R12 残 + R15/R16/R17 admin-web 完了 (2026-06-21) 後の優先順位は [`NEXT_WORK.md`](./NEXT_WORK.md) と [`NEXT_SESSION.md`](./NEXT_SESSION.md) 冒頭参照。
 > 本ファイルは **次セッションでそのままコピペして Claude Code に渡せる形式** のプロンプト集。
 > 1 プロンプト = 1 PR を想定。 着手前に最新の main を pull してブランチを切ること。
 
@@ -11,11 +11,25 @@
 3. Claude Code が PR を起票して auto-merge までやる
 4. 実機検証など人手が必要な箇所は Claude Code が依頼を出してくる
 
+## 2026-06-22 時点の優先順位
+
+1. **P-13 (R17-Phase3)**: stage-web 登壇者ビュー右下小窓プレビュー → ADR 0012 完全達成 + 要件 1 完了
+2. **P-14 (R14)**: Egress fileOutputs (S3 録画) → P-01 完了条件の最後
+3. **P-02**: DESIGN.md に KVS WebRTC TURN + composer-template 運用反映
+4. **P-04 (R7)**: 統合テスト CI workflow (1 日規模)
+5. **P-05 (O 系)**: 運用準備
+6. **P-03**: 本番リハーサル
+
+## 完了済み (履歴)
+
+- [P-01] R12 残 → **完了** (PR #119/#120, 2026-06-21)
+- [P-15] R15/R16/R17 admin-web → **完了** (PR #121-#131, 2026-06-21)
+
 ---
 
 ## 🔥 すぐやる
 
-### [P-01] R12 残: YouTube Live RTMP 送出の E2E 検証
+### [P-01] R12 残: YouTube Live RTMP 送出の E2E 検証 (完了: PR #119/#120, 2026-06-21)
 
 **目的**: stage-web → SFU は確立済 (R12-followup-22)。 残るは Egress → YouTube Live RTMP 送出が実機で動くか確認。
 
@@ -351,6 +365,136 @@ N4 (配信前リハーサル機能) を実装してください。 status=draft 
 6. 録画は S3 に出すが prefix を `rehearsals/` にして本番 recordings/ と分離 (lifecycle で 1 日後削除)
 7. PR description にコスト見積もり ($0.05/リハーサル程度)
 ````
+
+---
+
+### [P-13] R17-Phase3: stage-web に登壇者ビュー右下小窓プレビュー (ADR 0012 D-6 残り)
+
+**目的**: ADR 0012 D-6 の stage-web 側を実装し、 要件 1 (プレビュー画面) を完全達成する。
+
+**プロンプト (コピペ用)**:
+
+````
+ADR 0012 R17-Phase3 を実装してください。 admin-web 側のプレビュー (PR #130) は完了済みです。
+stage-web の登壇者ビュー右下に「現在の配信」を picture-in-picture 風の小窓で表示します。
+
+## 前提
+
+- ADR 0012 D-6 (詳細は `docs/decisions/0012-custom-egress-template.md`)
+- admin-web 側 LivePreview: `apps/admin-web/src/components/LivePreview.tsx` を参考にできる
+- 現状の preview-token endpoint は `requireAdmin` (Cognito JWT) で守られている → stage-web からは叩けない
+
+## やること
+
+### 1. control-api に invite token 認証経路の preview-token を追加
+
+実装方針候補 (ADR 0012 末尾参照):
+- (A) `POST /preview-token` (body: { inviteToken }) を新規追加。 invite-service.verify で event.id 解決 → preview-token-service.issue を呼ぶ。 responsability 分離が綺麗
+- (B) `/join` の結果に previewToken を含めて返す。 1 API call で完結だが JoinResult が肥大化
+
+**推奨は (A)**。 既存の `usecases/join.ts` が invite-service.verify を使っているのと同じパターン。
+
+### 2. stage-web に PreviewWindow コンポーネントを新規
+
+- `apps/stage-web/src/components/PreviewWindow.tsx` (新規)
+- 右下に 16:9 / 幅 240px くらいの小窓 (position: fixed, right: 16, bottom: 16, z-index 高め)
+- toggle ボタン (✕ で非表示)
+- iframe で composer-template を埋め込み
+- preview-token は join 後に API call で取得 (controller.client.issuePreviewToken?(eventId, inviteToken))
+
+### 3. stage-web の App.tsx に組み込み
+
+session が確立した後 (= join 成功後) に PreviewWindow を表示。 toggle で開閉。
+
+### 4. runtime config に composerTemplateUrl を追加
+
+- `apps/stage-web/src/config.ts` の RuntimeConfig に composerTemplateUrl を追加
+- `infra/lib/control-plane-stack.ts` の StageWebDeployment の config.json に注入
+
+### 5. テスト + ビルド + PR
+
+- control-api: preview-token-invite.test.ts (invite 認証パス)
+- stage-web: PreviewWindow の最小テスト (mount + toggle)
+- pnpm vp run -r build / test 全 pass
+- PR 起票 + auto-merge + deploy
+
+## 検証
+
+deploy + ECS Task force-new-deployment 後:
+1. stage-web で speaker 入室 + publish
+2. 右下に小窓プレビューが出るか確認
+3. layout 切替 (admin-web から) が stage-web プレビューにも sub-second 反映するか
+4. R17-Phase3 完了で ADR 0012 D-6 全達成 → 要件 1-3 完全達成
+
+## ハマったら
+
+- LiveKit Egress プロトコル罠 (`/memory r12-livekit-fargate-gotchas.md` の罠 11)
+- composer-template 更新後は **CloudFront invalidation + ECS Task force-new-deployment** で Chrome に新 bundle を読ませる必要あり
+````
+
+**完了条件**:
+- stage-web の登壇者ビュー右下に小窓プレビューが表示される
+- layout 切替が stage-web プレビューにも同期される
+- ADR 0012 受け入れ基準 6 達成
+- ADR 0012 D-6 全達成 + 要件 1-3 完全達成のマークを ADR / NEXT_WORK.md に反映
+
+---
+
+### [P-14] R14: Egress fileOutputs (S3 録画ファイル出力)
+
+**目的**: P-01 (R12 残: YouTube Live RTMP 送出) の完了条件のうち未達の S3 録画を実装。
+
+**プロンプト (コピペ用)**:
+
+````
+R14 を実装してください。 LiveKit Egress に fileOutputs (S3 録画) を追加し、 配信終了時に mp4 が ControlPlane の AssetsBucket に保存されるようにします。
+
+## 前提
+
+- 現状の `services/control-api/src/lambda.ts:178-187` は `StreamOutput` (RTMP) のみ
+- SFU TaskRole は既に S3 PutObject 権限を持つ (ADR 0010 D-5 で `recordings/*` プレフィックス)
+- ControlPlane の AssetsBucket = `recordingsBucketName` env で event-media-stack に渡す経路は既存
+
+## やること
+
+1. `services/control-api/src/lambda.ts` の startRoomCompositeEgress 呼び出しに file output を追加:
+
+   ```ts
+   const recordingsBucketName = env.RECORDINGS_BUCKET_NAME;
+   const info = await client.startRoomCompositeEgress(
+     roomName,
+     {
+       stream: new sdk.StreamOutput({ ... }),
+       ...(recordingsBucketName ? {
+         file: new sdk.EncodedFileOutput({
+           filepath: `recordings/${eventId}/{egress_id}.mp4`,
+           output: { case: "s3", value: new sdk.S3Upload({ bucket: recordingsBucketName, region: "ap-northeast-1" }) },
+         }),
+       } : {}),
+     },
+     { layout: "grid" },
+   );
+   ```
+
+2. ControlPlane の ControlApiFunction の env に `RECORDINGS_BUCKET_NAME` を追加 (既存 RenderTemplateFunction には注入済みだが、 ControlApiFunction にもバケット名を渡す)
+
+3. existing artifact-download.ts は既に S3 から `recordings/*` を listing する実装があるので、 admin-web の「成果物」一覧に自動的に表示される
+
+4. test + build + PR + deploy + 検証
+
+## 検証
+
+1. 既存 live event で stage-web 入室 → publish → Egress 起動 → YouTube 確認
+2. admin-web から「配信終了」で event を ended
+3. reconcile が EventMediaStack を destroy する直前に Egress も終了 → S3 に mp4 アップロード
+4. admin-web の EventDetail で「成果物」一覧を更新 → recording が表示される
+5. ダウンロード URL をクリックして再生確認
+````
+
+**完了条件**:
+- 配信終了で `recordings/{eventId}/{egressId}.mp4` が S3 に保存される
+- admin-web の「成果物」一覧に表示 + ダウンロード可能
+- NEXT_WORK.md R14 行を ✅ に
 
 ---
 
