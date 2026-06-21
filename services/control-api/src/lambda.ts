@@ -14,6 +14,7 @@ import {
 } from "./auth/admin-auth.js";
 import { DefaultLiveKitTokenMinter, type LiveKitTokenMinter } from "./auth/livekit-minter.js";
 import { buildControlApi } from "./factory.js";
+import { createKvsIceServerProvider } from "./ice/kvs-provider.js";
 import type { App } from "./http/app.js";
 import {
   createSettingsService,
@@ -124,6 +125,11 @@ export async function buildControlApiFromEnv(options: BuildFromEnvOptions = {}):
   // どちらかが欠ければ HTTP 層が 503 を返す。
   const egressStarter = resolveEgressStarter(env, secrets);
   const streamKeyResolver = resolveStreamKeyResolver(env, secrets);
+  // R12-followup-19: KVS_SIGNALING_CHANNEL_ARN があれば KVS WebRTC TURN provider を構築。
+  // 無ければ undefined → /join は iceServers field を返さない (stage-web 側で SFU 直接 UDP に fallback)。
+  const iceServerProvider = env.KVS_SIGNALING_CHANNEL_ARN
+    ? createKvsIceServerProvider({ channelArn: env.KVS_SIGNALING_CHANNEL_ARN })
+    : undefined;
 
   return buildControlApi({
     inviteSecret,
@@ -132,6 +138,7 @@ export async function buildControlApiFromEnv(options: BuildFromEnvOptions = {}):
     settings,
     egressStarter,
     streamKeyResolver,
+    ...(iceServerProvider ? { iceServerProvider } : {}),
   });
 }
 

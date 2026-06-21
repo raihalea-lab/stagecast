@@ -31,6 +31,7 @@ import {
   aws_budgets as budgets,
   aws_sns_subscriptions as snsSubscriptions,
   aws_ec2 as ec2,
+  aws_kinesisvideo as kinesisvideo,
 } from "aws-cdk-lib";
 import type { Construct } from "constructs";
 
@@ -302,6 +303,24 @@ export class ControlPlaneStack extends Stack {
       removalPolicy: RemovalPolicy.DESTROY,
     });
 
+    // --- KVS WebRTC Signaling Channel (R12-followup-19 / ADR 0011 案 E) ---
+    // Amazon Kinesis Video Streams WebRTC が提供する TURN/STUN サーバを利用する。
+    // - Signaling Channel を 1 つ作って全イベント共有 (リソースは月額 $0.03 + TURN 使用分のみ)。
+    // - control-api の /join handler が `GetSignalingChannelEndpoint` → `GetIceServerConfig` で
+    //   短期 credential 付きの iceServers を取得し、 stage-web に渡す。
+    // - クライアント (Chrome) が `rtcConfig.iceServers` として直接使う → LiveKit Server の
+    //   内蔵 TURN / rtc.turn_servers は使わない (R12-followup-10〜18 を撤回)。
+    const kvsSignalingChannel = new kinesisvideo.CfnSignalingChannel(
+      this,
+      "WebRtcSignalingChannel",
+      {
+        name: "stagecast-turn",
+        type: "SINGLE_MASTER",
+        // MessageTtlSeconds は signaling 用 (今回 TURN だけ使うので最小値で OK)。
+        messageTtlSeconds: 60,
+      },
+    );
+
     // --- 制御 API: API Gateway (HTTP API) + Lambda (DESIGN.md 3.1, T5) ---
     // @stagecast/control-api の handler を NodejsFunction で esbuild バンドル。
     // @aws-sdk/* は Lambda Node.js 24 ランタイム提供分を external 化してサイズを抑える。
@@ -335,6 +354,8 @@ export class ControlPlaneStack extends Stack {
         LIVEKIT_SECRET_ARN: livekitSecret.secretArn,
         // 運用設定 (LiveKit / YouTube) を管理画面から更新できるようにする。
         YOUTUBE_SECRET_ARN: youtubeSecret.secretArn,
+        // R12-followup-19: KVS WebRTC TURN を取得するために Channel ARN を渡す。
+        KVS_SIGNALING_CHANNEL_ARN: kvsSignalingChannel.attrArn,
       },
     });
     metadataTable.grantReadWriteData(controlApiFn);
@@ -342,6 +363,18 @@ export class ControlPlaneStack extends Stack {
     inviteTokenSecret.grantRead(controlApiFn);
     livekitSecret.grantRead(controlApiFn);
     youtubeSecret.grantRead(controlApiFn);
+    // R12-followup-19: control-api が /join で KVS から TURN credential を取得するための権限。
+    // - GetSignalingChannelEndpoint: HTTPS endpoint を取得 (リージョン毎、 1 回呼べばキャッシュ可)
+    // - GetIceServerConfig: 上記 endpoint に対して呼ぶ。 iceServers (URL + username + credential) を返す
+    controlApiFn.addToRolePolicy(
+      new iam.PolicyStatement({
+        actions: [
+          "kinesisvideo:GetSignalingChannelEndpoint",
+          "kinesisvideo:GetIceServerConfig",
+        ],
+        resources: [kvsSignalingChannel.attrArn],
+      }),
+    );
     // 管理画面からの設定更新 (PUT /settings/*) 用に、対象 2 Secret に限定して
     // PutSecretValue だけを許可する (ADR D-10)。grantWrite は UpdateSecret も付くため
     // 使わず、値書き込み専用の PolicyStatement で最小権限にする。

@@ -19,7 +19,7 @@ import type {
 import { createEventService } from "./usecases/events.js";
 import { createInviteService } from "./usecases/invites.js";
 import { createPresentationService } from "./usecases/presentation.js";
-import { createJoinService } from "./usecases/join.js";
+import { createJoinService, type IceServerProvider } from "./usecases/join.js";
 import {
   createEgressService,
   type EgressStarter,
@@ -59,6 +59,8 @@ export interface FactoryConfig {
   egressStarter?: EgressStarter;
   /** YouTube ストリームキーを解決するアダプタ (R12)。egressStarter と組み合わせて使う。 */
   streamKeyResolver?: StreamKeyResolver;
+  /** R12-followup-19: ICE 用 TURN を取得する provider (本番 = KVS, テスト = fake)。 */
+  iceServerProvider?: IceServerProvider;
   now?: () => number;
   newId?: () => string;
 }
@@ -106,6 +108,7 @@ export function buildControlApi(config: FactoryConfig = {}) {
     events,
     minter: config.livekitMinter ?? livekitFromEnv(),
     newIdentity: newId,
+    ...(config.iceServerProvider ? { iceServerProvider: config.iceServerProvider } : {}),
   });
 
   // 素材アップロード署名: 注入 > ASSETS_BUCKET_NAME から S3 実装 > 無効 (503)。

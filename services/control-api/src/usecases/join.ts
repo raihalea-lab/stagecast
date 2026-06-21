@@ -15,6 +15,23 @@ import type { LiveKitTokenMinter } from "../auth/livekit-minter.js";
 
 type InviteService = ReturnType<typeof createInviteService>;
 
+/**
+ * R12-followup-19 / ADR 0011 案 E: WebRTC ICE 用の TURN/STUN server。
+ * クライアント (stage-web) が `rtcConfig.iceServers` に渡して、 LiveKit Server からの iceServers を bypass する。
+ * AWS KVS WebRTC (Amazon Kinesis Video Streams) が短期 credential 付きで配信する想定。
+ */
+export interface IceServer {
+  urls: string[];
+  username?: string;
+  credential?: string;
+}
+
+/** ICE サーバ取得の抽象 (本番 = KVS API 呼び出し、 テスト = fake)。 */
+export interface IceServerProvider {
+  /** participant の identity 単位で発行 (KVS の場合 5 分有効 URL+credential が返る)。 */
+  resolve(input: { participantIdentity: string }): Promise<IceServer[]>;
+}
+
 export type JoinResult =
   | {
       ok: true;
@@ -24,6 +41,8 @@ export type JoinResult =
       identity: string;
       livekitUrl: string;
       livekitToken: string;
+      /** R12-followup-19: stage-web が Room.connect の rtcConfig.iceServers にセットする TURN/STUN。 */
+      iceServers?: IceServer[];
     }
   | { ok: false; reason: string };
 
@@ -65,8 +84,10 @@ export function createJoinService(deps: {
   minter?: LiveKitTokenMinter;
   newIdentity: () => string;
   ttlSec?: number;
+  /** R12-followup-19: KVS WebRTC で TURN credential を取得する provider (未指定なら iceServers を返さない)。 */
+  iceServerProvider?: IceServerProvider;
 }) {
-  const { invites, events, minter, newIdentity } = deps;
+  const { invites, events, minter, newIdentity, iceServerProvider } = deps;
   const ttlSec = deps.ttlSec ?? 60 * 60 * 6;
 
   async function join(token: string, displayName?: string): Promise<JoinResult> {
@@ -93,6 +114,16 @@ export function createJoinService(deps: {
       ttlSec,
       name: sanitizeDisplayName(displayName),
     });
+    // R12-followup-19: TURN credential 取得は best-effort。 失敗してもイベント参加はさせる
+    // (公衆 WiFi の cone NAT 等では SFU 直接 UDP で通る可能性があるため)。
+    let iceServers: IceServer[] | undefined;
+    if (iceServerProvider) {
+      try {
+        iceServers = await iceServerProvider.resolve({ participantIdentity: identity });
+      } catch {
+        // 失敗ログは provider 実装側 (KVS adapter) で出す想定。 ここでは握って続行。
+      }
+    }
     return {
       ok: true,
       eventId: verified.eventId,
@@ -101,6 +132,7 @@ export function createJoinService(deps: {
       identity,
       livekitUrl: event.media.livekitUrl,
       livekitToken,
+      ...(iceServers && iceServers.length > 0 ? { iceServers } : {}),
     };
   }
 
