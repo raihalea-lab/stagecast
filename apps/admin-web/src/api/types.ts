@@ -36,6 +36,14 @@ export interface EgressStartResult {
   rtmpUrl: string;
 }
 
+/** Admin LiveKit Token 発行結果 (R16, ADR 0012 D-4)。 */
+export interface AdminTokenResult {
+  livekitUrl: string;
+  livekitToken: string;
+  identity: string;
+  room: string;
+}
+
 export interface ControlApiClient {
   listEvents(): Promise<EventDefinition[]>;
   createEvent(input: CreateEventInput): Promise<EventDefinition>;
@@ -48,6 +56,9 @@ export interface ControlApiClient {
 
   /** Egress (RTMP 送出) を起動する (R12, ADR 0006 D-4)。 */
   startEgress(eventId: string): Promise<EgressStartResult>;
+
+  /** Admin LiveKit token を発行する (R16, ADR 0012 D-4: admin-web が layout 切替を broadcast 用)。 */
+  issueAdminToken(eventId: string): Promise<AdminTokenResult>;
 
   getPresentation(eventId: string): Promise<PresentationState>;
   setSpeakerVisibility(

@@ -19,6 +19,7 @@ import type { createPresentationService } from "../usecases/presentation.js";
 import { ServiceUnavailableError, type createJoinService } from "../usecases/join.js";
 import type { createAssetUploadService } from "../assets/asset-upload.js";
 import type { createArtifactDownloadService } from "../assets/artifact-download.js";
+import type { AdminTokenService } from "../usecases/admin-token.js";
 import type { EgressService } from "../usecases/egress.js";
 import type { SettingsService } from "../usecases/settings.js";
 
@@ -56,12 +57,25 @@ export interface AppDeps {
   settings?: SettingsService;
   /** Egress (RTMP 送出) 起動サービス (R12)。未設定なら省略され 503。 */
   egress?: EgressService;
+  /** Admin LiveKit token 発行 (R16 / ADR 0012 D-4: admin-web layout 切替用)。未設定なら省略され 503。 */
+  adminToken?: AdminTokenService;
 }
 
 const json = (status: number, body: unknown): HttpResponse => ({ status, body });
 
 export function createApp(deps: AppDeps) {
-  const { auth, events, invites, presentation, join, assets, artifacts, settings, egress } = deps;
+  const {
+    auth,
+    events,
+    invites,
+    presentation,
+    join,
+    assets,
+    artifacts,
+    settings,
+    egress,
+    adminToken,
+  } = deps;
 
   async function requireAdmin(req: HttpRequest): Promise<void> {
     await auth.verify(req.headers["authorization"] ?? req.headers["Authorization"]);
@@ -175,6 +189,15 @@ export function createApp(deps: AppDeps) {
         //          event.youtube.rtmpUrl と event.youtube.streamKeyRef が設定済み。
         if (!egress) throw new ServiceUnavailableError("egress not configured");
         return json(202, await egress.start(eventId));
+      } else if (
+        segments[2] === "admin-token" &&
+        segments.length === 3 &&
+        req.method === "POST"
+      ) {
+        // R16 / ADR 0012 D-4: 管理者用 LiveKit token を払い出す (admin-web が layout 切替を
+        // data channel で broadcast するための room 接続トークン)。 認証は requireAdmin で完了済。
+        if (!adminToken) throw new ServiceUnavailableError("admin token service not configured");
+        return json(201, await adminToken.issue(eventId));
       }
     }
 

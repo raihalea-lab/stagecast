@@ -11,6 +11,7 @@ import type {
   IssuedInvite,
 } from "../api/types.js";
 import { toErrorMessage } from "../lib/errors.js";
+import { LayoutControl } from "./LayoutControl.js";
 
 export function EventDetail(props: {
   event: EventDefinition;
@@ -109,6 +110,12 @@ export function EventDetail(props: {
           </p>
         )}
       </div>
+
+      {/* R16 / ADR 0012 D-4: live イベント + media 確定後は layout 切替 UI を表示する。
+          composer-template (Egress) に data channel で broadcast → sub-second で反映される。 */}
+      {event.status === "live" && event.media?.livekitUrl && (
+        <LayoutControl eventId={event.id} client={client} />
+      )}
 
       <h3>素材</h3>
       <label>

@@ -12,6 +12,7 @@
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { Composer } from "./Composer.js";
+import { ALL_LAYOUTS, type LayoutKind } from "@stagecast/shared";
 import "./styles.css";
 
 const rootEl = document.getElementById("root");
@@ -22,7 +23,11 @@ const token = params.get("token");
 const url = params.get("url");
 // layout は admin-web からの data channel 受信で動的に切替可能だが、 初期値は
 // URL パラメータから取る (LiveKit Egress が template URL を組み立てるときに渡す)。
-const initialLayout = (params.get("layout") ?? "grid") as "grid";
+// 不正値 (LiveKit Egress が新しい layout を勝手に送る場合に備えて) は grid に fallback。
+const rawLayout = params.get("layout") ?? "grid";
+const initialLayout: LayoutKind = ALL_LAYOUTS.includes(rawLayout as LayoutKind)
+  ? (rawLayout as LayoutKind)
+  : "grid";
 
 if (!token || !url) {
   // Egress の Chrome は invalid URL でもクラッシュしないように、 エラー画面で fallback。

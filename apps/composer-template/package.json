@@ -12,6 +12,7 @@
     "clean": "rm -rf dist"
   },
   "dependencies": {
+    "@stagecast/shared": "workspace:*",
     "livekit-client": "^2.19.2",
     "react": "^19.2.7",
     "react-dom": "^19.2.7"

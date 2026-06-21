@@ -203,3 +203,53 @@ code {
   font-size: 0.9em;
   margin: 8px 0;
 }
+
+/* R16: layout control (admin-web → composer-template data channel broadcast) */
+.layout-control {
+  margin: 16px 0;
+  padding: 12px 16px;
+  border: 1px solid #ddd;
+  border-radius: 8px;
+  background: #f8f9fa;
+}
+.layout-control h3 {
+  margin: 0 0 8px 0;
+  font-size: 1em;
+}
+.layout-control-status {
+  margin: 4px 0 8px 0;
+  font-size: 0.9em;
+}
+.layout-control-status .ok {
+  color: #228822;
+}
+.layout-control-status .error {
+  color: #cc2222;
+}
+.layout-control-buttons {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.layout-control-buttons button {
+  padding: 6px 12px;
+  border: 1px solid #bbb;
+  border-radius: 4px;
+  background: #fff;
+  cursor: pointer;
+  font-size: 0.9em;
+}
+.layout-control-buttons button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.layout-control-buttons button.active {
+  background: #1f3a93;
+  color: #fff;
+  border-color: #1f3a93;
+}
+.layout-control-hint {
+  font-size: 0.8em;
+  color: #666;
+  margin: 8px 0 0 0;
+}
