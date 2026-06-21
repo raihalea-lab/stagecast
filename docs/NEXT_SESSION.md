@@ -1,19 +1,29 @@
-# 次セッション開始ガイド (2026-06-21 R12 完了直後)
+# 次セッション開始ガイド (2026-06-22 R17 admin-web 完了直後)
 
-> このドキュメントは前セッション (R12-followup-22 + cleanup PR #115 マージ済) の引継ぎ。
+> このドキュメントは前セッション (R12 残 + R15/R16/R17 admin-web 完了、 計 15 PR マージ) の引継ぎ。
 > 次の Claude Code セッション開始時に **冒頭のプロンプト (§3) をそのまま貼り付け** て自走させる想定。
 
 ---
 
-## 1. 現状サマリ (2026-06-21 時点)
+## 1. 現状サマリ (2026-06-22 時点)
 
 ### 完了済み
 
-- **R12 (stage-web → LiveKit SFU 入室成功)** ✅
-- ADR 0011 案 E: TURN を **AWS KVS WebRTC** に外出し、 stage-web の `rtcConfig.iceServers` 直接設定で確実な NAT 越え
-- LiveKit Server (v1.13.1, ARM64 Fargate) + Egress sidecar + caption-worker は維持
-- LiveKit 内蔵 TURN / coturn sidecar は採用せず (R12-followup-10〜18 は撤回済)
-- 詳細は [ADR 0011](./decisions/0011-livekit-ice-fargate-config.md), [NEXT_WORK.md](./NEXT_WORK.md) R12-followup-22 行参照
+- **R12 (YouTube Live RTMP 送出 E2E)** ✅ (PR #119/#120)
+  - Egress LNA / mixed content 問題を `insecure: true` で解決 (ADR 0010 D-7)
+- **ADR 0012 起票** ✅ (PR #121): カスタム Egress テンプレートの全体方針
+- **R15 (composer-template + 待機画面)** ✅ (PR #122-#126)
+  - React + Vite で composer-template 新規実装、 S3+CloudFront ホスティング
+  - 待機画面 (publishing 0 人時の fallback) で要件 3 達成
+  - 4 件の followup (START_RECORDING シグナル / mute-unmute 再 attach / カメラ+画面共有並列)
+- **R16 (admin-web layout 切替 UI + 4 layouts)** ✅ (PR #127-#129)
+  - grid / spotlight / pip / screen-share-main の 4 layouts
+  - admin-web から LiveKit data channel で broadcast → sub-second 反映
+  - 要件 2 達成
+- **R17 admin-web プレビュー** ✅ (PR #130/#131)
+  - `/events/{id}/preview-token` (viewer role) 追加
+  - LivePreview iframe で composer-template を埋め込み
+  - 要件 1 の admin-web 部分達成
 
 ### 動作中の構成
 
@@ -23,56 +33,76 @@
 | ControlPlane Stack | `StagecastControlPlane` |
 | admin-web | https://dXXXXXXXX.cloudfront.net |
 | stage-web | https://dXXXXXXXX.cloudfront.net |
+| composer-web | https://dcxk8k5d51220.cloudfront.net |
 | control-api | https://68p7p25j1a.execute-api.ap-northeast-1.amazonaws.com |
 | Cognito UserPool | `ap-northeast-1_BxiekyXuK` |
 | KVS Signaling Channel | `stagecast-turn` (月 $0.03) |
 | Invite Token Secret | `stagecast/invite-token-secret-7lP2SZ` |
-| LiveKit Secret | `stagecast/livekit-9IE5eH` (apiKey/apiSecret/livekitKeys) |
+| LiveKit Secret | `stagecast/livekit-9IE5eH` |
+| YouTube Secret | `stagecast/youtube-CSMIPL` |
 | DynamoDB Table | `StagecastControlPlane-MetadataTable30E05F1F-L3CN4XJPLUE1` |
+
+### ユーザー要件の進捗 (ADR 0012)
+
+| 要件 | 状況 |
+|---|---|
+| 1. 登壇者・管理者・スピーカーが現在の画面を確認できる | admin-web ✅ / stage-web は R17-Phase3 残 |
+| 2. 管理者がレイアウトを調整できる | ✅ R16 |
+| 3. 誰も投影してなくても何かしらの配信が続いている | ✅ R15 (イベント中 fallback)、 365日24h は R18 別 ADR |
 
 ---
 
 ## 2. 次にやるべきタスク (優先度順)
 
-### 2-1. 最優先: YouTube Live RTMP 送出の E2E 検証
+### 2-1. 最優先: R17-Phase3 (stage-web 登壇者ビュー右下小窓プレビュー)
 
-R12 はクライアント入室まで完了。 残りは「Egress → YouTube Live への RTMP 送出 → 録画 S3 保存」の動作確認。
+ADR 0012 D-6 の残り。 要件 1 を完全達成する。
 
-- 関連実装: R12 PR #78 (control-api / admin-web / Egress 配線済、 YouTube ストリームキー管理画面投入済)
-- 関連 ADR: [0010](./decisions/0010-livekit-egress-sidecar.md) (Egress sidecar 同居)
-- 検証手順:
-  1. admin-web で YouTube ストリームキーを設定 (`PUT /settings/youtube`)
-  2. 新規イベント作成 → live → 招待 URL 発行 → 入室 → publish (映像/音声)
-  3. admin-web から「録画/配信開始」ボタン (もしくは control-api `POST /events/{id}/egress`)
-  4. YouTube Live Studio で配信受信を確認
-  5. 配信終了後、 S3 (`recordings/{eventId}/`) に録画ファイルが置かれるか確認
+**実装方針候補** (ADR 0012 末尾に記載):
+- (A) `POST /preview-token` (body: { inviteToken }) を新規追加 → invite-service.verify で event.id 解決 → preview-token-service.issue
+- (B) `/join` の結果に previewToken を含めて返す (1 API call で完結、 ただし JoinResult が肥大化)
 
-### 2-2. DESIGN.md に KVS WebRTC TURN 運用を反映
+(A) が責務分離的に望ましい。 (B) はリクエスト数最小化したい場合。
 
-設計の正である `DESIGN.md` に ADR 0011 案 E の決定を反映。
+**実装範囲**:
+- control-api: `POST /preview-token` 新規 endpoint + invite token 認証
+- stage-web: `App.tsx` の session 表示部分に PiP 風の小窓 (右下、 16:9、 toggleable)
+- preview-token の API call、 iframe で composer-template 表示
+- 既存の `apps/admin-web/src/components/LivePreview.tsx` を参考にできる
 
-- 3.2 (メディア層) に「NAT 越えは AWS KVS WebRTC TURN を控除」と追記
-- 7.2 (コスト) に KVS Signaling Channel 月 $0.03 + TURN $0.12/1000 分 を追加
-- 9 章 (アーキテクチャ図) に控除追加 (図がある場合)
+### 2-2. R14: Egress fileOutputs (S3 録画)
 
-### 2-3. Dependabot PR 整理 (P1 / P2)
+P-01 完了条件の最後の 1 ピース。
 
-[NEXT_WORK.md §P](./NEXT_WORK.md) より:
-- **PR #8**: vite 5.4.21 → 8.0.16 (CI pass / mergeable)
-- **PR #7**: @types/node 24.13.2 → 25.9.3 (CONFLICTING / 要 rebase)
+- `services/control-api/src/lambda.ts:178-187` の `startRoomCompositeEgress` 呼び出しに `file: new sdk.EncodedFileOutput({...})` を追加
+- ControlPlane の `AssetsBucket` 配下 `recordings/{eventId}/` プレフィックスに mp4 出力
+- SFU TaskRole は既に S3 PutObject 権限を持つ (ADR 0010 D-5)
+- 完了基準: 配信終了で `recordings/{eventId}/{egressId}.mp4` が S3 に保存 + admin-web の「成果物」一覧に表示
 
-```bash
-gh pr merge 8 --merge --delete-branch
-gh pr update-branch 7 && gh pr merge 7 --merge --delete-branch
-```
+### 2-3. P-02: DESIGN.md に KVS WebRTC TURN 運用反映
 
-### 2-4. memory `r12-livekit-fargate-gotchas.md` の見直し (任意)
+ADR 0011 案 E + ADR 0010 D-7 + ADR 0012 の内容を DESIGN.md に本文化。
 
-R12 完了で「踏破済の 10 罠」になっている。 過去履歴として残してよいが、 もし新規開発者向けに整理し直すなら ADR 0011 に集約済の情報と重複が出始める。 メモリは「経緯」、 ADR は「決定」の役割分担で OK。
+- 3.2 章 (メディア層): TURN レイヤー + composer-template 追記
+- 7.2 章 (常時稼働): KVS Signaling Channel + ComposerWebDistribution 追記
+- 8 章 (運用): KVS WebRTC 関連の監視ポイント追記
+- 4.1 章 (制御 API): `/admin-token` / `/preview-token` を追記
+- 5.2 章 (stage-web): rtcConfig.iceServers 直接設定の流れ
+- ADR 0011 / ADR 0012 への参照リンクを本文化
 
-### 2-5. その他 (NEXT_WORK.md の D / N / L カテゴリ)
+### 2-4. P-04: R7 統合テスト CI workflow
 
-R12 完了で R カテゴリ (メディア層実体化) はほぼクローズ。 残: D / N / L カテゴリは `docs/NEXT_WORK.md` を参照して着手。
+GH Actions で「event 作成 → stage-web 自動入室 → Egress 起動 → YouTube 受信確認」を自動化。 SLO 観測込み。 大規模 PR (1 日以上)。
+
+### 2-5. R18: 365 日 24h 配信 (将来)
+
+DESIGN.md N-1 (常時稼働リソースなし) と矛盾するため別 ADR で議論。
+候補: 常時 ffmpeg loop + S3 mp4 / LiveKit Standby Room / EventBridge Schedule。
+
+### 2-6. Dependabot PR 整理 (P1 / P2)
+
+- **PR #8**: vite 5.4.21 → 8.0.16
+- **PR #7**: @types/node 24.13.2 → 25.9.3
 
 ---
 
@@ -81,64 +111,66 @@ R12 完了で R カテゴリ (メディア層実体化) はほぼクローズ。
 **コピペで Claude Code に貼り付けてください**:
 
 ````
-stagecast プロジェクトの開発を続けます。 前回 R12 (LiveKit + AWS KVS WebRTC TURN で stage-web 入室成功) が完了したところです。
+stagecast プロジェクトの開発を続けます。 前セッション (2026-06-21) で R12 残 +
+ADR 0012 (R15/R16/R17 admin-web) まで完了したところです。 計 15 PR マージ。
 
 ## 引継ぎ
 
 以下を読んでから作業開始:
 - @docs/NEXT_SESSION.md (このプロンプトの出所)
 - @docs/NEXT_WORK.md (タスク全体)
-- @docs/decisions/0011-livekit-ice-fargate-config.md (LiveKit + Fargate の決定)
-- /memory r12-livekit-fargate-gotchas.md (踏破済の 10 罠)
+- @docs/NEXT_SESSION_PROMPTS.md (各タスクのコピペプロンプト集)
+- @docs/decisions/0012-custom-egress-template.md (R15/R16/R17 の決定)
+- /memory r12-livekit-fargate-gotchas.md (Fargate + LiveKit 罠 11 件)
 
 ## やってほしいこと
 
-[ここに具体的なタスクを書く。例:]
+[ここに具体的なタスクを書く。 例:]
 
-(例 A) docs/NEXT_SESSION.md §2-1 (YouTube Live RTMP 送出の E2E 検証) を進めて。 admin-web からの操作が必要なら都度依頼して。
+(例 A) docs/NEXT_SESSION_PROMPTS.md の P-13 (R17-Phase3) を進めて。
+       stage-web に登壇者ビュー右下小窓プレビューを追加する。
 
-(例 B) docs/NEXT_SESSION.md §2-2 (DESIGN.md に KVS WebRTC TURN 運用を反映) を進めて。 ADR 0011 案 E を引用しながら 3.2 / 7.2 / 9 章を更新する。
+(例 B) docs/NEXT_SESSION_PROMPTS.md の P-14 (R14) を進めて。
+       Egress に fileOutputs (S3 録画) を追加する。
 
-(例 C) docs/NEXT_SESSION.md §2-3 (Dependabot P1/P2) を片付けて。 conflict は rebase で解消。
+(例 C) docs/NEXT_SESSION_PROMPTS.md の P-02 を進めて。
+       DESIGN.md に KVS WebRTC TURN + composer-template 運用を反映する。
 
 ## 注意事項
 
 - 新規ブランチは main から派生 (`git switch -c claude/<feature-slug>`)
 - コミット/PR タイトルは日本語 1 行 + Conventional Commits prefix (`feat:` / `fix:` / `chore:` / `docs:` etc.)
-- deploy 必要時は `cdk deploy StagecastControlPlane -c mediaHostedZoneName=aws.example.com -c budgetMonthlyUsd=30 -c budgetEmail=ops@example.com -c initialAdmins=ops@example.com --require-approval never` を使う (context 省略すると既存リソースが削除される diff になる、注意)
+- deploy 必要時は `cdk deploy StagecastControlPlane -c mediaHostedZoneName=aws.example.com -c budgetMonthlyUsd=30 -c budgetEmail=ops@example.com -c initialAdmins=ops@example.com --require-approval never` を使う (context 省略すると既存リソース消える diff、 注意)
 - AWS session 期限切れたら `aws login` を依頼
-- 私 (ユーザー) のブラウザ操作が必要な場合は明示的に依頼。 control-api を直接叩く必要があれば下記の Quick reference を使う
+- 私 (ユーザー) のブラウザ操作が必要な場合は明示的に依頼
+- composer-template の更新は CloudFront cache invalidation + ECS Task force-new-deployment (`aws ecs update-service --cluster stagecast-event-<id> --service sfu --force-new-deployment`) で Chrome に新 bundle 読ませる
 - `--no-verify` で pre-push hook を skip しない (CLAUDE.md 規約)
 - auto-merge は CLAUDE.md 規約どおり `gh pr merge --auto --merge --delete-branch` を使う
 
 ## Quick reference
 
-### 招待 URL 生成 (curl で control-api を叩く想定)
+### 招待 URL 生成 (stage-web)
 
 ```bash
-node -e '
+EVENT_ID=<event-id>
+SECRET=$(aws secretsmanager get-secret-value --secret-id stagecast/invite-token-secret --query SecretString --output text | node -e 'let d=""; process.stdin.on("data",c=>d+=c).on("end",()=>console.log(JSON.parse(d).secret))')
+JTI=$(node -e "console.log(require('node:crypto').randomUUID())")
+aws dynamodb put-item --table-name StagecastControlPlane-MetadataTable30E05F1F-L3CN4XJPLUE1 \
+  --item "{\"pk\":{\"S\":\"INVITE#$JTI\"},\"sk\":{\"S\":\"META\"},\"type\":{\"S\":\"invite\"},\"gsi1pk\":{\"S\":\"INVITE#$EVENT_ID\"},\"gsi1sk\":{\"S\":\"$JTI\"},\"jti\":{\"S\":\"$JTI\"},\"eventId\":{\"S\":\"$EVENT_ID\"},\"role\":{\"S\":\"speaker\"},\"currentVersion\":{\"N\":\"1\"},\"revoked\":{\"BOOL\":false}}" > /dev/null
+SECRET="$SECRET" EVENT_ID="$EVENT_ID" JTI="$JTI" node -e '
 const crypto = require("node:crypto");
-const SECRET = "<<aws secretsmanager get-secret-value --secret-id stagecast/invite-token-secret --query SecretString --output text | jq -r .secret>>";
-const EVENT_ID = "<event-id>";
-const jti = crypto.randomUUID();
 const iat = Math.floor(Date.now() / 1000);
-const exp = iat + 3600;
-const payload = { jti, eventId: EVENT_ID, role: "speaker", iat, exp, version: 1 };
+const payload = { jti: process.env.JTI, eventId: process.env.EVENT_ID, role: "speaker", iat, exp: iat + 3600, version: 1 };
 const payloadB64 = Buffer.from(JSON.stringify(payload)).toString("base64url");
-const sig = crypto.createHmac("sha256", SECRET).update(payloadB64).digest("base64url");
-console.log("URL=https://dXXXXXXXX.cloudfront.net/join?token=" + encodeURIComponent(`${payloadB64}.${sig}`));
-console.log("JTI=" + jti);
+const sig = crypto.createHmac("sha256", process.env.SECRET).update(payloadB64).digest("base64url");
+console.log("URL=https://dXXXXXXXX.cloudfront.net/join?token=" + encodeURIComponent(payloadB64 + "." + sig));
 '
-
-# DynamoDB に invite item を put することも忘れない:
-# aws dynamodb put-item --table-name StagecastControlPlane-MetadataTable30E05F1F-L3CN4XJPLUE1 \
-#   --item '{"pk":{"S":"INVITE#<jti>"},"sk":{"S":"META"},"type":{"S":"invite"},"gsi1pk":{"S":"INVITE#<event-id>"},"gsi1sk":{"S":"<jti>"},"jti":{"S":"<jti>"},"eventId":{"S":"<event-id>"},"role":{"S":"speaker"},"currentVersion":{"N":"1"},"revoked":{"BOOL":false}}'
 ```
 
-### 新規イベント作成 (DynamoDB 直接)
+### 新規 live event 作成 (youtube 設定込み)
 
 ```bash
-NEW_ID=$(node -e "console.log(crypto.randomUUID())")
+NEW_ID=$(node -e "console.log(require('node:crypto').randomUUID())")
 NOW_MS=$(node -e "console.log(Date.now())")
 NOW_ISO=$(node -e "console.log(new Date().toISOString().slice(0,16))")
 aws dynamodb put-item --table-name StagecastControlPlane-MetadataTable30E05F1F-L3CN4XJPLUE1 --item "{
@@ -147,73 +179,110 @@ aws dynamodb put-item --table-name StagecastControlPlane-MetadataTable30E05F1F-L
   \"title\": {\"S\": \"検証\"}, \"status\": {\"S\": \"live\"}, \"liveStatus\": {\"S\": \"live\"},
   \"startsAt\": {\"S\": \"${NOW_ISO}\"},
   \"caption\": {\"M\": {\"engine\": {\"S\": \"transcribe\"}, \"customApiEnabled\": {\"BOOL\": false}, \"languages\": {\"L\": [{\"S\": \"ja\"}, {\"S\": \"en\"}]}, \"youtubeLanguage\": {\"S\": \"ja\"}}},
+  \"youtube\": {\"M\": {\"rtmpUrl\": {\"S\": \"rtmp://a.rtmp.youtube.com/live2\"}, \"streamKeyRef\": {\"S\": \"streamKey\"}}},
   \"gsi1pk\": {\"S\": \"EVENT\"}, \"gsi1sk\": {\"S\": \"${NOW_ISO}#$NEW_ID\"},
   \"createdAtMs\": {\"N\": \"$NOW_MS\"}, \"updatedAtMs\": {\"N\": \"$NOW_MS\"}
 }"
+echo "New event: $NEW_ID"
 ```
 
-### 既存 live イベントを ended に
+### 既存 live event を ended に (reconcile が destroy)
 
 ```bash
+EVENT_ID=<event-id>
 NOW_MS=$(node -e "console.log(Date.now())")
 aws dynamodb update-item --table-name StagecastControlPlane-MetadataTable30E05F1F-L3CN4XJPLUE1 \
-  --key '{"pk":{"S":"EVENT#<event-id>"},"sk":{"S":"META"}}' \
-  --update-expression "SET #s = :ended, updatedAtMs = :now REMOVE liveStatus" \
+  --key "{\"pk\":{\"S\":\"EVENT#$EVENT_ID\"},\"sk\":{\"S\":\"META\"}}" \
+  --update-expression "SET #s = :ended, updatedAtMs = :now REMOVE liveStatus, media" \
   --condition-expression "#s = :live" \
   --expression-attribute-names '{"#s":"status"}' \
   --expression-attribute-values "{\":ended\":{\"S\":\"ended\"},\":live\":{\"S\":\"live\"},\":now\":{\"N\":\"$NOW_MS\"}}"
 ```
 
-### SFU debug log を有効化したいとき
+### composer-template 更新後の即時反映
 
-`infra/lib/event-media-stack.ts` の `liveKitServerConfig()` 末尾 `logging.level: info` を `debug` に変更 → PR + deploy。 確認終わったら必ず `info` に戻す。
+```bash
+# 1. ControlPlane deploy (S3 + CloudFront invalidation 自動)
+cd infra && pnpm cdk deploy StagecastControlPlane ... --require-approval never
+
+# 2. SFU Task force-new-deployment (Chrome に新 bundle を読ませる)
+EVENT_ID=<event-id>
+aws ecs update-service --cluster stagecast-event-$EVENT_ID --service sfu --force-new-deployment
+
+# 3. 90s 待って Task replace 完了確認
+sleep 90
+aws ecs describe-services --cluster stagecast-event-$EVENT_ID --services sfu --query "services[0].deployments[].{Status:status,Running:runningCount,Desired:desiredCount}"
+```
 
 ### EventMediaStack ログ取得
 
 ```bash
 EVENT_ID=<event-id>
 LG=$(aws logs describe-log-groups --query "logGroups[?contains(logGroupName, '$EVENT_ID') && contains(logGroupName, 'Logs')].logGroupName" --output text | head -1)
-SFU_TASK=$(aws ecs list-tasks --cluster stagecast-event-$EVENT_ID --service-name sfu --query "taskArns[0]" --output text | awk -F'/' '{print $NF}')
-aws logs get-log-events --log-group-name "$LG" --log-stream-name "Sfu/SfuContainer/$SFU_TASK" --start-from-head --limit 50 --query "events[].message" --output text
+# Egress container ログ
+EGRESS_STREAM=$(aws logs describe-log-streams --log-group-name "$LG" --order-by LastEventTime --descending --limit 10 --query "logStreams[?starts_with(logStreamName, 'Egress/')].logStreamName" --output text)
+aws logs get-log-events --log-group-name "$LG" --log-stream-name "$EGRESS_STREAM" --limit 30 --query "events[].message" --output text | tr '\t' '\n' | tail -30
+```
+
+### Chrome MCP で composer-template の動作確認
+
+```
+mcp__claude-in-chrome__tabs_context_mcp で tab 取得
+→ navigate("https://dcxk8k5d51220.cloudfront.net?layout=grid&token=DUMMY&url=ws%3A%2F%2Flocalhost%3A7880")
+→ read_console_messages で START_RECORDING / エラーを確認
 ```
 
 ````
 
 ---
 
-## 4. R12 で踏んだ「踏んではいけない罠」(memory に集約)
+## 4. 今セッションで踏んだ「踏んではいけない罠」
 
-詳細は `/memory r12-livekit-fargate-gotchas.md` 参照。 サマリ:
+### 4-1. LiveKit Egress プロトコル (R15)
 
-1. `LIVEKIT_CONFIG_BODY` ではなく `LIVEKIT_CONFIG` env で yaml 注入
-2. `use_external_ip: true` は Fargate で panic (削除する)
-3. `--node-ip` を wget で動的注入
-4. `udp_port` と `port_range_*` は同時指定しない (mux mode 単独)
-5. eth0 (169.254/16) link-local は ICE 候補から除外 (`ips.excludes`)
-6. NLB hairpin NAT 不可なので `skip_external_ip_validation: true`
-7. EC2 SG description は ASCII 限定 (日本語 NG)
-8. シンメトリック NAT 越えは TURN 必須
-9. **`ips.excludes` に VPC CIDR を入れると host candidate 0 個になり trickle ICE 不能** (R12-followup-22 で訂正)
-10. **TURN は AWS KVS WebRTC を外出し → stage-web の `rtcConfig.iceServers` 直接設定** (公式 sanctioned)
+LiveKit Egress (`pkg/source/web.go`) は **カスタムテンプレートからの `console.log("START_RECORDING")` を Chrome console event として検出** して GStreamer pipeline を `playing` に遷移させる。 発行しないと `pipeline playing` まで進まず YouTube に何も届かない。
+
+- 公式テンプレート (`template-sdk/src/index.ts` L78) は `startRecording()` ヘルパーで発行
+- 我々は要件 3 (待機画面でも配信継続) のため Room.connect 成功時点で **無条件に即発行**
+- Disconnected で `console.log("END_RECORDING")` も発行
+
+### 4-2. mute/unmute サイクルの track 再 attach (R15)
+
+`adaptiveStream: true` の SFU は mute 時に track を自動 unsubscribe するため:
+- `RoomEvent.TrackSubscribed` / `TrackUnsubscribed` を refresh のトリガーに必須
+- Tile の `useEffect` dependency に **track 参照** (`publication.track`) を含める
+- Chrome autoplay policy で attach 後 `videoRef.current.play().catch(() => {})` 明示呼出
+
+### 4-3. 1 participant = 1 tile は誤り (R15)
+
+`videoTrackPublications.find((t) => !t.isMuted)` は **先頭 1 つだけ**取得するため、 同 participant がカメラ + 画面共有を同時 publish すると画面共有が無視される。 **1 video publication = 1 tile** で並べる (StreamYard 風)。
+
+### 4-4. flex column の絶対高さは Chrome で壊れる (R16)
+
+`display: flex; flex-direction: column` で子要素に `flex: 0 0 80%` (高さ 80%) を指定すると、 Chrome の一部バージョンで Tile の `height: 100%` と組み合わさったときに main 高さが 0 になる。 **`display: grid; gridTemplateRows: "1fr 200px"` + `minHeight: 0`** で確実に展開。 flex row なら問題ない。
+
+### 4-5. shared に DOM lib (R16)
+
+`TextEncoder` / `TextDecoder` は Web 標準 + Node.js globalThis にあるが、 TypeScript の `lib: ["ES2022"]` には含まれない。 `packages/shared/tsconfig.json` に `"DOM"` lib を追加して型解決。
 
 ---
 
-## 5. 補足: R12-followup の試行錯誤履歴
+## 5. 補足: 今セッションの全 PR 一覧
 
-時間軸の参考まで。 詳細はクローズ済 PR の説明文に。
+| PR | カテゴリ | 内容 |
+|---|---|---|
+| #119 | fix | Egress LNA / insecure: true (R12-followup-23) |
+| #120 | chore | R12 cleanup + 完了マーク |
+| #121 | docs | ADR 0012 起票 |
+| #122 | feat | R15 基盤 (composer-template + S3+CloudFront + Egress template_base) |
+| #123 | fix | R15-followup-1: START_RECORDING シグナル |
+| #124 | fix | R15-followup-2: mute/unmute 再 attach |
+| #125 | fix | R15-followup-3: 1 video publication = 1 tile |
+| #126 | docs | R15 完了マーク |
+| #127 | feat | R16 (layout 切替 + 4 layouts + admin-token) |
+| #128 | fix | R16-followup-1: Spotlight flex → grid |
+| #129 | docs | R16 完了マーク |
+| #130 | feat | R17 admin-web (preview-token + LivePreview) |
+| #131 | docs | R17 admin-web 完了マーク |
 
-| Followup | PR | 何を試みた | 結果 |
-|---|---|---|---|
-| 1〜3 | #85 #88 | Egress sidecar + Valkey 切替 | ADR 0010 で確定 |
-| 4 | #90 | `LIVEKIT_CONFIG` env 名修正 | SFU が redis 認識 ✅ |
-| 5 | #91 | `use_external_ip` 削除 | panic 解消 ✅ |
-| 6 | #92 | `--node-ip` 注入 | Public IP 配信 ✅ |
-| 7 | #95 | `udp_port` mux mode 単独化 | 必要 |
-| 8 | #96 | `skip_external_ip_validation` + `169.254/16` excludes | 必要 |
-| 9 | #97 | VPC CIDR を excludes に追加 | **NG**: R12-followup-22 で訂正 |
-| 10〜13 | #100〜#104 | LiveKit 内蔵 TURN (静的→HMAC) | NG: wire に credential 乗らず |
-| 14〜18 | #105〜#109 | coturn sidecar 同居 + sed 注入 | NG: 同上 |
-| **19** | **#110/#111** | **AWS KVS WebRTC TURN 採用** | ✅ |
-| 20 | #111 | Lambda bundle に KVS SDK 含める | 必要 |
-| 21〜22 | #112〜#114 | debug log + VPC CIDR 除去 | **R12 完了** ✅ |
-| cleanup | #115 | debug log → info / ドキュメント最終化 | 完了 |
+合計 13 PR (R12 残 2 + ADR 0012 11)。
