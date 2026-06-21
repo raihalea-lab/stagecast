@@ -82,7 +82,14 @@ export function Composer(props: Props) {
       .on(RoomEvent.TrackPublished, refresh)
       .on(RoomEvent.TrackUnpublished, refresh)
       .on(RoomEvent.TrackMuted, refresh)
-      .on(RoomEvent.TrackUnmuted, refresh);
+      .on(RoomEvent.TrackUnmuted, refresh)
+      // R15-followup-2: TrackSubscribed/Unsubscribed も refresh のトリガーにする。
+      // adaptiveStream: true の SFU は不要なトラックを自動 unsubscribe するため、
+      // mute → unmute サイクルで一度 unsubscribe → 再 subscribe が走るケースがある。
+      // これを refresh で拾わないと publishers state が古い track 参照を保持したまま、
+      // Grid の Tile が再 attach できず video が灰色のままになる。
+      .on(RoomEvent.TrackSubscribed, refresh)
+      .on(RoomEvent.TrackUnsubscribed, refresh);
     // LiveKit Egress sidecar 構成 (ADR 0010 D-2) では url が ws://localhost:7880。
     // Chrome の LNA 制限は ADR 0010 D-7 の `insecure: true` で回避済み。
     room.connect(props.url, props.token).catch((err: unknown) => {

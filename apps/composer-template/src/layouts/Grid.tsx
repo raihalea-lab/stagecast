@@ -50,13 +50,22 @@ function Tile(props: { participant: Participant }) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const audioRef = useRef<HTMLAudioElement>(null);
 
+  // R15-followup-2: track 参照を `useEffect` の dependency に含めて、 mute/unmute 後の
+  // 再 subscribe で track 参照が新しくなった時に再 attach する。 単に
+  // `props.participant` だけを dependency にすると、 同じ participant に対する
+  // track の入れ替えを取りこぼし video が灰色のまま停滞する。
+  const videoPubs = Array.from(props.participant.videoTrackPublications.values());
+  const audioPubs = Array.from(props.participant.audioTrackPublications.values());
+  const videoPub = videoPubs.find((t) => !t.isMuted) as RemoteTrackPublication | undefined;
+  const audioPub = audioPubs.find((t) => !t.isMuted) as RemoteTrackPublication | undefined;
+
   useEffect(() => {
-    const videoPubs = Array.from(props.participant.videoTrackPublications.values());
-    const audioPubs = Array.from(props.participant.audioTrackPublications.values());
-    const videoPub = videoPubs.find((t) => !t.isMuted) as RemoteTrackPublication | undefined;
-    const audioPub = audioPubs.find((t) => !t.isMuted) as RemoteTrackPublication | undefined;
     if (videoPub?.track && videoRef.current) {
       videoPub.track.attach(videoRef.current);
+      // R15-followup-2: Chrome autoplay policy で attach 直後に play() を明示的に呼ぶ必要がある
+      // ケースがある (特に mute → unmute 後の再 attach)。 muted attribute がついてれば
+      // 通常 autoPlay は通るが、 念のため play() を試行 (失敗は無視)。
+      videoRef.current.play().catch(() => {});
     }
     if (audioPub?.track && audioRef.current) {
       audioPub.track.attach(audioRef.current);
@@ -66,9 +75,7 @@ function Tile(props: { participant: Participant }) {
       videoPub?.track?.detach();
       audioPub?.track?.detach();
     };
-    // participant は安定参照 (Composer 側で setPublishers の再計算で同 sid なら同一参照を維持しないが、
-    // useEffect は participant 入れ替わりで再 attach するので不整合は起きない)。
-  }, [props.participant]);
+  }, [videoPub?.track, audioPub?.track]);
 
   return (
     <div
