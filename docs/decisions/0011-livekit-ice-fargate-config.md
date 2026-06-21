@@ -1,7 +1,7 @@
 # ADR 0011: Fargate + NLB 上の LiveKit Server で WebRTC ICE を確立するための設定
 
-- ステータス: Accepted (実機 ICE pair success 検証待ち)
-- 日付: 2026-06-20
+- ステータス: Accepted (2026-06-21 stage-web 入室成功で R12 完了)
+- 日付: 2026-06-20 (初版) / 2026-06-21 (案 E 追加、 D-6 訂正)
 - 関連: `DESIGN.md` 3.2 / 7.2、
   [ADR 0006](./0006-livekit-deployment.md) (LiveKit デプロイの基本構成、本 ADR は D-3 config 注入の具体化),
   [ADR 0009](./0009-livekit-tls-signaling-via-nlb.md) (NLB + ACM での TLS 終端、本 ADR と共存),
@@ -116,6 +116,25 @@ ICE 失敗には複数の根本原因が絡んでいた:
 3. stage-web から `/join` → ICE pair `state: succeeded`
 4. Chrome `chrome://webrtc-internals` で host candidate に `169.254.x.x` も `10.x.x.x` も流れていない
 5. WebRTC メディア (映像/音声) が SFU 経由で配信できる
+
+## D-7. 案 E (採用): TURN を AWS KVS WebRTC に外出し (R12-followup-19〜22)
+
+D-1〜D-6 で SFU は起動するが、 シンメトリック NAT 越しのクライアント (実機検証で確認) は SFU 直接 UDP で NAT を抜けられない。 LiveKit 内蔵 TURN (R12-followup-10〜13) / coturn sidecar (R12-followup-14〜18) も試したが、 LiveKit Server v1.13.x の `rtc.turn_servers` の credential を JoinResponse の wire 上に乗せない問題でブロック。
+
+**採用案 E**:
+- TURN を **AWS Kinesis Video Streams WebRTC** に外出し
+- control-api の `/join` で `GetSignalingChannelEndpoint` + `GetIceServerConfig` を呼び iceServers (URL + 短期 credential) を取得
+- response の `iceServers` を stage-web の `Room.connect(url, token, { rtcConfig: { iceServers } })` に渡す
+- LiveKit Client SDK の `if (!rtcConfig.iceServers)` 判定で server response の iceServers を bypass
+- KVS マネージドなので公式 sanctioned、 月 $0.03 (Signaling Channel) + イベント分のみ ($0.12/1000 分)
+
+## D-6 訂正: ips.excludes に VPC CIDR を入れない (R12-followup-22)
+
+R12-followup-9 で「VPC Private IP もブラウザから到達不可」として `ips.excludes` に VPC CIDR (`10.0.0.0/16` 等) を追加したが、 これは誤り。
+
+実機検証 (R12-followup-22) で判明: LiveKit/Pion の NAT1To1 は **既存の host candidate の IP を書き換える** 仕様であり、 `ips.excludes` で eth0 (169.254/16) + eth1 (VPC Private IP) の両方を除外すると **host candidate が 0 個** になり、 `--node-ip <Public IP>` の書き換え対象がなくなり candidate gather が空 → trickle ICE が動かず ICE state が `new` のまま遷移しない。
+
+**訂正**: `ips.excludes` には **link-local (169.254/16) のみ残す**。 VPC Private IP は host candidate として残し、 NAT1To1 で Public IP に書き換えて client に配信する。 NIC 汚染は案 E の TURN-only 経路で実質的に問題なし。
 
 ## フォールバック (本 ADR で対策しきれなかった場合)
 
