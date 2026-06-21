@@ -876,6 +876,16 @@ export function liveKitServerConfig(valkeyEndpoint: string): string {
  *
  * Server と同じ Valkey を共有してジョブを受け取り、Chrome ヘッドレスで RoomComposite を
  * 合成する。`ws_url` は SFU の VPC 内エンドポイント (signaling ポート) を指す。
+ *
+ * R12-followup-23: Egress 起動・pipeline playing まで到達したが映像が真っ黒で Chrome process
+ * がログ完全停止する事象に対する対策を追加。
+ * - `insecure: true`: Chrome に `--disable-web-security` + `--allow-running-insecure-content` を
+ *   付与し、 デフォルトテンプレート (`http://localhost:7980/`) から `ws://localhost:7880` への
+ *   平文 WebSocket 接続が Chrome 147+ の LNA (Local Network Access) WebSocket 制限で拒否される
+ *   問題を回避する (LiveKit Egress `pkg/source/base.go` の `Insecure` フラグ)。
+ * - `logging.level: debug` + `debug.enable_chrome_logging: true`: Chrome の console.log /
+ *   exception を `/tmp/chrome.log` に書き出す。 ECS Exec or 後続 PR で S3 upload して確認する。
+ * 検証で原因が確定したら、 不要な debug は `info` に戻す (PR #115 と同じパターン)。
  */
 export function liveKitEgressConfig(valkeyEndpoint: string): string {
   return [
@@ -884,6 +894,12 @@ export function liveKitEgressConfig(valkeyEndpoint: string): string {
     `  address: ${valkeyEndpoint}:6379`,
     "  use_tls: true",
     `ws_url: ws://localhost:${LIVEKIT_PORTS.signaling}`,
+    // R12-followup-23: localhost ws:// 接続を Chrome に許可する。
+    // 同 Task 内 sidecar 同居 (ADR 0010 D-2) では SFU を ws://localhost:7880 で叩く構成だが、
+    // Chrome 147+ では LNA (Local Network Access) ポリシーで平文 WebSocket が拒否される。
+    // `insecure: true` で `--disable-web-security` + `--allow-running-insecure-content` を
+    // 付与し回避する。 リスクはコンテナ内 localhost 通信に限定。
+    "insecure: true",
     // R12: Fargate の 2 vCPU で RoomComposite Egress を許可する (デフォルト 4 を 1 に緩和)。
     // LiveKit 公式推奨は 4 vCPU だが、検証/小規模配信向けに緩める。
     // 品質劣化や Chrome がフリーズする可能性があるため、本番では cpu/memory を増やす方が安全。
@@ -891,8 +907,14 @@ export function liveKitEgressConfig(valkeyEndpoint: string): string {
     "  room_composite_cpu_cost: 1",
     "  audio_room_composite_cpu_cost: 1",
     "  web_cpu_cost: 1",
+    // R12-followup-23: Chrome console (console.log / fetch エラー / Exception) を /tmp/chrome.log
+    // に書き出す。 LiveKit Egress `pkg/source/web.go` が runtime.EventConsoleAPICalled と
+    // runtime.EventExceptionThrown を JSON で記録する。 CloudWatch には自動で出ないため
+    // ECS Exec (`aws ecs execute-command`) でコンテナに入って `cat /tmp/chrome.log` で確認する。
+    "debug:",
+    "  enable_chrome_logging: true",
     "logging:",
-    "  level: info",
+    "  level: debug",
     "  json: true",
   ].join("\n");
 }

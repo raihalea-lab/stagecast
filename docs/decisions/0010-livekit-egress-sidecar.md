@@ -94,6 +94,44 @@ A 案で psrpc 登録問題が解決しない場合、以下に切り替える:
 - 起動時間が +5-10 分伸びるが、psrpc の前提 (単一 Redis ノード) を満たす
 - 本 ADR は撤回せず、フォールバック手順として併記
 
+### D-7. R12-followup-23: Chrome LNA / mixed content 回避と Chrome console logging の追加
+
+2026-06-21 の R12 E2E 検証で、 Egress 起動 → `pipeline playing` → `egress_active` まで
+到達し YouTube に RTMP 信号は届く (stream status ACTIVE) が **映像が真っ黒** で、 さらに
+`pipeline playing` 以降 9 分以上 Egress container のログ (stats/monitor を含む) が完全停止
+する事象を観測。 Chrome ヘッドレス process が hung している疑いが濃厚。
+
+#### 原因仮説 (有力度順)
+
+1. **Chrome LNA / mixed content (最有力)**: LiveKit Egress のデフォルトテンプレートは
+   `http://localhost:7980/` (Egress 自身が内部 HTTP server で host) で配信され、 そこから
+   `ws://localhost:7880` (SFU sidecar) に接続する。 Chrome 147 (2026-04 リリース) 以降は
+   LNA (Local Network Access) ポリシーで平文 WebSocket 接続を制限するため、 接続が拒否され
+   Chrome が描画できず黒画面のまま放置される可能性。
+2. CPU 不足 (中): `cpu_cost.room_composite_cpu_cost: 1` で 2 vCPU Task の RoomComposite を
+   許可しているが、 公式推奨は 4 vCPU。 Chrome + GStreamer x264 SW エンコードが競合し
+   フレームドロップ / フリーズの可能性。
+3. video codec mismatch (低): speaker は VP8 で publish、 Egress は H264_720P_30 preset。
+   transcode は Chrome 内で行うが、 ARM64 Fargate で hardware encoder なしのため遅延。
+
+#### 対策
+
+- **insecure: true** を Egress config に追加: LiveKit Egress `pkg/source/base.go` の
+  `Insecure` フラグで、 Chrome に `--disable-web-security` + `--allow-running-insecure-content`
+  を付与する。 これにより localhost ws:// 接続が Chrome LNA を回避する。
+- **debug.enable_chrome_logging: true + logging.level: debug**: Chrome console (console.log,
+  fetch エラー, exception) を `/tmp/chrome.log` に書き出し、 ECS Exec で確認できるようにする。
+  根本原因の最終特定用。
+- 上記で解決しない場合の次手: Task の cpu/memory を 4096/8192 に増強 + cpu_cost 設定削除
+  (公式推奨に戻す)。 ただし Fargate コストが 2 倍になる。
+
+#### 影響
+
+- 観測性向上 (Chrome console が見える) と引き換えに、 通常運用での log 量が増える。
+  検証後は `logging.level: info` + `debug.enable_chrome_logging: false` に戻す予定
+  (PR #115 と同じパターン)。
+- `insecure: true` のセキュリティ影響は コンテナ内 localhost 通信に限定されるため許容範囲。
+
 ## 影響・トレードオフ
 
 | 観点             | 影響                                                                                             |
