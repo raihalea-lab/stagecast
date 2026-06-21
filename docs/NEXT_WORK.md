@@ -21,6 +21,8 @@
 R12-followup-1〜22 で **stage-web から SFU への WebRTC 接続** が完了 (案 E: AWS KVS WebRTC TURN 採用 / ADR 0011)。
 次はこの順序で進める想定。 各項目は独立した PR・作業として着手可能:
 
+> 💡 **次セッションでそのまま Claude Code に渡せるプロンプト集** は [`NEXT_SESSION_PROMPTS.md`](./NEXT_SESSION_PROMPTS.md) にまとめてあります。 各 P-NN を貼り付けるだけで作業開始できます。
+
 ### 🔥 すぐやる (1〜3 日以内)
 
 1. **R12 残: YouTube Live RTMP 送出の E2E 検証**
