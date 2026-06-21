@@ -10,6 +10,18 @@
  */
 import type { InvitedRole } from "@stagecast/shared";
 
+/**
+ * R12-followup-19 / ADR 0011 案 E: TURN/STUN server。
+ * AWS KVS WebRTC が短期 credential 付きで返す iceServers。
+ * stage-web は `Room.connect` の `rtcConfig.iceServers` に渡すことで LiveKit Client SDK の
+ * `if (!rtcConfig.iceServers)` 判定で server からの iceServers を bypass し、 確実に TURN を使う。
+ */
+export interface JoinIceServer {
+  urls: string[];
+  username?: string;
+  credential?: string;
+}
+
 export interface JoinSuccess {
   ok: true;
   eventId: string;
@@ -18,6 +30,8 @@ export interface JoinSuccess {
   identity: string;
   livekitUrl: string;
   livekitToken: string;
+  /** R12-followup-19: server-side が KVS から取得した TURN servers。 無ければ SFU 直接 UDP のみ。 */
+  iceServers?: JoinIceServer[];
 }
 export interface JoinFailure {
   ok: false;

@@ -78,7 +78,13 @@ export class StageController {
     this.joinInFlight = (async () => {
       const res = await this.client.join(token, displayName, options);
       if (!res.ok) return res;
-      await this.room.connect(res.livekitUrl, res.livekitToken);
+      // R12-followup-19: server から受け取った iceServers (KVS WebRTC TURN) を渡すことで、
+      // LiveKit Client SDK の `if (!rtcConfig.iceServers)` 判定で SFU の iceServers を bypass する。
+      await this.room.connect(
+        res.livekitUrl,
+        res.livekitToken,
+        res.iceServers ? { iceServers: res.iceServers } : undefined,
+      );
       this.session = {
         eventId: res.eventId,
         role: res.role,

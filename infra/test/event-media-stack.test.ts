@@ -347,19 +347,15 @@ describe("liveKitServerConfig (R1)", () => {
     expect(yaml).not.toContain("- 10.0.0.0/16");
   });
 
-  it("R12-followup-18 (ADR 0011 案 C 更新): 動的 HMAC credential のため secret field を使用", () => {
-    // R12-followup-14〜17 の静的 username/credential 方式では LiveKit Server v1.13.1 が
-    // wire に乗せないため、 secret field 経由で HMAC-SHA1 動的 credential 生成に切替。
+  it("R12-followup-19 (ADR 0011 案 E): TURN を KVS WebRTC に外出し → LiveKit 側に turn セクションは無い", () => {
+    // R12-followup-10〜18 (内蔵 TURN / coturn sidecar) を撤回。 TURN は AWS KVS WebRTC が提供し、
+    // stage-web が rtcConfig.iceServers として直接受け取る (server response を bypass)。
+    // → liveKitServerConfig は turn / turn_servers セクションを含まない。
     const yaml = liveKitServerConfig("my-valkey.cache.amazonaws.com");
-    expect(yaml).toContain("turn:");
-    expect(yaml).toContain("enabled: false");
-    expect(yaml).toContain("turn_servers:");
-    expect(yaml).toContain("- host: __NODE_IP__");
-    expect(yaml).toContain("port: 3478");
-    expect(yaml).toContain("protocol: udp");
-    expect(yaml).toContain("secret: __TURN_CREDENTIAL__");
-    // 静的 username/credential field は使わない (動的生成に統一)
-    expect(yaml).not.toContain("username: stagecast");
+    expect(yaml).not.toContain("turn:");
+    expect(yaml).not.toContain("turn_servers:");
+    expect(yaml).not.toContain("__TURN_CREDENTIAL__");
+    expect(yaml).not.toContain("__NODE_IP__");
   });
 });
 

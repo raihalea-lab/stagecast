@@ -31,15 +31,9 @@ export const LIVEKIT_PORTS = {
   rtcTcp: 7881,
   /** WebRTC over UDP (主たる media 経路, ADR 0006 D-2)。 */
   rtcUdp: 7882,
-  /**
-   * R12-followup-10 / ADR 0011 案 B: LiveKit 内蔵 TURN server。
-   * シンメトリック NAT 越しのクライアント (実機検証で 14.8.39.x の Mac で確認) を救済する。
-   */
-  turnUdp: 3478,
-  /** TURN relay UDP range の開始 (実際の relay ポートはこの範囲から動的割当)。 */
-  turnRelayStart: 50300,
-  /** TURN relay UDP range の終端。100 ポート分。同時接続 ~50 まで耐える。 */
-  turnRelayEnd: 50400,
+  // R12-followup-19 / ADR 0011 案 E: TURN は AWS KVS WebRTC (Amazon Kinesis Video Streams) を利用。
+  // LiveKit 内蔵 TURN (R12-followup-10〜13) / coturn sidecar (R12-followup-14〜18) は廃止。
+  // AWS マネージドの TURN を `iceServers` として stage-web に直接配信するため、 SFU 側に TURN ポートは不要。
 } as const;
 
 /**
@@ -256,8 +250,6 @@ export class EventMediaStack extends Stack {
       secrets?: Record<string, ecs.Secret>;
       /** essential=false で sidecar クラッシュが Task 再起動を起こさないよう保護 (ADR 0010 D-1) */
       essential?: boolean;
-      /** R12-followup-14: coturn は entryPoint で external-ip を解決する必要があるため上書き可能に */
-      entryPoint?: string[];
     }
     interface ServiceOptions {
       ports?: { containerPort: number; protocol?: ecs.Protocol }[];
@@ -350,7 +342,6 @@ export class EventMediaStack extends Stack {
             ...sidecar.environment,
           },
           ...(sidecar.secrets ? { secrets: sidecar.secrets } : {}),
-          ...(sidecar.entryPoint ? { entryPoint: sidecar.entryPoint } : {}),
         });
       }
       return new ecs.FargateService(this, `${name}Service`, {
@@ -396,9 +387,6 @@ export class EventMediaStack extends Stack {
         { containerPort: LIVEKIT_PORTS.signaling, protocol: ecs.Protocol.TCP },
         { containerPort: LIVEKIT_PORTS.rtcTcp, protocol: ecs.Protocol.TCP },
         { containerPort: LIVEKIT_PORTS.rtcUdp, protocol: ecs.Protocol.UDP },
-        // R12-followup-10 / ADR 0011 案 B: LiveKit 内蔵 TURN server (UDP 3478)。
-        // awsvpc mode では SG が支配的なので relay range (50300-50400) は SG で開放するだけで動く。
-        { containerPort: LIVEKIT_PORTS.turnUdp, protocol: ecs.Protocol.UDP },
       ],
       // R12-followup-4: LiveKit Server は config-body 用の env 名が `LIVEKIT_CONFIG` (cmd/server/main.go)。
       // 過去 `LIVEKIT_CONFIG_BODY` を渡していたため config が読まれず single-node routing で起動し、
@@ -416,18 +404,16 @@ export class EventMediaStack extends Stack {
       // LIVEKIT_CONFIG yaml に `keys:` セクションを動的注入する。 実機検証 (PR #101 後) で
       // JoinResponse の iceServers に username/credential が空のまま配信され TURN authentication 失敗を確認。
       // /tmp は tmpfs (Fargate ephemeral storage) なので Secret は永続化されない。
+      // R12-followup-6: Fargate Task の Public IP を ICE candidate に広告するため起動時に解決する。
+      // R12-followup-19: TURN を AWS KVS WebRTC に外出ししたので、 sed 置換 / config file 化は不要に戻った。
+      // LIVEKIT_CONFIG env と --keys flag だけで起動できるシンプルな構成。
       entryPoint: [
         "sh",
         "-c",
-        // R12-followup-14: yaml 内の `__NODE_IP__` / `__TURN_CREDENTIAL__` を sed で実値に置換。
-        // - NODE_IP: ifconfig.io で取得した Task の Public IP (coturn の host にもなる)
-        // - TURN_CREDENTIAL: LIVEKIT_API_SECRET を流用 (coturn sidecar の static-auth password と同じ値)
-        //
-        // R12-followup-17: `unset LIVEKIT_CONFIG` が必要。 viper は env > file の優先順位なので、
-        // env LIVEKIT_CONFIG (置換前テンプレ) が file /tmp/livekit.yaml (sed で置換済) を上書きしてしまう。
-        // env を消すことで `--config` flag で渡した file 内容だけが反映される。
-        'NODE_IP=$(wget -qO- --timeout=5 https://ifconfig.io || wget -qO- --timeout=5 https://api.ipify.org) && echo "Resolved NODE_IP=$NODE_IP" && printf "%s\\nkeys:\\n  %s\\n" "$LIVEKIT_CONFIG" "$LIVEKIT_KEYS" > /tmp/livekit.yaml && sed -i "s|__NODE_IP__|$NODE_IP|g; s|__TURN_CREDENTIAL__|$LIVEKIT_API_SECRET|g" /tmp/livekit.yaml && unset LIVEKIT_CONFIG && exec /livekit-server --config /tmp/livekit.yaml --keys "$LIVEKIT_KEYS" --node-ip "$NODE_IP"',
+        'NODE_IP=$(wget -qO- --timeout=5 https://ifconfig.io || wget -qO- --timeout=5 https://api.ipify.org) && echo "Resolved NODE_IP=$NODE_IP" && exec /livekit-server --node-ip "$NODE_IP"',
       ],
+      // R12-followup-19: Coturn sidecar 廃止 (R12-followup-14〜18 を撤回)。
+      // TURN は AWS KVS WebRTC に外出ししたので、 SFU TaskDef は Egress sidecar のみ。
       sidecars: [
         {
           name: "Egress",
@@ -439,35 +425,6 @@ export class EventMediaStack extends Stack {
             LIVEKIT_WS_URL: `ws://localhost:${LIVEKIT_PORTS.signaling}`,
           },
           secrets: livekitSecrets,
-        },
-        // R12-followup-14 / ADR 0011 案 C: coturn TURN server を SFU と同一 Task に sidecar 同居。
-        // LiveKit 内蔵 TURN (v1.13.1) は iceServers の username/credential が wire 上に乗らない不具合 (R12-followup-10〜13 で確認) があり、
-        // 代替として coturn を立てる。同 Task なので SFU と Public IP を共有、 SG は既存の TURN ポート (3478) + relay range (50300-50400) を流用。
-        // 認証: static-auth (username=stagecast, password=LIVEKIT_API_SECRET)。
-        //   - LIVEKIT_API_SECRET を流用するのは Secret 数を減らすため (本来別 Secret が筋だが MVP 簡略化)。
-        //   - LiveKit yaml の rtc.turn_servers にも同じ credential を入れる (sed 置換)。
-        {
-          name: "Coturn",
-          // R12-followup-15/16:
-          //   - 公式 `coturn/coturn:latest` (debian) は wget 無し → entryPoint で external-ip 解決失敗
-          //   - `instrumentisto/coturn:latest` は amd64 のみで arm64 (Fargate ARM64) と不整合
-          //   - **公式 `coturn/coturn:alpine`** は multi-arch (arm64 含む) + busybox wget 同梱で両方の問題を解決
-          image: "coturn/coturn:alpine",
-          essential: false,
-          environment: {},
-          secrets: {
-            TURN_SECRET: livekitSecrets.LIVEKIT_API_SECRET,
-          },
-          entryPoint: [
-            "sh",
-            "-c",
-            // entrypoint で external-ip を解決して turnserver を起動。
-            // - --no-tls / --no-dtls: TLS 系ポート (5349) を開かない (今回は UDP TURN のみ)。
-            // - --use-auth-secret + --static-auth-secret: HMAC-SHA1 短期 credential 認証
-            //   (R12-followup-18: LiveKit Server の `secret:` field との組み合わせで動的 credential を発行する)。
-            // - relay-ip は明示せず listen-ip 0.0.0.0 + external-ip で十分。
-            'EXT_IP=$(wget -qO- --timeout=5 https://ifconfig.io || wget -qO- --timeout=5 https://api.ipify.org) && echo "coturn external-ip=$EXT_IP" && exec turnserver --listening-port=3478 --listening-ip=0.0.0.0 --external-ip="$EXT_IP" --min-port=50300 --max-port=50400 --realm=stagecast.local --use-auth-secret --static-auth-secret="$TURN_SECRET" --no-tls --no-dtls --log-file=stdout --no-stdout-log=false',
-          ],
         },
       ],
     });
@@ -509,20 +466,8 @@ export class EventMediaStack extends Stack {
       ec2.Port.udp(LIVEKIT_PORTS.rtcUdp),
       "WebRTC media/UDP (public, ADR 0008 D-4 / ADR 0009 D-2)",
     );
-    // R12-followup-10 / ADR 0011 案 B: LiveKit 内蔵 TURN server (UDP 3478 + relay range)。
-    // シンメトリック NAT 越しのクライアントが SFU 直接 UDP では NAT を抜けられない場合の救済経路。
-    // 実機検証 (2026-06-20) で publisherCandidates の srflx の related-port と STUN port が異なり
-    // (例: srflx 14.8.39.x:46547 related 192.168.1.39:57015) シンメトリック NAT を確認済み。
-    // R12-followup-10 / ADR 0011 plan B: EC2 SG description は ASCII 限定 (日本語 NG)。
-    // 詳細な経緯コメントはコード本体に書き、description は短く英語のみ。
-    sfu.connections.allowFromAnyIpv4(
-      ec2.Port.udp(LIVEKIT_PORTS.turnUdp),
-      "LiveKit TURN/UDP for NAT traversal (R12-followup-10)",
-    );
-    sfu.connections.allowFromAnyIpv4(
-      ec2.Port.udpRange(LIVEKIT_PORTS.turnRelayStart, LIVEKIT_PORTS.turnRelayEnd),
-      "LiveKit TURN relay UDP range (R12-followup-10)",
-    );
+    // R12-followup-19: TURN ポート (UDP 3478 + relay range 50300-50400) は廃止。
+    // AWS KVS WebRTC が TURN を提供するため SFU 側で TURN ポート開放不要。
 
     // --- NLB + TLS + Route53 でシグナリングを wss:// 化 (ADR 0009 D-1, D-3, D-4) ---
     if (tlsProps) {
@@ -905,19 +850,11 @@ export function liveKitServerConfig(valkeyEndpoint: string, vpcCidr?: string): s
     // SharedMediaVpc の CIDR (例: 10.0.0.0/16) を CDK で `vpc.vpcCidrBlock` から動的に渡す。
     // vpcCidr 未指定 (テスト等) のときは link-local だけ除外し、当該行はスキップする。
     ...(vpcCidr ? [`      - ${vpcCidr}`] : []),
-    // R12-followup-14〜18 / ADR 0011 案 C: LiveKit 内蔵 TURN を廃止し coturn sidecar に切替。
-    // 静的 username/credential 方式 (R12-followup-14〜17) では LiveKit Server v1.13.1 が
-    // wire 上に username/credential を乗せない (静的 field を proto に書かないバグ?) ことを実機検証で確認。
-    // R12-followup-18: `secret:` field を使った **動的 HMAC credential 方式** に切替。
-    // LiveKit が `time + participantID` で username/credential を生成 → wire に確実に乗る。
-    // coturn 側も `--use-auth-secret --static-auth-secret=<value>` で対応する HMAC 認証モードに変更。
-    "  turn_servers:",
-    "    - host: __NODE_IP__",
-    `      port: ${LIVEKIT_PORTS.turnUdp}`,
-    "      protocol: udp",
-    "      secret: __TURN_CREDENTIAL__",
-    "turn:",
-    "  enabled: false",
+    // R12-followup-19 / ADR 0011 案 E: TURN は AWS KVS WebRTC に外出し。
+    // LiveKit Server 側の `turn:` セクションと `rtc.turn_servers` 設定は廃止 (R12-followup-10〜18 を撤回)。
+    // stage-web 側で control-api から iceServers (KVS の TURN URL + 短期 credential) を受け取り
+    // `rtcConfig.iceServers` として Room.connect に渡す → LiveKit Client SDK の `if (!rtcConfig.iceServers)`
+    // 判定で server からの iceServers を完全 bypass。 SFU は ICE 通信の relay 先として KVS TURN を経由する。
     "redis:",
     // ADR 0010 D-6: Valkey は cluster-mode-disabled の単一ノードに切替えた。
     // 単一クライアントモード (redis.NewClient) で接続するため `address` を使う。

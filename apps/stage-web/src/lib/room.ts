@@ -15,9 +15,25 @@ export interface SlideMessage {
 
 export type RoomState = "idle" | "connected" | "reconnecting" | "disconnected";
 
+/** R12-followup-19: ICE 用 TURN server (server から /join で受け取る)。 */
+export interface IceServerConfig {
+  urls: string[];
+  username?: string;
+  credential?: string;
+}
+
+export interface ConnectOptions {
+  /**
+   * R12-followup-19 / ADR 0011 案 E: 起動時に rtcConfig.iceServers にセットする TURN/STUN。
+   * 指定すると LiveKit Client SDK の `if (!rtcConfig.iceServers)` 判定で server response の
+   * iceServers が無視されるので、 我々が指定した TURN (KVS WebRTC) を確実に使う。
+   */
+  iceServers?: IceServerConfig[];
+}
+
 export interface RoomConnector {
   readonly state: RoomState;
-  connect(url: string, token: string): Promise<void>;
+  connect(url: string, token: string, options?: ConnectOptions): Promise<void>;
   /** 入室前テストで選んだマイク/カメラを publish 時に使う (N7)。 */
   setPreferredDevices(prefs: PreferredDevices): void;
   setMicrophoneEnabled(enabled: boolean): Promise<void>;
@@ -48,8 +64,10 @@ export class FakeRoomConnector implements RoomConnector {
   private reconnectingHandler?: () => void;
   private reconnectedHandler?: () => void;
 
-  async connect(url: string, _token: string): Promise<void> {
-    this.calls.push(`connect:${url}`);
+  async connect(url: string, _token: string, options?: ConnectOptions): Promise<void> {
+    this.calls.push(
+      options?.iceServers?.length ? `connect:${url}:ice=${options.iceServers.length}` : `connect:${url}`,
+    );
     this.state = "connected";
   }
   onDisconnected(handler: () => void): void {
