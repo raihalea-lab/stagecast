@@ -494,6 +494,8 @@ export class ControlPlaneStack extends Stack {
               domain: `${adminAuthDomain.domainName}.auth.${this.region}.amazoncognito.com`,
               clientId: adminUserPoolClient.userPoolClientId,
             },
+            // R17 / ADR 0012 D-6: admin-web の LivePreview iframe が開く composer-template の URL。
+            composerTemplateUrl: `https://${composerWebDistribution.domainName}`,
           }),
         ],
       });

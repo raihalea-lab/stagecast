@@ -44,6 +44,14 @@ export interface AdminTokenResult {
   room: string;
 }
 
+/** Preview LiveKit Token 発行結果 (R17, ADR 0012 D-6, viewer role)。 */
+export interface PreviewTokenResult {
+  livekitUrl: string;
+  livekitToken: string;
+  identity: string;
+  room: string;
+}
+
 export interface ControlApiClient {
   listEvents(): Promise<EventDefinition[]>;
   createEvent(input: CreateEventInput): Promise<EventDefinition>;
@@ -59,6 +67,9 @@ export interface ControlApiClient {
 
   /** Admin LiveKit token を発行する (R16, ADR 0012 D-4: admin-web が layout 切替を broadcast 用)。 */
   issueAdminToken(eventId: string): Promise<AdminTokenResult>;
+
+  /** Preview LiveKit token を発行する (R17, ADR 0012 D-6: composer-template の iframe 埋め込み用)。 */
+  issuePreviewToken(eventId: string): Promise<PreviewTokenResult>;
 
   getPresentation(eventId: string): Promise<PresentationState>;
   setSpeakerVisibility(
