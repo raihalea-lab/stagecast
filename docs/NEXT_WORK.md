@@ -16,6 +16,66 @@
 
 ---
 
+## 📌 次にやること (2026-06-21 R12 完了後の優先順位)
+
+R12-followup-1〜22 で **stage-web から SFU への WebRTC 接続** が完了 (案 E: AWS KVS WebRTC TURN 採用 / ADR 0011)。
+次はこの順序で進める想定。 各項目は独立した PR・作業として着手可能:
+
+### 🔥 すぐやる (1〜3 日以内)
+
+1. **R12 残: YouTube Live RTMP 送出の E2E 検証**
+   - admin-web で YouTube ストリームキーを設定 → Egress 起動 → 実際に YouTube Live に流れるか確認
+   - LiveKit Egress (SFU と sidecar 同居 / ADR 0010) が RoomComposite で映像を合成 → RTMP 送出
+   - 期待: スピーカーの映像/音声 + スライド合成が YouTube Live ページで再生できる
+   - 不具合があれば R12-followup-23 として別 PR
+
+2. **DESIGN.md 更新: KVS WebRTC TURN 運用の追記**
+   - 3.2 章 (メディア層構成) に TURN レイヤーの記述追加
+   - 7.2 章 (常時稼働リソース) に「KVS Signaling Channel (1 個, $0.03/月)」を追記
+   - 8 章 (運用) に AWS KVS WebRTC 関連の監視ポイント追記
+   - ADR 0011 への参照を本文化
+
+3. **R12-followup-NN 系の cleanup**
+   - 念のため本番リハーサル (新規イベント作成 → stage-web 入室 → カメラ・マイク publish → 30 分維持) で安定性確認
+   - 不具合あれば NEXT_WORK.md に R12-followup-23+ で追加
+
+### ⏳ 次にやる (1〜2 週間以内)
+
+4. **R7: 統合テスト CI workflow + YouTube ingestion URL 自動取得**
+   - イベント作成 → live → stage-web 接続 → Egress → YouTube 確認 までを GH Actions で自動化
+   - SLO 観測 (字幕遅延・接続時間) を含める
+
+5. **O1〜O5: 運用準備 (本番運用前の必須)**
+   - O2 GitHub OIDC IAM Role (deploy.yml が引き受ける用)
+   - O3 main ブランチ保護
+   - O4 Cognito 管理者ユーザー (R6 で Custom Resource 化済み、 確認のみ)
+   - O5 Secrets Manager の実値投入 (LiveKit / YouTube)
+
+6. **L1: 利用規約 / プライバシーポリシー**
+   - テンプレ ([`docs/legal/terms-template.md`](./legal/terms-template.md)) を実運用者向けに編集
+   - 配信前に弁護士レビュー
+
+### 📅 余裕があれば (1 ヶ月以内)
+
+7. **D8 残: エンジン側 (Transcribe/Translate/Bedrock) の一過性エラー再試行**
+   - 二重字幕回避を考慮しつつ withRetry を字幕パイプラインの engine 呼び出しにも展開
+
+8. **N3 残: SNS Slack subscribe** (アラート通知の届け先設定)
+
+9. **N6: shadcn/ui への移行 (admin-web の見栄え改善)**
+
+10. **N4: 配信前リハーサル機能** (status=draft で 5 分起動 → 自動破棄)
+
+### 🌱 将来 (3 ヶ月以降)
+
+11. **R13: 将来の SFU 冗長化時に NLB UDP も検討** (1 イベント 1000 人以上のキャパが必要になったとき)
+12. **N5: 配信終了後の自動サマリー** (録画 + 字幕 + 統計を Slack/メール)
+13. **L3: コスト監視と上限設定の運用** (Budget アラート subscribe)
+
+### 詳細表 (これまでの R / O / D / N / L / P 行は以下のセクション参照)
+
+---
+
 ## R: メディア層実体化・本番配信化 (ADR 0005)
 
 > 詳細・決定背景は [ADR 0005](./decisions/0005-media-layer-rollout.md) を参照。
