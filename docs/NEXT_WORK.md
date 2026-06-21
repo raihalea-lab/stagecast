@@ -36,10 +36,10 @@ R12-followup-1〜22 で **stage-web から SFU への WebRTC 接続** が完了 
    - SFU TaskRole は既に S3 PutObject 権限を持つ (ADR 0010 D-5) ので追加権限は不要
    - 完了基準: 配信終了で `recordings/{eventId}/{egressId}.mp4` が S3 に保存される + admin-web の「成果物」一覧に表示
 
-3. **R15 完了 ✅ / R16-R17 (新規): カスタム Egress テンプレート (ADR 0012)**
+3. **R15/R16 完了 ✅ / R17 (新規): カスタム Egress テンプレート (ADR 0012)**
    - 要件 1 (プレビュー) / 要件 2 (レイアウト操作) / 要件 3 (待機画面) を実現する全体方針を [ADR 0012](./decisions/0012-custom-egress-template.md) で定義
    - **R15 ✅**: composer-template (grid + 待機画面) を 2026-06-21 実機検証成功 (PR #122/#123/#124/#125)。 要件 3 (待機画面) はイベント中 fallback として動作確認済み
-   - R16: admin-web から layout 切替 UI (LiveKit data channel) + spotlight / pip layouts 追加 (要件 2)
+   - **R16 ✅**: admin-web から layout 切替 UI + 4 layouts (grid/spotlight/pip/screen-share-main) を 2026-06-21 実機検証成功 (PR #127/#128)。 要件 2 達成
    - R17: admin-web / stage-web の iframe プレビュー埋め込み (要件 1)
    - R18 (将来): 365 日 24h 配信 (DESIGN.md N-1 と矛盾するため別 ADR で議論)
 
