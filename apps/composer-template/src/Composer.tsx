@@ -11,6 +11,16 @@
  * Egress 自身も participant として join するが、 `Hidden: true` token で room の
  * participant 数にはカウントされない (livekit-server-sdk の egress role)。
  * よって publishing = video track を 1 個以上 publish している participant の数。
+ *
+ * R15-followup-1: LiveKit Egress プロトコル準拠 (pkg/source/web.go の startRecordingLog 監視)。
+ * カスタムテンプレートは Room.connect 成功時点で `console.log("START_RECORDING")` を発行する
+ * 必要があり、 これを Egress が console event として検出して GStreamer pipeline を playing 状態に
+ * 遷移させる。 発行しないと Egress は `request validated` 後 awaitStartSignal で永遠に
+ * 待機し、 `pipeline playing` まで進まず YouTube に何も届かない。
+ *
+ * 我々の要件 3 (待機画面でも配信継続) のため、 participant の数や track の有無を待たず、
+ * Room.connect 成功時点で無条件に START_RECORDING を発行する (公式テンプレートは
+ * framesDecoded > 0 を待つが、 我々は待機画面を録画したいので即発行)。
  */
 import { useEffect, useMemo, useState } from "react";
 import { Room, RoomEvent, type Participant } from "livekit-client";
@@ -53,11 +63,19 @@ export function Composer(props: Props) {
         if (cancelled) return;
         setState("connected");
         refresh();
+        // R15-followup-1: Egress に「描画開始」を通知する (pkg/source/web.go の
+        // startRecordingLog 監視で GStreamer pipeline が playing 状態に遷移する)。
+        // この console.log を発行しないと Egress は awaitStartSignal で永遠に待機する。
+        // eslint-disable-next-line no-console
+        console.log("START_RECORDING");
       })
       .on(RoomEvent.Disconnected, () => {
         if (cancelled) return;
         setState("disconnected");
         setPublishers([]);
+        // R15-followup-1: Egress に「録画終了」を通知する。
+        // eslint-disable-next-line no-console
+        console.log("END_RECORDING");
       })
       .on(RoomEvent.ParticipantConnected, refresh)
       .on(RoomEvent.ParticipantDisconnected, refresh)
