@@ -863,7 +863,9 @@ export function liveKitServerConfig(valkeyEndpoint: string, vpcCidr?: string): s
     // ElastiCache transit encryption を有効化しているので TLS で接続する。
     "  use_tls: true",
     "logging:",
-    "  level: info",
+    // R12-followup-22 (debug): trickle ICE candidate 送信 trace を観察するため debug。
+    // dump で addIceCandidate event が無く iceState が new のまま遷移しない問題の原因特定。
+    "  level: debug",
     "  json: true",
   ].join("\n");
 }
