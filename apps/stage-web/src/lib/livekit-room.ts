@@ -22,35 +22,16 @@ export class LiveKitRoomConnector implements RoomConnector {
     // R12-followup-19: rtcConfig.iceServers は Room.connect の RoomConnectOptions で渡す。
     // LiveKit Client SDK の RTCEngine が `if (!rtcConfig.iceServers)` で server response の
     // iceServers を bypass する判定をしているので、 ここで明示すれば KVS WebRTC TURN を確実に使う。
-    //
-    // R12-followup-21 (debug): credential drop の原因特定のため iceServer の field 有無を出力。
-    // 値自体は secret なので長さだけ出す。 確定したら削除。
     const rtcConfig =
       options?.iceServers && options.iceServers.length > 0
         ? {
-            iceServers: options.iceServers.map((s) => {
-              // eslint-disable-next-line no-console -- R12-followup-21 debug
-              console.log("[r12-debug] iceServer received:", {
-                urlsLen: s.urls?.length ?? 0,
-                hasUsername: !!s.username,
-                usernameLen: s.username?.length ?? 0,
-                hasCredential: !!s.credential,
-                credentialLen: s.credential?.length ?? 0,
-              });
-              return {
-                urls: s.urls,
-                ...(s.username ? { username: s.username } : {}),
-                ...(s.credential ? { credential: s.credential } : {}),
-              };
-            }),
+            iceServers: options.iceServers.map((s) => ({
+              urls: s.urls,
+              ...(s.username ? { username: s.username } : {}),
+              ...(s.credential ? { credential: s.credential } : {}),
+            })),
           }
         : undefined;
-    // eslint-disable-next-line no-console -- R12-followup-21 debug
-    console.log("[r12-debug] rtcConfig built:", {
-      hasRtcConfig: !!rtcConfig,
-      iceServerCount: rtcConfig?.iceServers.length ?? 0,
-      firstHasCredential: !!rtcConfig?.iceServers[0]?.credential,
-    });
     await this.room.connect(url, token, rtcConfig ? { rtcConfig } : undefined);
     this.state = "connected";
   }
