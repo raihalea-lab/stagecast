@@ -25,11 +25,16 @@ R12-followup-1〜22 で **stage-web から SFU への WebRTC 接続** が完了 
 
 ### 🔥 すぐやる (1〜3 日以内)
 
-1. **R12 残: YouTube Live RTMP 送出の E2E 検証 (進行中: R12-followup-23)**
-   - 2026-06-21 検証: control-api → Egress 起動 (`egressId: EG_KLoN9oRVQKt8`) → `pipeline playing` → `egress_active` → YouTube stream status `ACTIVE` まで到達
-   - **症状**: 映像真っ黒 + `pipeline playing` 以降 9 分以上 Egress container ログ完全停止 (Chrome process hung 疑い)
-   - **R12-followup-23 (本 PR)**: `insecure: true` + `debug.enable_chrome_logging: true` + `logging.level: debug` を Egress config に追加 (ADR 0010 D-7)
-   - **次の検証**: deploy 後に再度 stage-web 入室 → Egress 起動 → `/tmp/chrome.log` (ECS Exec) で Chrome console を確認 → 原因確定したら debug 系を info に戻す PR (PR #115 と同じパターン)
+1. **R12 完了 ✅ (2026-06-21 R12-followup-23 で映像受信成功)**
+   - R12-followup-23 (PR #119) で Egress config に `insecure: true` を追加 → Chrome 147+ の LNA WebSocket 制限を回避 → YouTube Live で映像受信成功 ✅
+   - 残: **S3 録画ファイル出力**は control-api `startRoomCompositeEgress` が現状 `streamOutputs` のみで `fileOutputs` 未指定のため別タスク (R14 として識別、 下記参照)
+   - cleanup PR: 検証用 `debug.enable_chrome_logging: true` + `logging.level: debug` を info に戻す + 本 NEXT_WORK.md / ADR 0010 D-7 / memory `r12-livekit-fargate-gotchas` を更新
+
+2. **R14 (新規): Egress の fileOutputs (S3 録画) 追加**
+   - 現状の `services/control-api/src/lambda.ts:178-187` は `StreamOutput` (RTMP) のみ
+   - `sdk.EncodedFileOutput({...})` を追加し、 ControlPlane の `AssetsBucket` 配下 `recordings/{eventId}/` プレフィックスに書き出す
+   - SFU TaskRole は既に S3 PutObject 権限を持つ (ADR 0010 D-5) ので追加権限は不要
+   - 完了基準: 配信終了で `recordings/{eventId}/{egressId}.mp4` が S3 に保存される + admin-web の「成果物」一覧に表示
 
 2. **DESIGN.md 更新: KVS WebRTC TURN 運用の追記**
    - 3.2 章 (メディア層構成) に TURN レイヤーの記述追加
@@ -113,7 +118,7 @@ R12-followup-1〜22 で **stage-web から SFU への WebRTC 接続** が完了 
 | **R12-followup-14** | S5    | coturn sidecar + 静的認証 (ADR 0011 案 C)                                          | `claude/r12-coturn-sidecar` (PR #105 マージ, **検証 NG**)   | LiveKit 内蔵 TURN を `enabled: false` で停止し、 coturn を SFU TaskDef に sidecar 同居 (PR #106/#107 で arm64 対応の `coturn/coturn:alpine` に変更, PR #108 で `unset LIVEKIT_CONFIG`, PR #109 で `secret:` field の HMAC)。 結果: dump で **依然として username/credential 空のまま**。 LiveKit Server v1.13.1 が `rtc.turn_servers` の credential を wire に乗せない挙動を確認 |
 | **R12-followup-19** | S5    | **TURN を AWS KVS WebRTC に外出し (ADR 0011 案 E)**                                | `claude/r12-kvs-webrtc-turn` (PR #110/#111 マージ)          | LiveKit 内蔵 TURN / coturn sidecar (R12-followup-10〜18) を全部撤回。 AWS Kinesis Video Streams WebRTC が提供する TURN を **control-api の /join で取得** → **stage-web の Room.connect の `rtcConfig.iceServers` に直接渡す** → LiveKit Client SDK の `if (!rtcConfig.iceServers)` 判定で server からの iceServers を bypass。 KVS マネージドなので公式 sanctioned、 月 $0.03 (Signaling Channel) + イベント分のみ |
 | **R12-followup-22** | S5    | **R12-followup-9 訂正: ips.excludes から VPC CIDR 除去 (host candidate 0 個問題)**  | `claude/r12-remove-vpc-cidr-excludes` (PR #114 マージ) **R12 完了** | R12-followup-9 で「Private IP はブラウザから到達不可」として VPC CIDR を ips.excludes に追加していたが、 `--node-ip` の NAT1To1 は **既存の host candidate の IP を書き換える** 仕様であり、 host candidate が 0 個だと書き換える対象がなく candidate gather が空 → trickle ICE が動かず client に candidate を送れない問題が判明。 link-local (169.254/16) のみ excludes に残し、 VPC Private IP を host candidate に残すことで NAT1To1 が機能して Public IP が client に配信される。 **2026-06-21 stage-web 入室成功で R12 完了 ✅** |
-| **R12-followup-23** | S5    | Egress 映像真っ黒 / Chrome process hung 対策 (ADR 0010 D-7)                         | `claude/r12-youtube-rtmp-e2e` (PR 起票中) | 2026-06-21 R12 残作業の YouTube Live RTMP 送出 E2E 検証で、 Egress 起動 → `pipeline playing` → `egress_active` まで到達し RTMP 信号も届く (YouTube stream status ACTIVE) が **映像真っ黒** + `pipeline playing` 以降 9 分以上 Egress ログ完全停止の症状を観測。 仮説: LiveKit Egress のデフォルトテンプレート (`http://localhost:7980/`) から `ws://localhost:7880` 接続が Chrome 147+ の LNA WebSocket 制限で拒否されている。 対策: `insecure: true` を Egress config に追加し `--disable-web-security` + `--allow-running-insecure-content` を付与。 同時に `debug.enable_chrome_logging: true` + `logging.level: debug` で Chrome console を `/tmp/chrome.log` に出力して根本原因を最終特定。 詳細は ADR 0010 D-7 |
+| **R12-followup-23** | S5    | Egress 映像真っ黒 / Chrome process hung 対策 (ADR 0010 D-7)                         | `claude/r12-youtube-rtmp-e2e` (PR #119 マージ) **R12 完全完了** | 2026-06-21 R12 残作業の YouTube Live RTMP 送出 E2E 検証で、 Egress 起動 → `pipeline playing` → `egress_active` まで到達し RTMP 信号も届く (YouTube stream status ACTIVE) が **映像真っ黒** + `pipeline playing` 以降 9 分以上 Egress ログ完全停止の症状を観測。 **根本原因**: LiveKit Egress のデフォルトテンプレート (`http://localhost:7980/`) から `ws://localhost:7880` 接続が Chrome 147+ の LNA WebSocket 制限で拒否されていた。 **対策**: Egress config に `insecure: true` を追加して `--disable-web-security` + `--allow-running-insecure-content` を付与。 **2026-06-21 実機検証で映像受信成功 → R12 完全完了 ✅**。 詳細は ADR 0010 D-7 |
 
 > **R12-followup-4 〜 9 の意思決定は [ADR 0011](./decisions/0011-livekit-ice-fargate-config.md) に集約済み**。
 > 「Fargate + NLB 上の LiveKit Server で WebRTC ICE を確立するための設定群」として 6 つの決定 (D-1〜D-6) と

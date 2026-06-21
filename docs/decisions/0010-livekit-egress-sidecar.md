@@ -94,12 +94,18 @@ A 案で psrpc 登録問題が解決しない場合、以下に切り替える:
 - 起動時間が +5-10 分伸びるが、psrpc の前提 (単一 Redis ノード) を満たす
 - 本 ADR は撤回せず、フォールバック手順として併記
 
-### D-7. R12-followup-23: Chrome LNA / mixed content 回避と Chrome console logging の追加
+### D-7. R12-followup-23: Chrome LNA / mixed content 回避 (✅ 2026-06-21 解決)
 
 2026-06-21 の R12 E2E 検証で、 Egress 起動 → `pipeline playing` → `egress_active` まで
 到達し YouTube に RTMP 信号は届く (stream status ACTIVE) が **映像が真っ黒** で、 さらに
 `pipeline playing` 以降 9 分以上 Egress container のログ (stats/monitor を含む) が完全停止
 する事象を観測。 Chrome ヘッドレス process が hung している疑いが濃厚。
+
+**2026-06-21 実機検証で根本原因確定**: LiveKit Egress のデフォルトテンプレート
+(`http://localhost:7980/`、 Egress 自身が内部 HTTP server で host) から `ws://localhost:7880`
+への接続が **Chrome 147+ の LNA (Local Network Access) WebSocket 制限** で拒否されていた。
+`insecure: true` を Egress config に追加して `--disable-web-security` +
+`--allow-running-insecure-content` を Chrome に付与 → **映像受信成功** ✅。
 
 #### 原因仮説 (有力度順)
 
@@ -114,23 +120,38 @@ A 案で psrpc 登録問題が解決しない場合、以下に切り替える:
 3. video codec mismatch (低): speaker は VP8 で publish、 Egress は H264_720P_30 preset。
    transcode は Chrome 内で行うが、 ARM64 Fargate で hardware encoder なしのため遅延。
 
-#### 対策
+#### 対策 (2026-06-21 実機検証成功)
 
 - **insecure: true** を Egress config に追加: LiveKit Egress `pkg/source/base.go` の
   `Insecure` フラグで、 Chrome に `--disable-web-security` + `--allow-running-insecure-content`
-  を付与する。 これにより localhost ws:// 接続が Chrome LNA を回避する。
-- **debug.enable_chrome_logging: true + logging.level: debug**: Chrome console (console.log,
-  fetch エラー, exception) を `/tmp/chrome.log` に書き出し、 ECS Exec で確認できるようにする。
-  根本原因の最終特定用。
-- 上記で解決しない場合の次手: Task の cpu/memory を 4096/8192 に増強 + cpu_cost 設定削除
-  (公式推奨に戻す)。 ただし Fargate コストが 2 倍になる。
+  を付与する。 これにより localhost ws:// 接続が Chrome LNA を回避する。 → **解決済み**。
+- (調査時に併用) `debug.enable_chrome_logging: true` + `logging.level: debug`: Chrome console
+  を `/tmp/chrome.log` に書き出す診断用設定。 PR #119 で追加したが、 `insecure: true` だけで
+  解決したため次の cleanup PR で `info` に戻す。
+
+#### 検証結果 (実機ログから抜粋)
+
+```
+url=http://localhost:7980/?layout=grid&token=...&url=ws%3A%2F%2Flocalhost%3A7880, sandbox=false, insecure=true
+chrome initialized
+chrome: START_RECORDING            # Chrome が LiveKit room に接続して participant track の描画開始
+EGRESS_ACTIVE                       # Egress が active 状態に遷移
+UpdateEgress (周期的に継続)          # Chrome process が hung せずちゃんと動いている (前回との差)
+```
+
+YouTube Studio で映像受信を確認 → R12 完全完了。
 
 #### 影響
 
-- 観測性向上 (Chrome console が見える) と引き換えに、 通常運用での log 量が増える。
-  検証後は `logging.level: info` + `debug.enable_chrome_logging: false` に戻す予定
-  (PR #115 と同じパターン)。
-- `insecure: true` のセキュリティ影響は コンテナ内 localhost 通信に限定されるため許容範囲。
+- `insecure: true` のセキュリティ影響はコンテナ内 localhost 通信に限定されるため許容範囲。
+- 将来 NLB hairpin を解決して Egress を wss:// (NLB 経由) で繋ぐ場合は本フラグ不要。
+
+#### 残課題
+
+- Egress の出力は **streamOutputs (RTMP) のみ** で **fileOutputs (S3 録画) は未指定**。
+  S3 への録画ファイル保存は別タスク (P-01 の完了条件のうち残 1 つ)、 control-api の
+  `startRoomCompositeEgress` 呼び出しに `file: new sdk.EncodedFileOutput({...})` を追加する
+  実装が必要。 NEXT_WORK.md に新項目として識別する。
 
 ## 影響・トレードオフ
 
