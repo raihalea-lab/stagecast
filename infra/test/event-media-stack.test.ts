@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { App } from "aws-cdk-lib";
 import { Match, Template } from "aws-cdk-lib/assertions";
+import { liveKitEgressConfig } from "../lib/event-media-stack";
 import {
   EventMediaStack,
   ecrRepositoryArnFromUri,
@@ -399,5 +400,31 @@ describe("EventMediaStack with TLS props (ADR 0009)", () => {
         Value: "event-evt-tls.media.aws.example.com",
       }),
     );
+  });
+});
+
+describe("liveKitEgressConfig (R12, ADR 0010 D-7, ADR 0012 D-3)", () => {
+  it("R12-followup-23: insecure: true を出力する (Chrome LNA 回避)", () => {
+    const yaml = liveKitEgressConfig("my-valkey.cache.amazonaws.com");
+    expect(yaml).toContain("insecure: true");
+  });
+
+  it("ADR 0010 D-6: redis は単一ノード address を使う", () => {
+    const yaml = liveKitEgressConfig("my-valkey.cache.amazonaws.com");
+    expect(yaml).toContain("address: my-valkey.cache.amazonaws.com:6379");
+    expect(yaml).toContain("use_tls: true");
+  });
+
+  it("ADR 0012 D-3: composerTemplateUrl 未指定なら template_base 行を出さない (デフォルトテンプレ fallback)", () => {
+    const yaml = liveKitEgressConfig("my-valkey.cache.amazonaws.com");
+    expect(yaml).not.toContain("template_base");
+  });
+
+  it("ADR 0012 D-3: composerTemplateUrl 指定時は template_base 行を出力する", () => {
+    const yaml = liveKitEgressConfig(
+      "my-valkey.cache.amazonaws.com",
+      "https://d123abc.cloudfront.net",
+    );
+    expect(yaml).toContain("template_base: https://d123abc.cloudfront.net");
   });
 });

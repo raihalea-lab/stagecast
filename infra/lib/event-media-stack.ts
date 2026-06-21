@@ -101,6 +101,13 @@ export interface EventMediaStackProps extends StackProps {
    * control-api の Egress 起動 API が Secret 値を取得して使う。
    */
   streamKeyRef?: string;
+  /**
+   * カスタム Egress テンプレート (composer-template) の URL (ADR 0012 D-3)。
+   * 例: `https://d123abc.cloudfront.net`。 Egress config の `template_base` に渡され、
+   * Chrome は `{template_base}/?layout=grid&token=...&url=...` を開く。
+   * 未指定なら LiveKit Egress のデフォルトテンプレートを使う (`http://localhost:7980/`)。
+   */
+  composerTemplateUrl?: string;
 }
 
 /**
@@ -420,7 +427,7 @@ export class EventMediaStack extends Stack {
           image: images.egress ?? "livekit/egress:latest",
           essential: false,
           environment: {
-            EGRESS_CONFIG_BODY: liveKitEgressConfig(valkeyEndpoint),
+            EGRESS_CONFIG_BODY: liveKitEgressConfig(valkeyEndpoint, props.composerTemplateUrl),
             // ADR 0010 D-2: 同一 Task 内なので localhost で素 WebSocket で繋ぐ (TLS 不要)。
             LIVEKIT_WS_URL: `ws://localhost:${LIVEKIT_PORTS.signaling}`,
           },
@@ -879,8 +886,13 @@ export function liveKitServerConfig(valkeyEndpoint: string): string {
  *
  * R12-followup-23 で `insecure: true` を追加 (Chrome 147+ の LNA WebSocket 制限を回避)。
  * 2026-06-21 実機検証で映像受信成功 → R12 完全完了 (ADR 0010 D-7)。
+ *
+ * R15 で `template_base` (composerTemplateUrl) を追加 (ADR 0012 D-3)。 指定時はカスタム
+ * テンプレート (apps/composer-template) を Chrome が開き、 layout 操作・待機画面・プレビュー
+ * の基盤になる。 未指定時は LiveKit Egress のデフォルトテンプレート (`http://localhost:7980/`)
+ * にフォールバック。
  */
-export function liveKitEgressConfig(valkeyEndpoint: string): string {
+export function liveKitEgressConfig(valkeyEndpoint: string, composerTemplateUrl?: string): string {
   return [
     "redis:",
     // ADR 0010 D-6: SFU と同じく単一ノードに合わせて address を使う。
@@ -893,6 +905,10 @@ export function liveKitEgressConfig(valkeyEndpoint: string): string {
     // `insecure: true` で `--disable-web-security` + `--allow-running-insecure-content` を
     // 付与し回避する。 リスクはコンテナ内 localhost 通信に限定。
     "insecure: true",
+    // R15 / ADR 0012 D-3: カスタム Egress テンプレート (composer-template) の URL。
+    // 指定時は Chrome が `{template_base}/?layout=grid&token=...&url=...` を開く。
+    // 未指定時 (この行を出さない場合) は LiveKit Egress のデフォルトテンプレートにフォールバック。
+    ...(composerTemplateUrl ? [`template_base: ${composerTemplateUrl}`] : []),
     // R12: Fargate の 2 vCPU で RoomComposite Egress を許可する (デフォルト 4 を 1 に緩和)。
     // LiveKit 公式推奨は 4 vCPU だが、検証/小規模配信向けに緩める。
     // 品質劣化や Chrome がフリーズする可能性があるため、本番では cpu/memory を増やす方が安全。

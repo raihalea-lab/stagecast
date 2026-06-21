@@ -48,8 +48,8 @@ describe("ControlPlaneStack", () => {
     });
   });
 
-  it("admin-web / stage-web の CloudFront ディストリビューションがある (T6)", () => {
-    template.resourceCountIs("AWS::CloudFront::Distribution", 2);
+  it("admin-web / stage-web / composer-web の CloudFront ディストリビューションがある (T6, ADR 0012 D-2)", () => {
+    template.resourceCountIs("AWS::CloudFront::Distribution", 3);
   });
 
   it("制御 API の Lambda + HTTP API がある (T5)", () => {
@@ -460,10 +460,13 @@ describe("ControlPlaneStack SPA 配信 (webAssets)", () => {
   const base = mkdtempSync(join(tmpdir(), "stagecast-web-"));
   const adminWebDir = join(base, "admin");
   const stageWebDir = join(base, "stage");
+  const composerWebDir = join(base, "composer");
   mkdirSync(adminWebDir);
   mkdirSync(stageWebDir);
+  mkdirSync(composerWebDir);
   writeFileSync(join(adminWebDir, "index.html"), "<!doctype html>admin");
   writeFileSync(join(stageWebDir, "index.html"), "<!doctype html>stage");
+  writeFileSync(join(composerWebDir, "index.html"), "<!doctype html>composer");
 
   const app = new App({
     context: {
@@ -476,12 +479,12 @@ describe("ControlPlaneStack SPA 配信 (webAssets)", () => {
   });
   const stack = new ControlPlaneStack(app, "TestCPWeb", {
     env: { account: "111111111111", region: "ap-northeast-1" },
-    webAssets: { adminWebDir, stageWebDir },
+    webAssets: { adminWebDir, stageWebDir, composerWebDir },
   });
   const t = Template.fromStack(stack);
 
-  it("admin/stage の2つの BucketDeployment を作り CloudFront を invalidate する", () => {
-    t.resourceCountIs("Custom::CDKBucketDeployment", 2);
+  it("admin/stage/composer の3つの BucketDeployment を作り CloudFront を invalidate する", () => {
+    t.resourceCountIs("Custom::CDKBucketDeployment", 3);
     t.hasResourceProperties("Custom::CDKBucketDeployment", {
       DistributionId: Match.anyValue(),
       DistributionPaths: ["/*"],

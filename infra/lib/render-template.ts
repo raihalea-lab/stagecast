@@ -28,6 +28,10 @@ export function renderEventMediaTemplate(spec: RenderEventMediaSpec): string {
   const captionWorkerImage = process.env.CAPTION_WORKER_IMAGE;
   // Egress 録画の出力先バケット。制御層が成果物バケット名を env で渡す (ADR 0006 D-4)。
   const recordingsBucketName = process.env.RECORDINGS_BUCKET_NAME;
+  // ADR 0012 D-3: カスタム Egress テンプレート (composer-template) の URL。
+  // ControlPlane の ComposerWebDistribution から reconcile Lambda の env に注入される。
+  // 未指定なら LiveKit Egress のデフォルトテンプレート (`http://localhost:7980/`) にフォールバック。
+  const composerTemplateUrl = process.env.COMPOSER_TEMPLATE_URL;
   // ADR 0009: LiveKit シグナリングを NLB + ACM で TLS 終端する。4 つ全てが揃っているときのみ
   // NLB / Route53 ARecord を作る (揃っていなければ ADR 0008 D-4 の Public IP 直接公開にフォールバック)。
   const tlsCertificateArn = process.env.MEDIA_CERTIFICATE_ARN;
@@ -65,6 +69,7 @@ export function renderEventMediaTemplate(spec: RenderEventMediaSpec): string {
     ...sharedVpcProps,
     ...(spec.rtmpUrl ? { rtmpUrl: spec.rtmpUrl } : {}),
     ...(spec.streamKeyRef ? { streamKeyRef: spec.streamKeyRef } : {}),
+    ...(composerTemplateUrl ? { composerTemplateUrl } : {}),
   });
   const assembly = app.synth();
   const template = assembly.getStackByName(stackName).template as unknown;
