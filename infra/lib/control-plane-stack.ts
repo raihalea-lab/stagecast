@@ -324,6 +324,9 @@ export class ControlPlaneStack extends Stack {
     // --- 制御 API: API Gateway (HTTP API) + Lambda (DESIGN.md 3.1, T5) ---
     // @stagecast/control-api の handler を NodejsFunction で esbuild バンドル。
     // @aws-sdk/* は Lambda Node.js 24 ランタイム提供分を external 化してサイズを抑える。
+    // R12-followup-19: ただし `client-kinesis-video` / `client-kinesis-video-signaling` は
+    // Lambda runtime SDK に含まれていないので bundle に含める (R12-followup-19 で curl 結果が
+    // 「iceServers field missing」で logger output も無かった原因がこれ)。
     const controlApiFn = new lambdaNodejs.NodejsFunction(this, "ControlApiFunction", {
       entry: path.join(__dirname, "..", "..", "services", "control-api", "src", "index.ts"),
       handler: "handler",
@@ -334,7 +337,15 @@ export class ControlPlaneStack extends Stack {
         sourceMap: true,
         format: lambdaNodejs.OutputFormat.ESM,
         // Lambda ランタイム同梱の AWS SDK v3 を再利用する (cold start とサイズを抑える)。
-        externalModules: ["@aws-sdk/*"],
+        // ただし client-kinesis-video 系は含まれていないので bundle に入れる。
+        externalModules: [
+          "@aws-sdk/client-cognito-identity-provider",
+          "@aws-sdk/client-dynamodb",
+          "@aws-sdk/client-s3",
+          "@aws-sdk/client-secrets-manager",
+          "@aws-sdk/lib-dynamodb",
+          "@aws-sdk/s3-request-presigner",
+        ],
         // ESM 出力時の cjs 互換のため、Node.js 24 のネイティブ require を解決可能にする。
         banner:
           "import{createRequire}from'node:module';const require=createRequire(import.meta.url);",
