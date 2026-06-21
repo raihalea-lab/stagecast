@@ -18,8 +18,11 @@ const env = {
 const repoRoot = join(__dirname, "..", "..");
 const adminWebDir = join(repoRoot, "apps", "admin-web", "dist");
 const stageWebDir = join(repoRoot, "apps", "stage-web", "dist");
+const composerWebDir = join(repoRoot, "apps", "composer-template", "dist");
 const webAssets =
-  existsSync(adminWebDir) && existsSync(stageWebDir) ? { adminWebDir, stageWebDir } : undefined;
+  existsSync(adminWebDir) && existsSync(stageWebDir) && existsSync(composerWebDir)
+    ? { adminWebDir, stageWebDir, composerWebDir }
+    : undefined;
 
 // 制御層 (常時稼働) は常にデプロイ対象。
 new ControlPlaneStack(app, "StagecastControlPlane", { env, webAssets });

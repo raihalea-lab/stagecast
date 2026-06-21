@@ -41,7 +41,7 @@ export interface ControlPlaneStackProps extends StackProps {
    * ビルド済み SPA の dist ディレクトリ。指定時のみ S3 配信 + config.json 生成 + CloudFront
    * invalidation を行う (bin/app.ts が dist 存在時に渡す)。未指定ならビルド前 synth でも壊れない。
    */
-  webAssets?: { adminWebDir: string; stageWebDir: string };
+  webAssets?: { adminWebDir: string; stageWebDir: string; composerWebDir: string };
 }
 
 /**
@@ -165,6 +165,17 @@ export class ControlPlaneStack extends Stack {
     const adminWebDistribution = this.buildSpaDistribution("AdminWebDistribution", adminWebBucket);
     const stageWebBucket = this.buildSpaBucket("StageWebBucket");
     const stageWebDistribution = this.buildSpaDistribution("StageWebDistribution", stageWebBucket);
+    // ADR 0012 D-2: カスタム Egress テンプレート (composer-template) を独立 Distribution で配信。
+    // 当初は admin-web Distribution に /composer/ path で追加する案だったが、 CloudFront の
+    // cache behavior 切替と admin-web の SPA routing (BrowserRouter) の衝突懸念があり、
+    // 既存パターン (buildSpaBucket + buildSpaDistribution) に合わせて独立 Distribution に変更。
+    // ホスティング URL は Egress config の template_base にこの Distribution の URL を渡す
+    // (R15 で event-media-stack.ts の liveKitEgressConfig に組み込む)。
+    const composerWebBucket = this.buildSpaBucket("ComposerWebBucket");
+    const composerWebDistribution = this.buildSpaDistribution(
+      "ComposerWebDistribution",
+      composerWebBucket,
+    );
 
     // --- Cognito: 管理者認証 (DESIGN.md 4 表, F-12, T6) ---
     const adminUserPool = new cognito.UserPool(this, "AdminUserPool", {
@@ -495,11 +506,22 @@ export class ControlPlaneStack extends Stack {
           s3deploy.Source.jsonData("config.json", { controlApiUrl }),
         ],
       });
+      // ADR 0012 D-2: composer-template は config.json を持たない (URL パラメータで token/url を受け取る)。
+      // Egress の Chrome ヘッドレスからのみアクセスされる想定だが、 R17 で admin-web/stage-web からの
+      // iframe プレビューも開く。 認証は LiveKit token に依存 (CloudFront 自体は public)。
+      new s3deploy.BucketDeployment(this, "ComposerWebDeployment", {
+        destinationBucket: composerWebBucket,
+        distribution: composerWebDistribution,
+        distributionPaths: ["/*"],
+        sources: [s3deploy.Source.asset(props.webAssets.composerWebDir)],
+      });
     }
 
     // --- 出力 (フロントビルド / 運用) ---
     new CfnOutput(this, "AdminWebUrl", { value: `https://${adminWebDistribution.domainName}` });
     new CfnOutput(this, "StageWebUrl", { value: `https://${stageWebDistribution.domainName}` });
+    // ADR 0012 D-3: ComposerWebUrl は Egress config の template_base に渡される (event-media-stack.ts)。
+    new CfnOutput(this, "ComposerWebUrl", { value: `https://${composerWebDistribution.domainName}` });
     new CfnOutput(this, "ControlApiId", { value: httpApi.ref });
     new CfnOutput(this, "ControlApiEndpoint", {
       value: `https://${httpApi.ref}.execute-api.${this.region}.amazonaws.com`,
@@ -512,8 +534,10 @@ export class ControlPlaneStack extends Stack {
     });
     new CfnOutput(this, "AdminWebBucketName", { value: adminWebBucket.bucketName });
     new CfnOutput(this, "StageWebBucketName", { value: stageWebBucket.bucketName });
+    new CfnOutput(this, "ComposerWebBucketName", { value: composerWebBucket.bucketName });
     new CfnOutput(this, "AdminWebDistributionId", { value: adminWebDistribution.distributionId });
     new CfnOutput(this, "StageWebDistributionId", { value: stageWebDistribution.distributionId });
+    new CfnOutput(this, "ComposerWebDistributionId", { value: composerWebDistribution.distributionId });
     new CfnOutput(this, "AdminUserPoolId", { value: adminUserPool.userPoolId });
     new CfnOutput(this, "AdminUserPoolClientId", { value: adminUserPoolClient.userPoolClientId });
     new CfnOutput(this, "AdminAuthDomain", {
@@ -651,6 +675,10 @@ export class ControlPlaneStack extends Stack {
         SHARED_VPC_CIDR: sharedMediaVpc.vpcCidrBlock,
         SHARED_SUBNET_IDS: sharedMediaVpc.publicSubnets.map((s) => s.subnetId).join(","),
         SHARED_SUBNET_AZS: sharedMediaVpc.publicSubnets.map((s) => s.availabilityZone).join(","),
+        // ADR 0012 D-3: カスタム Egress テンプレート (composer-template) の URL を
+        // EventMediaStack に渡す。 render-template.ts が process.env から読んで Egress config
+        // の template_base に注入する。
+        COMPOSER_TEMPLATE_URL: `https://${composerWebDistribution.domainName}`,
       },
     });
 
