@@ -36,13 +36,20 @@ R12-followup-1〜22 で **stage-web から SFU への WebRTC 接続** が完了 
    - SFU TaskRole は既に S3 PutObject 権限を持つ (ADR 0010 D-5) ので追加権限は不要
    - 完了基準: 配信終了で `recordings/{eventId}/{egressId}.mp4` が S3 に保存される + admin-web の「成果物」一覧に表示
 
-2. **DESIGN.md 更新: KVS WebRTC TURN 運用の追記**
+3. **R15-R17 (新規): カスタム Egress テンプレート (ADR 0012)**
+   - 要件 1 (プレビュー) / 要件 2 (レイアウト操作) / 要件 3 (待機画面) を実現する全体方針を [ADR 0012](./decisions/0012-custom-egress-template.md) で定義
+   - R15: `apps/composer-template/` 新規 + S3+CloudFront ホスティング + Egress `template_base` 切替 + 待機画面 (要件 3 のイベント中 fallback)
+   - R16: admin-web から layout 切替 UI (LiveKit data channel) + spotlight / pip layouts 追加 (要件 2)
+   - R17: admin-web / stage-web の iframe プレビュー埋め込み (要件 1)
+   - R18 (将来): 365 日 24h 配信 (DESIGN.md N-1 と矛盾するため別 ADR で議論)
+
+4. **DESIGN.md 更新: KVS WebRTC TURN 運用の追記**
    - 3.2 章 (メディア層構成) に TURN レイヤーの記述追加
    - 7.2 章 (常時稼働リソース) に「KVS Signaling Channel (1 個, $0.03/月)」を追記
    - 8 章 (運用) に AWS KVS WebRTC 関連の監視ポイント追記
    - ADR 0011 への参照を本文化
 
-3. **R12-followup-NN 系の cleanup**
+5. **R12-followup-NN 系の cleanup**
    - 念のため本番リハーサル (新規イベント作成 → stage-web 入室 → カメラ・マイク publish → 30 分維持) で安定性確認
    - 不具合あれば NEXT_WORK.md に R12-followup-23+ で追加
 
@@ -119,6 +126,11 @@ R12-followup-1〜22 で **stage-web から SFU への WebRTC 接続** が完了 
 | **R12-followup-19** | S5    | **TURN を AWS KVS WebRTC に外出し (ADR 0011 案 E)**                                | `claude/r12-kvs-webrtc-turn` (PR #110/#111 マージ)          | LiveKit 内蔵 TURN / coturn sidecar (R12-followup-10〜18) を全部撤回。 AWS Kinesis Video Streams WebRTC が提供する TURN を **control-api の /join で取得** → **stage-web の Room.connect の `rtcConfig.iceServers` に直接渡す** → LiveKit Client SDK の `if (!rtcConfig.iceServers)` 判定で server からの iceServers を bypass。 KVS マネージドなので公式 sanctioned、 月 $0.03 (Signaling Channel) + イベント分のみ |
 | **R12-followup-22** | S5    | **R12-followup-9 訂正: ips.excludes から VPC CIDR 除去 (host candidate 0 個問題)**  | `claude/r12-remove-vpc-cidr-excludes` (PR #114 マージ) **R12 完了** | R12-followup-9 で「Private IP はブラウザから到達不可」として VPC CIDR を ips.excludes に追加していたが、 `--node-ip` の NAT1To1 は **既存の host candidate の IP を書き換える** 仕様であり、 host candidate が 0 個だと書き換える対象がなく candidate gather が空 → trickle ICE が動かず client に candidate を送れない問題が判明。 link-local (169.254/16) のみ excludes に残し、 VPC Private IP を host candidate に残すことで NAT1To1 が機能して Public IP が client に配信される。 **2026-06-21 stage-web 入室成功で R12 完了 ✅** |
 | **R12-followup-23** | S5    | Egress 映像真っ黒 / Chrome process hung 対策 (ADR 0010 D-7)                         | `claude/r12-youtube-rtmp-e2e` (PR #119 マージ) **R12 完全完了** | 2026-06-21 R12 残作業の YouTube Live RTMP 送出 E2E 検証で、 Egress 起動 → `pipeline playing` → `egress_active` まで到達し RTMP 信号も届く (YouTube stream status ACTIVE) が **映像真っ黒** + `pipeline playing` 以降 9 分以上 Egress ログ完全停止の症状を観測。 **根本原因**: LiveKit Egress のデフォルトテンプレート (`http://localhost:7980/`) から `ws://localhost:7880` 接続が Chrome 147+ の LNA WebSocket 制限で拒否されていた。 **対策**: Egress config に `insecure: true` を追加して `--disable-web-security` + `--allow-running-insecure-content` を付与。 **2026-06-21 実機検証で映像受信成功 → R12 完全完了 ✅**。 詳細は ADR 0010 D-7 |
+| **R14**             | S5    | Egress fileOutputs (S3 録画ファイル) 追加                                            | (未起票)                                                | control-api `services/control-api/src/lambda.ts:178-187` の `startRoomCompositeEgress` 呼び出しに `file: new sdk.EncodedFileOutput({...})` を追加し、 ControlPlane の AssetsBucket 配下 `recordings/{eventId}/` プレフィックスに mp4 出力する。 SFU TaskRole は既に S3 PutObject 権限あり (ADR 0010 D-5)。 完了基準: 配信終了で `recordings/{eventId}/{egressId}.mp4` が S3 に保存 + admin-web の「成果物」一覧に表示 (artifact-download.ts は既存) |
+| **R15**             | -     | カスタム Egress テンプレート (ADR 0012 D-1/D-2/D-3/D-5)                              | `claude/r15-composer-template-base` (未起票)             | `apps/composer-template/` を React+Vite+livekit-client で新規作成。 ControlPlane の AssetsBucket に `assets/composer/` プレフィックスで upload、 admin-web CloudFront に `/composer/*` cache behavior 追加。 Egress config の `template_base` をカスタムテンプレート URL に切替。 待機画面 (publishing participant 0 人時) も含む。 grid layout のみ。 完了基準: ADR 0012 受け入れ基準 1, 2, 4 |
+| **R16**             | -     | admin-web からの layout 切替 UI + spotlight/pip layouts (ADR 0012 D-4)               | `claude/r16-layout-control` (未起票)                     | admin-web に livekit-client 組込み + admin role token 取得 (control-api `/admin-token` 新規 endpoint) → room に join → data channel で layout JSON を broadcast。 テンプレート側で受信して React state 更新 → layout 切替 (sub-second)。 layout 種類: grid / spotlight / pip / 画面共有メイン の 4 種。 完了基準: ADR 0012 受け入れ基準 3 |
+| **R17**             | -     | admin-web / stage-web の iframe プレビュー埋め込み (ADR 0012 D-6)                    | `claude/r17-live-preview` (未起票)                       | admin-web EventDetail に "ライブプレビュー" section + stage-web 登壇者ビュー右下に "現在の配信" 小窓。 iframe src は subscriber-only token を control-api で発行 (publish 権限なし、 layout 操作不可)。 完了基準: ADR 0012 受け入れ基準 5, 6 |
+| **R18** (将来)     | -     | 365 日 24h 配信 (常時 fallback 配信)                                                  | TBD (別 ADR 起票)                                       | イベント外も「ロゴ + BGM + 次回開催情報」を YouTube に流し続ける機能。 DESIGN.md N-1 (常時稼働リソースなし) と矛盾するため設計検討要。 候補: 常時 ffmpeg loop + S3 mp4、 LiveKit Standby Room、 EventBridge Schedule 等。 別 ADR 起票後に着手 |
 
 > **R12-followup-4 〜 9 の意思決定は [ADR 0011](./decisions/0011-livekit-ice-fargate-config.md) に集約済み**。
 > 「Fargate + NLB 上の LiveKit Server で WebRTC ICE を確立するための設定群」として 6 つの決定 (D-1〜D-6) と
