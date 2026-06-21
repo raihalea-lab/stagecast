@@ -331,19 +331,14 @@ describe("liveKitServerConfig (R1)", () => {
     expect(yaml).toContain("- 169.254.0.0/16");
   });
 
-  it("R12-followup-9: 第 2 引数で渡した VPC CIDR も excludes に積む", () => {
-    // ブラウザはインターネット経由で接続するので VPC Private IP には到達不可能。
-    // CDK 側は `vpc.vpcCidrBlock` を流し込む。Token でも文字列補間できる。
-    const yaml = liveKitServerConfig("my-valkey.cache.amazonaws.com", "10.0.0.0/16");
-    expect(yaml).toContain("- 169.254.0.0/16");
-    expect(yaml).toContain("- 10.0.0.0/16");
-  });
-
-  it("R12-followup-9: 引数なし呼び出しでは VPC CIDR 行は出ない (リンクローカルのみ)", () => {
+  it("R12-followup-22: VPC CIDR は excludes に含めない (NAT1To1 のための host candidate を残す)", () => {
+    // R12-followup-9 で「Private IP はブラウザから到達不可」として VPC CIDR を excludes に追加したが、
+    // `--node-ip` の NAT1To1 は host candidate の IP を書き換える仕様なので、 host candidate が 0 個だと
+    // candidate gather が空になり trickle ICE が機能しない。 VPC Private IP を host candidate に残す。
     const yaml = liveKitServerConfig("my-valkey.cache.amazonaws.com");
-    // link-local だけは常に excludes される
+    // link-local だけ除外
     expect(yaml).toContain("- 169.254.0.0/16");
-    // 10.0.0.0/16 のような CIDR はテスト引数で渡していないので出ない
+    // VPC CIDR は出ない (excludes に追加しない)
     expect(yaml).not.toContain("- 10.0.0.0/16");
   });
 

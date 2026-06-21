@@ -391,8 +391,8 @@ export class EventMediaStack extends Stack {
       // R12-followup-4: LiveKit Server は config-body 用の env 名が `LIVEKIT_CONFIG` (cmd/server/main.go)。
       // 過去 `LIVEKIT_CONFIG_BODY` を渡していたため config が読まれず single-node routing で起動し、
       // redis が認識されず Egress と通信できなかった。正しい名前 `LIVEKIT_CONFIG` に修正。
-      // R12-followup-9: 第 2 引数で VPC CIDR を渡し、Pion の host candidate から VPC Private IP を除外する。
-      environment: { LIVEKIT_CONFIG: liveKitServerConfig(valkeyEndpoint, vpc.vpcCidrBlock) },
+      // R12-followup-22: vpcCidr 渡しを廃止 (R12-followup-9 で追加したが、 host candidate が 0 個になり trickle ICE 不能の問題が判明)。
+      environment: { LIVEKIT_CONFIG: liveKitServerConfig(valkeyEndpoint) },
       secrets: livekitSecrets,
       // R12-followup-6: Fargate Task の Public IP を ICE candidate に広告するため起動時に解決する。
       // ECS Container metadata V4 ($ECS_CONTAINER_METADATA_URI_V4/task) → Networks[0].IPv4Addresses[0] は
@@ -810,11 +810,11 @@ export function serverlessCacheName(eventId: string): string {
  * NLB リスナ (LIVEKIT_PORTS) と一致させる。api key/secret は config に直書きせず
  * LIVEKIT_API_KEY/SECRET (Secrets Manager 由来) を image entrypoint 経由で与える。
  *
- * @param vpcCidr R12-followup-9: 渡すと VPC Private IP も ICE host candidate から除外する
- *                (ブラウザはインターネット経由で接続するので VPC 内 IP には到達不可)。
- *                CDK で `vpc.vpcCidrBlock` を渡す想定。テストでは固定値を渡す。
+ * R12-followup-22: `vpcCidr` 引数を廃止 (R12-followup-9 で追加したが訂正)。
+ * link-local だけ excludes に残し、 VPC Private IP は host candidate として残す
+ * (→ `--node-ip` の NAT1To1 が機能して Public IP として client に配信される)。
  */
-export function liveKitServerConfig(valkeyEndpoint: string, vpcCidr?: string): string {
+export function liveKitServerConfig(valkeyEndpoint: string): string {
   return [
     `port: ${LIVEKIT_PORTS.signaling}`,
     // ADR 0009 D-1: TLS 終端は NLB が行う (LiveKit 自身は plain HTTP/WS のまま)。
@@ -845,11 +845,14 @@ export function liveKitServerConfig(valkeyEndpoint: string, vpcCidr?: string): s
     "  skip_external_ip_validation: true",
     "  ips:",
     "    excludes:",
+    // R12-followup-22: link-local (169.254/16) のみ除外する。
+    // VPC CIDR (10.0.0.0/16 等) は **除外しない** ことに R12-followup-22 で訂正。
+    // 理由: R12-followup-9 では「Private IP はブラウザから到達不可」として除外したが、
+    // `--node-ip <Public IP>` の NAT1To1 は **既存の host candidate の IP を書き換える** 仕様であり、
+    // host candidate が 0 個だと書き換える対象がなく candidate gather が空になる
+    // (→ trickle ICE で client に candidate を送れず ICE state が new のまま遷移しない実機検証あり)。
+    // VPC Private IP を host candidate として残し、 NAT1To1 で Public IP に書き換えて配信する。
     "      - 169.254.0.0/16",
-    // R12-followup-9: VPC Private IP もブラウザからは到達不可なので除外する。
-    // SharedMediaVpc の CIDR (例: 10.0.0.0/16) を CDK で `vpc.vpcCidrBlock` から動的に渡す。
-    // vpcCidr 未指定 (テスト等) のときは link-local だけ除外し、当該行はスキップする。
-    ...(vpcCidr ? [`      - ${vpcCidr}`] : []),
     // R12-followup-19 / ADR 0011 案 E: TURN は AWS KVS WebRTC に外出し。
     // LiveKit Server 側の `turn:` セクションと `rtc.turn_servers` 設定は廃止 (R12-followup-10〜18 を撤回)。
     // stage-web 側で control-api から iceServers (KVS の TURN URL + 短期 credential) を受け取り
