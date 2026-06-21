@@ -40,6 +40,9 @@ importers:
       '@stagecast/shared':
         specifier: workspace:*
         version: link:../../packages/shared
+      livekit-client:
+        specifier: ^2.19.2
+        version: 2.19.2(@types/dom-mediacapture-record@1.0.22)
       react:
         specifier: ^19.2.7
         version: 19.2.7
@@ -68,6 +71,9 @@ importers:
 
   apps/composer-template:
     dependencies:
+      '@stagecast/shared':
+        specifier: workspace:*
+        version: link:../../packages/shared
       livekit-client:
         specifier: ^2.19.2
         version: 2.19.2(@types/dom-mediacapture-record@1.0.22)

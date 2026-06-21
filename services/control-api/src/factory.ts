@@ -25,6 +25,7 @@ import {
   type EgressStarter,
   type StreamKeyResolver,
 } from "./usecases/egress.js";
+import { createAdminTokenService } from "./usecases/admin-token.js";
 import { DefaultLiveKitTokenMinter, type LiveKitTokenMinter } from "./auth/livekit-minter.js";
 import { dynamoRepositories } from "./repo/dynamo.js";
 import {
@@ -134,6 +135,13 @@ export function buildControlApi(config: FactoryConfig = {}) {
         })
       : undefined;
 
+  // R16 / ADR 0012 D-4: 管理者用 LiveKit token 発行 (layout 切替 broadcast 用)。
+  // livekitMinter が無い (LiveKit 環境変数未設定) 環境ではこのサービスは無効。
+  const liveKitMinter = config.livekitMinter ?? livekitFromEnv();
+  const adminToken = liveKitMinter
+    ? createAdminTokenService({ events, liveKitMinter })
+    : undefined;
+
   return createApp({
     auth: config.auth ?? new FakeAdminAuthVerifier(),
     events,
@@ -144,5 +152,6 @@ export function buildControlApi(config: FactoryConfig = {}) {
     artifacts,
     settings: config.settings,
     egress,
+    adminToken,
   });
 }
