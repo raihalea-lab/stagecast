@@ -26,6 +26,7 @@ import {
   type StreamKeyResolver,
 } from "./usecases/egress.js";
 import { createAdminTokenService } from "./usecases/admin-token.js";
+import { createPreviewTokenService } from "./usecases/preview-token.js";
 import { DefaultLiveKitTokenMinter, type LiveKitTokenMinter } from "./auth/livekit-minter.js";
 import { dynamoRepositories } from "./repo/dynamo.js";
 import {
@@ -141,6 +142,10 @@ export function buildControlApi(config: FactoryConfig = {}) {
   const adminToken = liveKitMinter
     ? createAdminTokenService({ events, liveKitMinter })
     : undefined;
+  // R17 / ADR 0012 D-6: プレビュー用 LiveKit token 発行 (viewer role, iframe 埋め込み用)。
+  const previewToken = liveKitMinter
+    ? createPreviewTokenService({ events, liveKitMinter })
+    : undefined;
 
   return createApp({
     auth: config.auth ?? new FakeAdminAuthVerifier(),
@@ -153,5 +158,6 @@ export function buildControlApi(config: FactoryConfig = {}) {
     settings: config.settings,
     egress,
     adminToken,
+    previewToken,
   });
 }

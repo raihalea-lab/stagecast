@@ -21,6 +21,7 @@ import type { createAssetUploadService } from "../assets/asset-upload.js";
 import type { createArtifactDownloadService } from "../assets/artifact-download.js";
 import type { AdminTokenService } from "../usecases/admin-token.js";
 import type { EgressService } from "../usecases/egress.js";
+import type { PreviewTokenService } from "../usecases/preview-token.js";
 import type { SettingsService } from "../usecases/settings.js";
 
 export interface HttpRequest {
@@ -59,6 +60,8 @@ export interface AppDeps {
   egress?: EgressService;
   /** Admin LiveKit token 発行 (R16 / ADR 0012 D-4: admin-web layout 切替用)。未設定なら省略され 503。 */
   adminToken?: AdminTokenService;
+  /** Preview LiveKit token 発行 (R17 / ADR 0012 D-6: admin-web/stage-web iframe プレビュー用)。未設定なら省略され 503。 */
+  previewToken?: PreviewTokenService;
 }
 
 const json = (status: number, body: unknown): HttpResponse => ({ status, body });
@@ -75,6 +78,7 @@ export function createApp(deps: AppDeps) {
     settings,
     egress,
     adminToken,
+    previewToken,
   } = deps;
 
   async function requireAdmin(req: HttpRequest): Promise<void> {
@@ -198,6 +202,17 @@ export function createApp(deps: AppDeps) {
         // data channel で broadcast するための room 接続トークン)。 認証は requireAdmin で完了済。
         if (!adminToken) throw new ServiceUnavailableError("admin token service not configured");
         return json(201, await adminToken.issue(eventId));
+      } else if (
+        segments[2] === "preview-token" &&
+        segments.length === 3 &&
+        req.method === "POST"
+      ) {
+        // R17 / ADR 0012 D-6: プレビュー用 LiveKit token を払い出す (viewer role)。
+        // admin-web / stage-web が composer-template を iframe で開く際に使う。
+        // 認証は requireAdmin (Cognito JWT) で完了済 (R17-Phase1)。
+        // 将来 R17-Phase3 で stage-web 用に invite token 検証経由のパスを追加検討。
+        if (!previewToken) throw new ServiceUnavailableError("preview token service not configured");
+        return json(201, await previewToken.issue(eventId));
       }
     }
 

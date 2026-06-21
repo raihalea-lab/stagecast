@@ -227,6 +227,7 @@ export function App(props: {
                 client={client}
                 assets={assets}
                 artifacts={artifacts}
+                composerTemplateUrl={props.config?.composerTemplateUrl}
                 onChanged={() => void run(refresh)}
               />
             ) : (

@@ -12,15 +12,18 @@ import type {
 } from "../api/types.js";
 import { toErrorMessage } from "../lib/errors.js";
 import { LayoutControl } from "./LayoutControl.js";
+import { LivePreview } from "./LivePreview.js";
 
 export function EventDetail(props: {
   event: EventDefinition;
   client: ControlApiClient;
   assets: AssetService;
   artifacts: ArtifactService;
+  /** R17: composer-template の URL (LivePreview iframe で使う、 runtime config 由来)。 */
+  composerTemplateUrl?: string;
   onChanged: () => void;
 }) {
-  const { event, client, assets, artifacts, onChanged } = props;
+  const { event, client, assets, artifacts, composerTemplateUrl, onChanged } = props;
   const [invites, setInvites] = useState<IssuedInvite[]>([]);
   const [artifactList, setArtifactList] = useState<Artifact[] | undefined>();
   const [error, setError] = useState<string | undefined>();
@@ -115,6 +118,16 @@ export function EventDetail(props: {
           composer-template (Egress) に data channel で broadcast → sub-second で反映される。 */}
       {event.status === "live" && event.media?.livekitUrl && (
         <LayoutControl eventId={event.id} client={client} />
+      )}
+
+      {/* R17 / ADR 0012 D-6: live + media 確定後はライブプレビューを toggle 可能に表示。
+          composer-template を iframe で開いて Egress と同じ合成画面を sub-second で確認できる。 */}
+      {event.status === "live" && event.media?.livekitUrl && (
+        <LivePreview
+          eventId={event.id}
+          client={client}
+          composerTemplateUrl={composerTemplateUrl}
+        />
       )}
 
       <h3>素材</h3>

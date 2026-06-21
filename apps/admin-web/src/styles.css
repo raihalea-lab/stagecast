@@ -253,3 +253,42 @@ code {
   color: #666;
   margin: 8px 0 0 0;
 }
+
+/* R17: live preview (composer-template iframe 埋め込み) */
+.live-preview {
+  margin: 16px 0;
+  padding: 12px 16px;
+  border: 1px solid #ddd;
+  border-radius: 8px;
+  background: #f8f9fa;
+}
+.live-preview h3 {
+  margin: 0 0 8px 0;
+  font-size: 1em;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.live-preview h3 button {
+  padding: 4px 12px;
+  font-size: 0.8em;
+  border: 1px solid #bbb;
+  border-radius: 4px;
+  background: #fff;
+  cursor: pointer;
+}
+.live-preview-content {
+  margin-top: 8px;
+}
+.live-preview-iframe {
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  border: 1px solid #ccc;
+  border-radius: 4px;
+  background: #000;
+}
+.live-preview-hint {
+  font-size: 0.8em;
+  color: #666;
+  margin: 8px 0 0 0;
+}

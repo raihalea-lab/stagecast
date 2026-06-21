@@ -10,6 +10,8 @@ interface ImportMetaEnv {
   readonly VITE_COGNITO_REDIRECT_URI?: string;
   /** ログアウト後の遷移先 (省略時は `${origin}/`) */
   readonly VITE_COGNITO_LOGOUT_URI?: string;
+  /** R17 / ADR 0012 D-6: composer-template の URL (iframe プレビュー埋め込み用)。 */
+  readonly VITE_COMPOSER_TEMPLATE_URL?: string;
 }
 
 interface ImportMeta {
