@@ -23,8 +23,8 @@
  * framesDecoded > 0 を待つが、 我々は待機画面を録画したいので即発行)。
  */
 import { useEffect, useMemo, useState } from "react";
-import { Room, RoomEvent, type Participant } from "livekit-client";
-import { Grid } from "./layouts/Grid.js";
+import { Room, RoomEvent, type RemoteTrackPublication } from "livekit-client";
+import { Grid, type VideoTile } from "./layouts/Grid.js";
 import { WaitingScreen } from "./WaitingScreen.js";
 
 export type LayoutKind = "grid";
@@ -41,22 +41,26 @@ export function Composer(props: Props) {
     "connecting",
   );
   const [errorMsg, setErrorMsg] = useState<string | undefined>();
-  // publishing participant = video track を 1 個以上 publish している participant。
-  // `useState<readonly Participant[]>` で安定参照を管理し、 layout に props で渡す。
-  const [publishers, setPublishers] = useState<readonly Participant[]>([]);
+  // R15-followup-3: tile 単位 (video publication 単位) で表示する。 1 participant が
+  // カメラ + 画面共有を同時に publish した場合は 2 tile に並ぶ (StreamYard 風)。
+  // 以前は participant 単位だったため、 videoTrackPublications.find((t) => !t.isMuted) で
+  // 最初の 1 つしか拾えず画面共有が無視される問題があった。
+  const [tiles, setTiles] = useState<readonly VideoTile[]>([]);
 
   useEffect(() => {
     let cancelled = false;
     const refresh = () => {
       // Egress 自身は subscriber-only (camPublish=false) なので、 publishVideoTrackCount は 0。
-      // remoteParticipants だけ見て publishing 数を集計する。
-      const pubs: Participant[] = [];
+      // remoteParticipants だけ見て publication ごとに tile を作る。
+      const next: VideoTile[] = [];
       for (const p of room.remoteParticipants.values()) {
-        if (Array.from(p.videoTrackPublications.values()).some((t) => !t.isMuted)) {
-          pubs.push(p);
+        for (const pub of p.videoTrackPublications.values()) {
+          if (!pub.isMuted) {
+            next.push({ participant: p, publication: pub as RemoteTrackPublication });
+          }
         }
       }
-      setPublishers(pubs);
+      setTiles(next);
     };
     room
       .on(RoomEvent.Connected, () => {
@@ -72,7 +76,7 @@ export function Composer(props: Props) {
       .on(RoomEvent.Disconnected, () => {
         if (cancelled) return;
         setState("disconnected");
-        setPublishers([]);
+        setTiles([]);
         // R15-followup-1: Egress に「録画終了」を通知する。
         // eslint-disable-next-line no-console
         console.log("END_RECORDING");
@@ -111,12 +115,12 @@ export function Composer(props: Props) {
         </div>
       );
     }
-    if (publishers.length === 0) {
+    if (tiles.length === 0) {
       return <WaitingScreen />;
     }
     // R15 は grid のみ。 R16 で layout 切替を追加。
-    return <Grid publishers={publishers} />;
-  }, [state, errorMsg, publishers]);
+    return <Grid tiles={tiles} />;
+  }, [state, errorMsg, tiles]);
 
   return <div className="composer-root">{view}</div>;
 }
