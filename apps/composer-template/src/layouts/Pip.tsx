@@ -1,8 +1,6 @@
 /**
- * Pip (Picture-in-Picture) layout - 1 つを full-screen main、 他を右下に小窓 overlay (R16)。
- *
- * focusIdentity を main にし、 残りを右下に縦に並べる (最大 3 つ、 超える分は overflow で隠れる)。
- * 画面共有を main にしたい場合は admin-web から `focusIdentity` を指定する。
+ * Pip (Picture-in-Picture) layout - 1 tile を full-screen、他を右下に小窓 overlay。
+ * D11: inline style を CSS class に移行、shadow を hairline + 軽 shadow に。
  */
 import { Tile } from "./Tile.js";
 import { tileKey, type VideoTile } from "./types.js";
@@ -20,38 +18,12 @@ export function Pip(props: Props) {
   const subs = tiles.filter((t) => tileKey(t) !== tileKey(main)).slice(0, 3);
 
   return (
-    <div
-      className="pip-layout"
-      style={{ position: "relative", width: "100%", height: "100%", background: "#000" }}
-    >
-      {/* メイン (フルサイズ)。 */}
+    <div className="pip-layout">
       <Tile tile={main} />
-      {/* sub (右下にコンパクトに、 小窓スタイル)。 */}
       {subs.length > 0 && (
-        <div
-          className="pip-subs"
-          style={{
-            position: "absolute",
-            right: 16,
-            bottom: 16,
-            display: "flex",
-            flexDirection: "column",
-            gap: 8,
-            width: 200,
-            zIndex: 10,
-          }}
-        >
+        <div className="pip-subs">
           {subs.map((t) => (
-            <div
-              key={tileKey(t)}
-              style={{
-                width: 200,
-                height: 112, // 16:9
-                boxShadow: "0 4px 12px rgba(0,0,0,0.4)",
-                borderRadius: 4,
-                overflow: "hidden",
-              }}
-            >
+            <div key={tileKey(t)} className="pip-sub-item">
               <Tile tile={t} showLabel={false} />
             </div>
           ))}
