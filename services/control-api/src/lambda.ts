@@ -7,6 +7,7 @@
  *
  * 秘密値は cold start で 1 回だけ取得し、warm 中はキャッシュする。
  */
+import { randomUUID } from "node:crypto";
 import {
   cognitoAdminAuthVerifier,
   FakeAdminAuthVerifier,
@@ -182,7 +183,11 @@ function resolveEgressStarter(
       try {
         // P-14 / R14: stream (RTMP → YouTube) と file (S3 録画) を併用する。
         // file output は recordingsBucketName が設定されている場合のみ。
-        // filepath の `{egress_id}` は LiveKit Egress が実行時にハンドラ ID で置換する。
+        // P-14-followup-1: LiveKit Egress の filepath template に `{egress_id}` を渡すと
+        // **plain literal でアップロードされる** (テンプレート展開されない) 問題を観測。
+        // 公式に保証されたプレースホルダ (`{time}` 等) も使えるが、 Lambda 側で randomUUID を
+        // 生成して filepath に埋め込む方が依存少なく確実。 LiveKit が返す egressId は startEgress
+        // の戻り値ログに残るので、 manifest (`{egress_id}.json`) との紐付けは可能。
         // SFU TaskRole は ADR 0010 D-5 で `recordings/*` プレフィックスへの S3 PutObject 権限を持つ。
         const output: Record<string, unknown> = {
           stream: new sdk.StreamOutput({
@@ -190,9 +195,10 @@ function resolveEgressStarter(
             urls: [streamUrl],
           }),
         };
-        if (recordingsBucketName) {
+        const recordingFileId = recordingsBucketName ? randomUUID() : undefined;
+        if (recordingsBucketName && recordingFileId) {
           output.file = new sdk.EncodedFileOutput({
-            filepath: `recordings/${roomName}/{egress_id}.mp4`,
+            filepath: `recordings/${roomName}/${recordingFileId}.mp4`,
             output: {
               case: "s3",
               value: new sdk.S3Upload({
@@ -203,7 +209,15 @@ function resolveEgressStarter(
           });
         }
         const info = await client.startRoomCompositeEgress(roomName, output, { layout: "grid" });
-        console.log(JSON.stringify({ msg: "egress.started", egressId: info.egressId }));
+        console.log(
+          JSON.stringify({
+            msg: "egress.started",
+            egressId: info.egressId,
+            // P-14-followup-1: recordingFileId は admin-web の成果物一覧で表示される mp4 のファイル名。
+            // LiveKit egressId とは別物だが、 同じ Egress ハンドルから生成されるので 1:1 対応する。
+            recordingFileId: recordingFileId ?? "(no recording configured)",
+          }),
+        );
         return { egressId: info.egressId };
       } catch (err) {
         console.error(JSON.stringify({
