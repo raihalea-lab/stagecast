@@ -378,6 +378,10 @@ export class ControlPlaneStack extends Stack {
         YOUTUBE_SECRET_ARN: youtubeSecret.secretArn,
         // R12-followup-19: KVS WebRTC TURN を取得するために Channel ARN を渡す。
         KVS_SIGNALING_CHANNEL_ARN: kvsSignalingChannel.attrArn,
+        // P-14 / R14: Egress 起動時に file output (S3 録画) を指定するための bucket 名。
+        // 配信終了で `recordings/{eventId}/{egress_id}.mp4` が S3 にアップロードされる。
+        // SFU TaskRole 側に既存の S3 PutObject 権限あり (ADR 0010 D-5)。
+        RECORDINGS_BUCKET_NAME: assetsBucket.bucketName,
       },
     });
     metadataTable.grantReadWriteData(controlApiFn);
