@@ -120,6 +120,9 @@ importers:
       '@stagecast/shared':
         specifier: workspace:*
         version: link:../../packages/shared
+      '@stagecast/ui':
+        specifier: workspace:*
+        version: link:../../packages/ui
       livekit-client:
         specifier: ^2.19.2
         version: 2.19.2(@types/dom-mediacapture-record@1.0.22)

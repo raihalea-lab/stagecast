@@ -1,6 +1,8 @@
 /**
  * 登壇者・モデレーター用ステージ画面 (DESIGN.md 4.1, 5.2, F-1, F-3)。
  * 招待 URL のトークンで入室し、登壇者は映像音声・画面共有・スライド送りを操作する。
+ *
+ * D7: StageShell + ControlBar ベースの Speaker サブビュー。
  */
 import { useEffect, useMemo, useState } from "react";
 import { HttpStageClient, type StageClient } from "./api/stage-client.js";
@@ -13,6 +15,31 @@ import { parseInviteToken } from "./lib/token.js";
 import { DeviceCheck } from "./components/DeviceCheck.js";
 import { PreviewWindow } from "./components/PreviewWindow.js";
 import type { RuntimeConfig } from "./config.js";
+import {
+  Button,
+  Card,
+  CardContent,
+  CardHeader,
+  CardTitle,
+  ControlBar,
+  Input,
+  Label,
+  ReconnectingBanner,
+  StageShell,
+  StatusPill,
+  type TensionState,
+} from "@stagecast/ui";
+import {
+  Camera,
+  CameraOff,
+  ChevronLeft,
+  ChevronRight,
+  LogOut,
+  Mic,
+  MicOff,
+  Monitor,
+  MonitorOff,
+} from "@stagecast/ui/icons";
 
 export function App(props: {
   /** ランタイム設定 (main.tsx が config.json から解決して渡す)。未指定はテスト/ローカル。 */
@@ -22,7 +49,6 @@ export function App(props: {
   search?: string;
   devices?: MediaDevicesProvider;
 }) {
-  // R17-Phase3: PreviewWindow とも client を共有するため、 useMemo で組み立て直す。
   const client = useMemo(
     () => props.client ?? new HttpStageClient(props.config?.controlApiUrl ?? ""),
     [props.client, props.config],
@@ -48,13 +74,10 @@ export function App(props: {
   const [page, setPage] = useState(1);
   const [reconnecting, setReconnecting] = useState(false);
   const [busy, setBusy] = useState(false);
-  /** /join 503 リトライ中の進捗 (ADR 0008 D-3, undefined ならリトライ無し)。 */
   const [retryInfo, setRetryInfo] = useState<
     { attempt: number; nextWaitSec: number; elapsedSec: number } | undefined
   >();
 
-  // SFU 切断を検知したら入室画面へ戻し、再入室を促す。
-  // 一時的な回線断は自動再接続を試みるのでセッションは保ち、再接続中バナーだけ出す。
   useEffect(() => {
     controller.onDisconnected(() => {
       setSession(undefined);
@@ -70,10 +93,8 @@ export function App(props: {
     setRetryInfo(undefined);
     setBusy(true);
     try {
-      // 入室前テストで選んだマイク/カメラを publish に反映する (N7)。
       controller.setPreferredDevices(prefs);
       const res = await controller.join(token, name || undefined, {
-        // ADR 0008 D-3: EventMediaStack 起動中なら /join が 503。最大 60s リトライ。
         maxRetryWaitSec: 60,
         onRetry: setRetryInfo,
       });
@@ -92,7 +113,6 @@ export function App(props: {
     }
   };
 
-  // 操作中は busy で連打を防ぐ (mic/camera/screen/slide/leave を一括で disabled に)。
   const wrap = (fn: () => Promise<unknown>) => async () => {
     setBusy(true);
     try {
@@ -104,114 +124,224 @@ export function App(props: {
     }
   };
 
+  const tension: TensionState = !session ? "offline" : reconnecting ? "reconnecting" : "live";
+
   if (!session) {
     return (
-      <main className="join">
-        <h1>Stagecast ステージ入室</h1>
-        {error && <p className="error">{error}</p>}
-        {retryInfo && (
-          <p className="retry-progress" role="status">
-            配信準備中… ({retryInfo.elapsedSec + retryInfo.nextWaitSec}/60 秒)
-            <br />
-            <small>
-              配信サーバを起動しています。あと {retryInfo.nextWaitSec} 秒で再試行します。
-            </small>
-          </p>
-        )}
-        <label>
-          招待トークン
-          <input value={token} onChange={(e) => setToken(e.target.value)} />
-        </label>
-        <label>
-          表示名
-          <input value={name} onChange={(e) => setName(e.target.value)} />
-        </label>
-        <DeviceCheck provider={deviceProvider} onChange={setPrefs} />
-        <button onClick={join} disabled={!token || busy}>
-          {busy ? (retryInfo ? "配信準備待ち…" : "入室中…") : "入室する"}
-        </button>
-      </main>
+      <StageShell tension={tension}>
+        <div className="mx-auto w-full max-w-md space-y-6 pt-8">
+          <div className="space-y-2 text-center">
+            <h1 className="text-2xl font-bold tracking-tight text-text-primary">
+              Stagecast ステージ入室
+            </h1>
+            <p className="text-sm text-text-secondary">招待トークンを入力してステージに参加</p>
+          </div>
+
+          {error && (
+            <div
+              role="alert"
+              className="flex items-start gap-3 rounded-md border border-error/40 bg-error/10 px-4 py-3 text-sm text-error"
+            >
+              <span className="flex-1">{error}</span>
+              <Button
+                variant="ghost"
+                size="icon-sm"
+                aria-label="閉じる"
+                onClick={() => setError(undefined)}
+              >
+                ×
+              </Button>
+            </div>
+          )}
+
+          {retryInfo && (
+            <ReconnectingBanner
+              kind="retry-progress"
+              attempt={retryInfo.attempt}
+              nextWaitSec={retryInfo.nextWaitSec}
+              elapsedSec={retryInfo.elapsedSec}
+              maxSec={60}
+            />
+          )}
+
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base">接続情報</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="grid gap-2">
+                <Label htmlFor="invite-token">招待トークン</Label>
+                <Input
+                  id="invite-token"
+                  value={token}
+                  onChange={(e) => setToken(e.target.value)}
+                  placeholder="招待URLから自動入力されます"
+                />
+              </div>
+              <div className="grid gap-2">
+                <Label htmlFor="display-name">表示名</Label>
+                <Input
+                  id="display-name"
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                  placeholder="任意"
+                />
+              </div>
+            </CardContent>
+          </Card>
+
+          <DeviceCheck provider={deviceProvider} onChange={setPrefs} />
+
+          <Button className="w-full" onClick={join} disabled={!token || busy}>
+            {busy ? (retryInfo ? "配信準備待ち…" : "入室中…") : "入室する"}
+          </Button>
+        </div>
+      </StageShell>
     );
   }
 
-  return (
-    <main className="stage">
-      <h1>
-        {session.role === "speaker" ? "登壇者" : "モデレーター"} / イベント {session.eventId}
-      </h1>
-      {reconnecting && (
-        <p className="reconnecting" role="status">
-          配信サーバへ再接続中… そのままお待ちください。
-        </p>
-      )}
-      {error && <p className="error">{error}</p>}
+  const roleLabel = session.role === "speaker" ? "登壇者" : "モデレーター";
 
-      {/* P-13-followup-2 / ADR 0012 D-6: 配信プレビューを main 領域に大きく配置。
-          composer-template を viewer-role の subscriber-only token で iframe 埋め込み。
-          16:9 aspect-ratio + max-width 制限で見切れなし。 */}
+  return (
+    <StageShell
+      tension={tension}
+      header={
+        <div className="flex w-full items-center justify-between">
+          <div className="flex items-center gap-3">
+            <h1 className="text-sm font-semibold text-text-primary">{session.eventId}</h1>
+            <StatusPill variant={reconnecting ? "warn" : "live"} className="text-xs">
+              {reconnecting ? "再接続中" : "LIVE"}
+            </StatusPill>
+          </div>
+          <div className="flex items-center gap-2">
+            <StatusPill variant="muted" showDot={false} className="text-xs">
+              {roleLabel}
+            </StatusPill>
+          </div>
+        </div>
+      }
+      controlBar={
+        session.canPublish ? (
+          <ControlBar>
+            <Button
+              variant={mic ? "default" : "outline"}
+              size="sm"
+              disabled={busy}
+              onClick={wrap(async () => {
+                await controller.toggleMic(!mic);
+                setMic(!mic);
+              })}
+              aria-label={mic ? "マイクをオフ" : "マイクをオン"}
+            >
+              {mic ? <Mic className="size-4" /> : <MicOff className="size-4" />}
+              <span className="ml-1.5 hidden sm:inline">{mic ? "ON" : "OFF"}</span>
+            </Button>
+            <Button
+              variant={camera ? "default" : "outline"}
+              size="sm"
+              disabled={busy}
+              onClick={wrap(async () => {
+                await controller.toggleCamera(!camera);
+                setCamera(!camera);
+              })}
+              aria-label={camera ? "カメラをオフ" : "カメラをオン"}
+            >
+              {camera ? <Camera className="size-4" /> : <CameraOff className="size-4" />}
+              <span className="ml-1.5 hidden sm:inline">{camera ? "ON" : "OFF"}</span>
+            </Button>
+            <Button
+              variant={screen ? "default" : "outline"}
+              size="sm"
+              disabled={busy}
+              onClick={wrap(async () => {
+                await controller.toggleScreenShare(!screen);
+                setScreen(!screen);
+              })}
+              aria-label={screen ? "画面共有を停止" : "画面共有を開始"}
+            >
+              {screen ? <Monitor className="size-4" /> : <MonitorOff className="size-4" />}
+              <span className="ml-1.5 hidden sm:inline">画面</span>
+            </Button>
+
+            <div className="mx-1 h-6 w-px bg-line-1" aria-hidden />
+
+            <div className="flex items-center gap-1">
+              <Button
+                variant="ghost"
+                size="icon-sm"
+                disabled={busy}
+                onClick={wrap(async () => setPage(await controller.slidePrev()))}
+                aria-label="前のスライド"
+              >
+                <ChevronLeft className="size-4" />
+              </Button>
+              <span className="min-w-[3ch] text-center font-mono text-xs tabular-nums text-text-secondary">
+                {page}
+              </span>
+              <Button
+                variant="ghost"
+                size="icon-sm"
+                disabled={busy}
+                onClick={wrap(async () => setPage(await controller.slideNext()))}
+                aria-label="次のスライド"
+              >
+                <ChevronRight className="size-4" />
+              </Button>
+            </div>
+
+            <div className="flex-1" />
+
+            <Button
+              variant="destructive"
+              size="sm"
+              disabled={busy}
+              onClick={wrap(() => controller.leave().then(() => setSession(undefined)))}
+            >
+              <LogOut className="size-4" />
+              <span className="ml-1.5">退室</span>
+            </Button>
+          </ControlBar>
+        ) : (
+          <ControlBar>
+            <p className="text-xs text-text-secondary">モデレーターとして進行を補助しています</p>
+            <div className="flex-1" />
+            <Button
+              variant="destructive"
+              size="sm"
+              disabled={busy}
+              onClick={wrap(() => controller.leave().then(() => setSession(undefined)))}
+            >
+              <LogOut className="size-4" />
+              <span className="ml-1.5">退室</span>
+            </Button>
+          </ControlBar>
+        )
+      }
+    >
+      {reconnecting && <ReconnectingBanner kind="reconnecting" className="mb-4" />}
+
+      {error && (
+        <div
+          role="alert"
+          className="mb-4 flex items-start gap-3 rounded-md border border-error/40 bg-error/10 px-4 py-3 text-sm text-error"
+        >
+          <span className="flex-1">{error}</span>
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            aria-label="閉じる"
+            onClick={() => setError(undefined)}
+          >
+            ×
+          </Button>
+        </div>
+      )}
+
       <PreviewWindow
         client={client}
         inviteToken={token}
         composerTemplateUrl={props.config?.composerTemplateUrl}
       />
-
-      {session.canPublish ? (
-        <section className="controls">
-          <button
-            disabled={busy}
-            onClick={wrap(async () => {
-              await controller.toggleMic(!mic);
-              setMic(!mic);
-            })}
-          >
-            マイク: {mic ? "ON" : "OFF"}
-          </button>
-          <button
-            disabled={busy}
-            onClick={wrap(async () => {
-              await controller.toggleCamera(!camera);
-              setCamera(!camera);
-            })}
-          >
-            カメラ: {camera ? "ON" : "OFF"}
-          </button>
-          <button
-            disabled={busy}
-            onClick={wrap(async () => {
-              await controller.toggleScreenShare(!screen);
-              setScreen(!screen);
-            })}
-          >
-            画面共有: {screen ? "ON" : "OFF"}
-          </button>
-
-          <div className="slides">
-            <button
-              disabled={busy}
-              onClick={wrap(async () => setPage(await controller.slidePrev()))}
-            >
-              ◀ 前
-            </button>
-            <span>スライド {page}</span>
-            <button
-              disabled={busy}
-              onClick={wrap(async () => setPage(await controller.slideNext()))}
-            >
-              次 ▶
-            </button>
-          </div>
-        </section>
-      ) : (
-        <p>モデレーターとして進行を補助します。</p>
-      )}
-
-      <button
-        className="leave"
-        disabled={busy}
-        onClick={wrap(() => controller.leave().then(() => setSession(undefined)))}
-      >
-        退室
-      </button>
-    </main>
+    </StageShell>
   );
 }
