@@ -12,6 +12,26 @@ import type {
 } from "@stagecast/shared";
 import type { ControlApiClient } from "../api/types.js";
 import { toErrorMessage } from "../lib/errors.js";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+  Button,
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+  Input,
+  Label,
+  StatusPill,
+} from "@stagecast/ui";
 
 interface Props {
   client: ControlApiClient;
@@ -42,16 +62,21 @@ export function SettingsPage(props: Props) {
   }, [reload]);
 
   return (
-    <section className="settings">
-      <h2>運用設定</h2>
-      <p className="settings-note">
-        LiveKit / YouTube 連携の認証情報を登録します。値はサーバーに送信した時点で Secrets Manager
-        に保存され、画面に読み戻すことはありません (流出防止)。
-      </p>
-      {loadError && (
-        <p className="error" role="alert">
-          設定の取得に失敗しました: {loadError}
+    <section className="space-y-6">
+      <div>
+        <h2 className="text-lg font-semibold text-text-primary">運用設定</h2>
+        <p className="mt-1 text-sm text-text-secondary">
+          LiveKit / YouTube 連携の認証情報を登録します。値はサーバーに送信した時点で Secrets Manager
+          に保存され、画面に読み戻すことはありません。
         </p>
+      </div>
+      {loadError && (
+        <div
+          role="alert"
+          className="rounded-md border border-error/40 bg-error/10 px-4 py-3 text-sm text-error"
+        >
+          設定の取得に失敗しました: {loadError}
+        </div>
       )}
       <LiveKitForm
         status={livekitStatus}
@@ -71,13 +96,9 @@ export function SettingsPage(props: Props) {
   );
 }
 
-function StatusBadge(props: { configured: boolean | undefined }) {
-  if (props.configured === undefined) return <span className="badge badge-loading">確認中…</span>;
-  return props.configured ? (
-    <span className="badge badge-ok">設定済み</span>
-  ) : (
-    <span className="badge badge-warn">未設定</span>
-  );
+function configuredVariant(configured: boolean | undefined) {
+  if (configured === undefined) return "loading" as const;
+  return configured ? ("ok" as const) : ("warn" as const);
 }
 
 function LiveKitForm(props: {
@@ -89,10 +110,6 @@ function LiveKitForm(props: {
 
   const regenerate = async () => {
     setKeyError(undefined);
-    const ok = window.confirm(
-      "新しい API キー/シークレットを生成します。\n\n既存の鍵で発行された LiveKit トークン (登壇者の入室リンク等) はすべて無効になり、LiveKit Server を再起動して新しい値を読み込ませる必要があります。\n\n続けますか？",
-    );
-    if (!ok) return;
     setKeyBusy(true);
     try {
       await props.onRegenerateKeys();
@@ -104,25 +121,48 @@ function LiveKitForm(props: {
   };
 
   return (
-    <section className="settings-form">
-      <h3>
-        LiveKit <StatusBadge configured={props.status?.configured} />
-      </h3>
-      <p className="settings-sub-note">
-        全イベント共有の LiveKit API キー / シークレット (ADR 0008 D-5) です。サーバ側で
-        ランダム生成して Secrets Manager (<code>stagecast/livekit</code>) に保存します
-        (画面に値は表示されません)。URL はイベント単位で reconcile が自動設定するため、
-        ここでは扱いません (ADR 0008 D-1)。
-      </p>
-      {keyError && (
-        <p className="error" role="alert">
-          {keyError}
-        </p>
-      )}
-      <button type="button" onClick={regenerate} disabled={keyBusy}>
-        {keyBusy ? "生成中…" : "鍵を生成 / 再生成"}
-      </button>
-    </section>
+    <Card>
+      <CardHeader>
+        <div className="flex items-center gap-3">
+          <CardTitle>LiveKit</CardTitle>
+          <StatusPill variant={configuredVariant(props.status?.configured)} />
+        </div>
+        <CardDescription>
+          全イベント共有の LiveKit API キー / シークレットです。サーバ側で ランダム生成して Secrets
+          Manager に保存します。 URL はイベント単位で自動設定されます。
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        {keyError && (
+          <div
+            role="alert"
+            className="rounded-md border border-error/40 bg-error/10 px-3 py-2 text-sm text-error"
+          >
+            {keyError}
+          </div>
+        )}
+        <AlertDialog>
+          <AlertDialogTrigger asChild>
+            <Button variant="outline" disabled={keyBusy}>
+              {keyBusy ? "生成中…" : "鍵を生成 / 再生成"}
+            </Button>
+          </AlertDialogTrigger>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>API キーを再生成しますか？</AlertDialogTitle>
+              <AlertDialogDescription>
+                既存の鍵で発行された LiveKit トークン（登壇者の入室リンク等）はすべて無効になり、
+                LiveKit Server を再起動して新しい値を読み込ませる必要があります。
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel>キャンセル</AlertDialogCancel>
+              <AlertDialogAction onClick={regenerate}>再生成する</AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
+      </CardContent>
+    </Card>
   );
 }
 
@@ -137,7 +177,6 @@ function YouTubeForm(props: {
   const [submitError, setSubmitError] = useState<string | undefined>();
   const [busy, setBusy] = useState(false);
 
-  // R12: 差分更新対応。入力されたフィールドだけ送信する (既存値は維持)。
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
     setSubmitError(undefined);
@@ -165,63 +204,76 @@ function YouTubeForm(props: {
   };
 
   return (
-    <form onSubmit={submit} className="settings-form">
-      <h3>
-        YouTube <StatusBadge configured={props.status?.configured} />
-      </h3>
-      <p className="hint">
-        ストリームキー: {props.status?.streamKeyConfigured ? "✅ 設定済み" : "未設定"}
-      </p>
-      <label>
-        Data API Key
-        <input
-          type="password"
-          value={apiKey}
-          onChange={(e) => setApiKey(e.target.value)}
-          placeholder={props.status?.configured ? "再入力する場合のみ" : ""}
-          autoComplete="off"
-        />
-      </label>
-      <label>
-        OAuth Client ID
-        <input
-          type="text"
-          value={oauthClientId}
-          onChange={(e) => setOauthClientId(e.target.value)}
-          autoComplete="off"
-          placeholder={props.status?.configured ? "再入力する場合のみ" : ""}
-        />
-      </label>
-      <label>
-        OAuth Client Secret
-        <input
-          type="password"
-          value={oauthClientSecret}
-          onChange={(e) => setOauthClientSecret(e.target.value)}
-          placeholder={props.status?.configured ? "再入力する場合のみ" : ""}
-          autoComplete="off"
-        />
-      </label>
-      <label>
-        Stream Key (R12: 配信用ストリームキー)
-        <input
-          type="password"
-          value={streamKey}
-          onChange={(e) => setStreamKey(e.target.value)}
-          placeholder={
-            props.status?.streamKeyConfigured ? "再入力する場合のみ" : "YouTube Studio で取得"
-          }
-          autoComplete="off"
-        />
-      </label>
-      {submitError && (
-        <p className="error" role="alert">
-          {submitError}
-        </p>
-      )}
-      <button type="submit" disabled={busy}>
-        {busy ? "保存中…" : "保存"}
-      </button>
-    </form>
+    <Card>
+      <CardHeader>
+        <div className="flex items-center gap-3">
+          <CardTitle>YouTube</CardTitle>
+          <StatusPill variant={configuredVariant(props.status?.configured)} />
+        </div>
+        <CardDescription>
+          ストリームキー: {props.status?.streamKeyConfigured ? "設定済み" : "未設定"}
+        </CardDescription>
+      </CardHeader>
+      <CardContent>
+        <form onSubmit={submit} className="space-y-4">
+          <div className="grid gap-2">
+            <Label htmlFor="yt-api-key">Data API Key</Label>
+            <Input
+              id="yt-api-key"
+              type="password"
+              value={apiKey}
+              onChange={(e) => setApiKey(e.target.value)}
+              placeholder={props.status?.configured ? "再入力する場合のみ" : ""}
+              autoComplete="off"
+            />
+          </div>
+          <div className="grid gap-2">
+            <Label htmlFor="yt-client-id">OAuth Client ID</Label>
+            <Input
+              id="yt-client-id"
+              value={oauthClientId}
+              onChange={(e) => setOauthClientId(e.target.value)}
+              placeholder={props.status?.configured ? "再入力する場合のみ" : ""}
+              autoComplete="off"
+            />
+          </div>
+          <div className="grid gap-2">
+            <Label htmlFor="yt-client-secret">OAuth Client Secret</Label>
+            <Input
+              id="yt-client-secret"
+              type="password"
+              value={oauthClientSecret}
+              onChange={(e) => setOauthClientSecret(e.target.value)}
+              placeholder={props.status?.configured ? "再入力する場合のみ" : ""}
+              autoComplete="off"
+            />
+          </div>
+          <div className="grid gap-2">
+            <Label htmlFor="yt-stream-key">Stream Key</Label>
+            <Input
+              id="yt-stream-key"
+              type="password"
+              value={streamKey}
+              onChange={(e) => setStreamKey(e.target.value)}
+              placeholder={
+                props.status?.streamKeyConfigured ? "再入力する場合のみ" : "YouTube Studio で取得"
+              }
+              autoComplete="off"
+            />
+          </div>
+          {submitError && (
+            <div
+              role="alert"
+              className="rounded-md border border-error/40 bg-error/10 px-3 py-2 text-sm text-error"
+            >
+              {submitError}
+            </div>
+          )}
+          <Button type="submit" disabled={busy}>
+            {busy ? "保存中…" : "保存"}
+          </Button>
+        </form>
+      </CardContent>
+    </Card>
   );
 }
