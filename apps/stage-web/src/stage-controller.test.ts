@@ -63,15 +63,16 @@ describe("StageController (DESIGN.md 4.1, F-1, F-3)", () => {
     expect(room.slides.map((s) => s.page)).toEqual([2, 3, 3]);
   });
 
-  it("forbids a moderator from publishing (進行補助のみ)", async () => {
+  it("allows a moderator to publish (D8: 進行補助 + メディア制御)", async () => {
     const room = new FakeRoomConnector();
     const ctrl = new StageController(
       new FakeStageClient({ ...speakerJoin, role: "moderator", identity: "moderator-1" }),
       room,
     );
     await ctrl.join("token");
-    expect(ctrl.currentSession?.canPublish).toBe(false);
-    await expect(ctrl.toggleCamera(true)).rejects.toThrow(/cannot publish/);
+    expect(ctrl.currentSession?.canPublish).toBe(true);
+    await ctrl.toggleCamera(true);
+    expect(room.calls).toContain("camera:true");
   });
 
   it("surfaces a failed join (invalid token) without connecting", async () => {

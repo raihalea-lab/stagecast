@@ -270,6 +270,7 @@ describe("control-api integration (in-memory)", () => {
         async presignGet(key) {
           return `https://signed/${key}`;
         },
+        async deletePrefix() {},
       },
     });
     const res = await app2.handle(
@@ -291,6 +292,7 @@ describe("control-api integration (in-memory)", () => {
         async presignGet() {
           return "";
         },
+        async deletePrefix() {},
       },
     });
     const res = await app2.handle(req({ method: "GET", path: "/events/evt-9/artifacts" }));
@@ -351,6 +353,128 @@ describe("control-api integration (in-memory)", () => {
       }),
     );
     expect(res.status).toBe(404);
+  });
+
+  it("上限超過時に startsAt が古いイベントから自動削除される", async () => {
+    // MAX_EVENTS=1000 だと大量に作る必要があるので、小さい上限でテストする。
+    // createEventService を直接使ってテスト。
+    const { MemoryEventRepository } = await import("./repo/memory.js");
+    const { createEventService, MAX_EVENTS } = await import("./usecases/events.js");
+    const memRepo = new MemoryEventRepository();
+    const deletedIds: string[] = [];
+    let cnt = 0;
+    const svc = createEventService({
+      repo: memRepo,
+      newId: () => `evt-${++cnt}`,
+      now: () => 1_000_000,
+      cleanupStorage: async (id) => {
+        deletedIds.push(id);
+      },
+    });
+
+    // MAX_EVENTS + 2 件作る (startsAt を日付でずらす)
+    for (let i = 0; i < MAX_EVENTS + 2; i++) {
+      const day = String(i + 1).padStart(4, "0");
+      await svc.create({
+        title: `E-${day}`,
+        startsAt: `2026-01-01T00:00:00Z`,
+        caption,
+      });
+    }
+
+    const all = await svc.list();
+    expect(all.length).toBe(MAX_EVENTS);
+    // 最初に作った2件 (startsAt が同じなのでソート安定性は保証しないが、2件削除されたことを検証)
+    expect(deletedIds.length).toBe(2);
+  });
+
+  it("live イベントは自動削除の対象外", async () => {
+    const { MemoryEventRepository } = await import("./repo/memory.js");
+    const { createEventService, MAX_EVENTS } = await import("./usecases/events.js");
+    const memRepo = new MemoryEventRepository();
+    let cnt = 0;
+    const svc = createEventService({
+      repo: memRepo,
+      newId: () => `evt-${++cnt}`,
+      now: () => 1_000_000,
+    });
+
+    // 1件を live にする (startsAt が最も古い)
+    const live = await svc.create({
+      title: "Live",
+      startsAt: "2020-01-01T00:00:00Z",
+      caption,
+    });
+    await svc.setStatus(live.id, "live");
+
+    // MAX_EVENTS 件追加 → 合計 MAX_EVENTS+1 だが live は消せない
+    for (let i = 0; i < MAX_EVENTS; i++) {
+      await svc.create({
+        title: `E-${i}`,
+        startsAt: "2026-06-01T00:00:00Z",
+        caption,
+      });
+    }
+
+    const all = await svc.list();
+    // live 1件 + MAX_EVENTS-1件の非live = MAX_EVENTS件 (1件は自動削除された)
+    // ただし live は消せないので total は MAX_EVENTS+1 にはならず MAX_EVENTS
+    expect(all.length).toBe(MAX_EVENTS);
+    expect(all.find((e) => e.id === live.id)).toBeDefined();
+  });
+
+  it("イベントを削除でき、一覧から消える", async () => {
+    const eventId = await createEvent(app, "Deletable");
+    const del = await app.handle(
+      req({ method: "DELETE", path: `/events/${eventId}`, headers: adminAuth }),
+    );
+    expect(del.status).toBe(204);
+    const list = await app.handle(req({ method: "GET", path: "/events", headers: adminAuth }));
+    expect((list.body as unknown[]).length).toBe(0);
+  });
+
+  it("配信中のイベントは削除できない", async () => {
+    const eventId = await createEvent(app);
+    await app.handle(
+      req({
+        method: "POST",
+        path: `/events/${eventId}/status`,
+        headers: adminAuth,
+        body: { status: "live" },
+      }),
+    );
+    const del = await app.handle(
+      req({ method: "DELETE", path: `/events/${eventId}`, headers: adminAuth }),
+    );
+    expect(del.status).toBe(400);
+  });
+
+  it("削除時に関連ストレージが cleanup される", async () => {
+    const deletedPrefixes: string[] = [];
+    const app2 = buildControlApi({
+      inviteSecret: "test-secret",
+      now: () => 1_000_000,
+      newId: () => `id-${++counter}`,
+      artifactStore: {
+        async list() {
+          return [];
+        },
+        async presignGet() {
+          return "";
+        },
+        async deletePrefix(prefix) {
+          deletedPrefixes.push(prefix);
+        },
+      },
+    });
+    const id = await createEvent(app2);
+    const del = await app2.handle(
+      req({ method: "DELETE", path: `/events/${id}`, headers: adminAuth }),
+    );
+    expect(del.status).toBe(204);
+    expect(deletedPrefixes).toEqual(
+      expect.arrayContaining([`assets/${id}/`, `recordings/${id}/`, `captions/${id}/`]),
+    );
   });
 });
 
@@ -448,9 +572,7 @@ describe("settings (LiveKit / YouTube) HTTP", () => {
 
   it("regenerate も認証が必要 (401)", async () => {
     const app = buildAppWithSettings();
-    const res = await app.handle(
-      req({ method: "POST", path: "/settings/livekit/regenerate" }),
-    );
+    const res = await app.handle(req({ method: "POST", path: "/settings/livekit/regenerate" }));
     expect(res.status).toBe(401);
   });
 

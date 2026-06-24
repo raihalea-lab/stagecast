@@ -89,10 +89,23 @@ export function buildControlApi(config: FactoryConfig = {}) {
   const tableName = process.env.METADATA_TABLE_NAME;
   const dynamo = tableName ? dynamoRepositories(tableName) : undefined;
 
+  // S3 ストレージクリーンアップ: イベント削除時にアセット・録画・字幕を全削除する。
+  // artifactStore (ArtifactStore) が利用可能な場合のみ有効化。
+  const storeBucket = process.env.ASSETS_BUCKET_NAME;
+  const cleanupStore =
+    config.artifactStore ?? (storeBucket ? new S3ArtifactStore(storeBucket) : undefined);
+  const cleanupStorage = cleanupStore
+    ? async (eventId: string) => {
+        const prefixes = [`assets/${eventId}/`, `recordings/${eventId}/`, `captions/${eventId}/`];
+        await Promise.all(prefixes.map((p) => cleanupStore.deletePrefix(p)));
+      }
+    : undefined;
+
   const events = createEventService({
     repo: config.eventRepo ?? dynamo?.eventRepo ?? new MemoryEventRepository(),
     newId,
     now,
+    cleanupStorage,
   });
   const invites = createInviteService({
     repo: config.inviteRepo ?? dynamo?.inviteRepo ?? new MemoryInviteTokenRepository(),
@@ -139,9 +152,7 @@ export function buildControlApi(config: FactoryConfig = {}) {
   // R16 / ADR 0012 D-4: 管理者用 LiveKit token 発行 (layout 切替 broadcast 用)。
   // livekitMinter が無い (LiveKit 環境変数未設定) 環境ではこのサービスは無効。
   const liveKitMinter = config.livekitMinter ?? livekitFromEnv();
-  const adminToken = liveKitMinter
-    ? createAdminTokenService({ events, liveKitMinter })
-    : undefined;
+  const adminToken = liveKitMinter ? createAdminTokenService({ events, liveKitMinter }) : undefined;
   // R17 / ADR 0012 D-6: プレビュー用 LiveKit token 発行 (viewer role, iframe 埋め込み用)。
   const previewToken = liveKitMinter
     ? createPreviewTokenService({ events, liveKitMinter })

@@ -3,16 +3,18 @@
  *
  * 招待トークンでの入室 → SFU 接続 → publish 制御 → スライド送り を束ねる。
  * React コンポーネントはこのコントローラを呼ぶだけにし、ロジックを外部接続なしに検証する。
+ *
+ * D8: moderator/admin 用に layout 変更・ミュート要請・参加者追跡を追加。
  */
-import type { InvitedRole } from "@stagecast/shared";
+import { encodeStageMessage, type LayoutKind, type StageRole } from "@stagecast/shared";
 import type { JoinOptions, JoinResponse, StageClient } from "./api/stage-client.js";
 import type { PreferredDevices } from "./lib/devices.js";
-import type { RoomConnector } from "./lib/room.js";
+import type { ParticipantSnapshot, RoomConnector } from "./lib/room.js";
 import { goToPage, nextPage, prevPage, type SlideDeckState } from "./lib/slides.js";
 
 export interface StageSession {
   eventId: string;
-  role: InvitedRole;
+  role: StageRole;
   room: string;
   canPublish: boolean;
 }
@@ -35,27 +37,18 @@ export class StageController {
     return this.deck;
   }
 
-  /** 入室前テストで選んだマイク/カメラを SFU 接続に伝える (N7)。 */
   setPreferredDevices(prefs: PreferredDevices): void {
     this.room.setPreferredDevices(prefs);
   }
 
-  /**
-   * SFU 切断時に呼ばれるハンドラを登録する。切断ではセッションを無効化し、
-   * UI は入室画面に戻して再入室を促す。
-   */
   onDisconnected(handler: () => void): void {
     this.room.onDisconnected(() => {
       this.session = undefined;
-      this.lastJoin = undefined; // 再入室を可能にする。
+      this.lastJoin = undefined;
       handler();
     });
   }
 
-  /**
-   * 一時的な回線断の自動再接続を UI へ通知する。完全切断 (onDisconnected) と違い
-   * セッションは維持され、復帰すれば publish もそのまま続く。
-   */
   onReconnecting(handler: () => void): void {
     this.room.onReconnecting(handler);
   }
@@ -63,23 +56,20 @@ export class StageController {
     this.room.onReconnected(handler);
   }
 
-  /**
-   * 招待トークンで入室し、SFU へ接続する。
-   * 連打/二重呼び出しでも SFU 接続は 1 回に保つ (in-flight を共有 + 入室済みは再接続しない)。
-   * options で /join 503 リトライ動作 (ADR 0008 D-3) を制御できる。
-   */
-  async join(
-    token: string,
-    displayName?: string,
-    options?: JoinOptions,
-  ): Promise<JoinResponse> {
-    if (this.session && this.lastJoin) return this.lastJoin; // 入室済み: 再接続しない。
-    if (this.joinInFlight) return this.joinInFlight; // 同時呼び出しは 1 本にまとめる。
+  onParticipantsChanged(handler: (participants: ParticipantSnapshot[]) => void): void {
+    this.room.onParticipantsChanged(handler);
+  }
+
+  onDataReceived(handler: (payload: Uint8Array) => void): void {
+    this.room.onDataReceived(handler);
+  }
+
+  async join(token: string, displayName?: string, options?: JoinOptions): Promise<JoinResponse> {
+    if (this.session && this.lastJoin) return this.lastJoin;
+    if (this.joinInFlight) return this.joinInFlight;
     this.joinInFlight = (async () => {
       const res = await this.client.join(token, displayName, options);
       if (!res.ok) return res;
-      // R12-followup-19: server から受け取った iceServers (KVS WebRTC TURN) を渡すことで、
-      // LiveKit Client SDK の `if (!rtcConfig.iceServers)` 判定で SFU の iceServers を bypass する。
       await this.room.connect(
         res.livekitUrl,
         res.livekitToken,
@@ -89,8 +79,7 @@ export class StageController {
         eventId: res.eventId,
         role: res.role,
         room: res.room,
-        // 登壇者のみ publish 可。モデレーターは進行補助 (subscribe 主体)。
-        canPublish: res.role === "speaker",
+        canPublish: true,
       };
       this.lastJoin = res;
       return res;
@@ -100,6 +89,17 @@ export class StageController {
     } finally {
       this.joinInFlight = undefined;
     }
+  }
+
+  /** Admin 直接接続: /join を経由せず LiveKit に直接接続する (ADR 0014 D-4)。 */
+  async connectAdmin(livekitUrl: string, livekitToken: string, eventId: string): Promise<void> {
+    await this.room.connect(livekitUrl, livekitToken);
+    this.session = {
+      eventId,
+      role: "admin",
+      room: eventId,
+      canPublish: true,
+    };
   }
 
   private requirePublish(): void {
@@ -119,7 +119,6 @@ export class StageController {
     await this.room.setScreenShareEnabled(on);
   }
 
-  /** 事前アップロードスライドのページ設定 (totalPages) を初期化する。 */
   setDeck(totalPages: number): void {
     this.deck = { page: 1, totalPages: Math.max(1, totalPages) };
   }
@@ -143,11 +142,29 @@ export class StageController {
     return this.deck.page;
   }
 
+  /** layout 切替を DataChannel で broadcast する (D8: moderator/admin 用)。 */
+  async changeLayout(layout: LayoutKind, focusIdentity?: string): Promise<void> {
+    if (!this.session) throw new Error("not joined");
+    await this.room.publishData(
+      encodeStageMessage({ type: "layout-change", layout, focusIdentity }),
+    );
+  }
+
+  /** 特定の participant にミュート要請を送る (D8: moderator/admin 用)。 */
+  async requestMute(targetIdentity: string): Promise<void> {
+    if (!this.session) throw new Error("not joined");
+    await this.room.publishData(encodeStageMessage({ type: "mute-request", targetIdentity }));
+  }
+
+  /** 現在の参加者スナップショットを取得する (D8)。 */
+  getParticipants(): ParticipantSnapshot[] {
+    return this.room.getParticipants();
+  }
+
   async leave(): Promise<void> {
-    // 未入室なら何もしない。二重退室で disconnect を重ねて呼ばない (冪等)。
     if (!this.session && !this.lastJoin) return;
     await this.room.disconnect();
     this.session = undefined;
-    this.lastJoin = undefined; // 退室後の再 join をクリーンにする。
+    this.lastJoin = undefined;
   }
 }

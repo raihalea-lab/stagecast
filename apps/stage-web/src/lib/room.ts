@@ -3,6 +3,8 @@
  *
  * 登壇者はカメラ・マイク・画面共有を publish する。スライドのページ送り (事前アップロード方式)
  * はデータメッセージで配る。テストではブラウザ無しで動く Fake を注入する。
+ *
+ * D8: publishData + 参加者追跡 (Moderator/Admin サブビュー用) を追加。
  */
 
 import type { PreferredDevices } from "./devices.js";
@@ -23,30 +25,36 @@ export interface IceServerConfig {
 }
 
 export interface ConnectOptions {
-  /**
-   * R12-followup-19 / ADR 0011 案 E: 起動時に rtcConfig.iceServers にセットする TURN/STUN。
-   * 指定すると LiveKit Client SDK の `if (!rtcConfig.iceServers)` 判定で server response の
-   * iceServers が無視されるので、 我々が指定した TURN (KVS WebRTC) を確実に使う。
-   */
   iceServers?: IceServerConfig[];
+}
+
+/** 参加者のスナップショット情報 (packages/ui の ParticipantInfo と 1:1 対応)。 */
+export interface ParticipantSnapshot {
+  identity: string;
+  name?: string;
+  isTalking: boolean;
+  isMuted: boolean;
+  isScreenSharing: boolean;
 }
 
 export interface RoomConnector {
   readonly state: RoomState;
   connect(url: string, token: string, options?: ConnectOptions): Promise<void>;
-  /** 入室前テストで選んだマイク/カメラを publish 時に使う (N7)。 */
   setPreferredDevices(prefs: PreferredDevices): void;
   setMicrophoneEnabled(enabled: boolean): Promise<void>;
   setCameraEnabled(enabled: boolean): Promise<void>;
-  /** 画面共有の開始/停止 (DESIGN.md 5.2 画面共有方式)。 */
   setScreenShareEnabled(enabled: boolean): Promise<void>;
-  /** スライドのページ送りを配信する (DESIGN.md 5.2 事前アップロード方式)。 */
   sendSlide(message: SlideMessage): Promise<void>;
-  /** SFU から切断されたとき (回線断・サーバ都合) に呼ばれるハンドラを登録する。 */
+  /** 汎用データ送信 (layout-change / mute-request 等, D8)。 */
+  publishData(payload: Uint8Array): Promise<void>;
+  /** 現在の参加者スナップショットを取得する (D8)。 */
+  getParticipants(): ParticipantSnapshot[];
+  /** 参加者情報が変化したときに呼ばれるハンドラを登録する (D8)。 */
+  onParticipantsChanged(handler: (participants: ParticipantSnapshot[]) => void): void;
+  /** DataChannel メッセージ受信ハンドラを登録する (mute-request 受信用, D8)。 */
+  onDataReceived(handler: (payload: Uint8Array) => void): void;
   onDisconnected(handler: () => void): void;
-  /** 一時的な回線断で自動再接続を試行中に呼ばれるハンドラを登録する (セッションは維持)。 */
   onReconnecting(handler: () => void): void;
-  /** 自動再接続が成功し配信が復帰したときに呼ばれるハンドラを登録する。 */
   onReconnected(handler: () => void): void;
   disconnect(): Promise<void>;
 }
@@ -56,17 +64,23 @@ export class FakeRoomConnector implements RoomConnector {
   state: RoomState = "idle";
   readonly calls: string[] = [];
   readonly slides: SlideMessage[] = [];
+  readonly publishedData: Uint8Array[] = [];
   preferredDevices: PreferredDevices = {};
   mic = false;
   camera = false;
   screenShare = false;
+  participants: ParticipantSnapshot[] = [];
   private disconnectHandler?: () => void;
   private reconnectingHandler?: () => void;
   private reconnectedHandler?: () => void;
+  private participantsHandler?: (participants: ParticipantSnapshot[]) => void;
+  private dataHandler?: (payload: Uint8Array) => void;
 
   async connect(url: string, _token: string, options?: ConnectOptions): Promise<void> {
     this.calls.push(
-      options?.iceServers?.length ? `connect:${url}:ice=${options.iceServers.length}` : `connect:${url}`,
+      options?.iceServers?.length
+        ? `connect:${url}:ice=${options.iceServers.length}`
+        : `connect:${url}`,
     );
     this.state = "connected";
   }
@@ -79,12 +93,16 @@ export class FakeRoomConnector implements RoomConnector {
   onReconnected(handler: () => void): void {
     this.reconnectedHandler = handler;
   }
-  /** テストから切断を発火する。 */
+  onParticipantsChanged(handler: (participants: ParticipantSnapshot[]) => void): void {
+    this.participantsHandler = handler;
+  }
+  onDataReceived(handler: (payload: Uint8Array) => void): void {
+    this.dataHandler = handler;
+  }
   emitDisconnect(): void {
     this.state = "disconnected";
     this.disconnectHandler?.();
   }
-  /** テストから一時的な再接続中/復帰を発火する。 */
   emitReconnecting(): void {
     this.state = "reconnecting";
     this.reconnectingHandler?.();
@@ -92,6 +110,13 @@ export class FakeRoomConnector implements RoomConnector {
   emitReconnected(): void {
     this.state = "connected";
     this.reconnectedHandler?.();
+  }
+  emitParticipantsChanged(participants: ParticipantSnapshot[]): void {
+    this.participants = participants;
+    this.participantsHandler?.(participants);
+  }
+  emitDataReceived(payload: Uint8Array): void {
+    this.dataHandler?.(payload);
   }
   setPreferredDevices(prefs: PreferredDevices): void {
     this.preferredDevices = prefs;
@@ -111,6 +136,13 @@ export class FakeRoomConnector implements RoomConnector {
   }
   async sendSlide(message: SlideMessage): Promise<void> {
     this.slides.push(message);
+  }
+  async publishData(payload: Uint8Array): Promise<void> {
+    this.publishedData.push(payload);
+    this.calls.push("publishData");
+  }
+  getParticipants(): ParticipantSnapshot[] {
+    return this.participants;
   }
   async disconnect(): Promise<void> {
     this.state = "disconnected";
