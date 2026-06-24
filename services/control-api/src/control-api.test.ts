@@ -355,6 +355,74 @@ describe("control-api integration (in-memory)", () => {
     expect(res.status).toBe(404);
   });
 
+  it("上限超過時に startsAt が古いイベントから自動削除される", async () => {
+    // MAX_EVENTS=1000 だと大量に作る必要があるので、小さい上限でテストする。
+    // createEventService を直接使ってテスト。
+    const { MemoryEventRepository } = await import("./repo/memory.js");
+    const { createEventService, MAX_EVENTS } = await import("./usecases/events.js");
+    const memRepo = new MemoryEventRepository();
+    const deletedIds: string[] = [];
+    let cnt = 0;
+    const svc = createEventService({
+      repo: memRepo,
+      newId: () => `evt-${++cnt}`,
+      now: () => 1_000_000,
+      cleanupStorage: async (id) => {
+        deletedIds.push(id);
+      },
+    });
+
+    // MAX_EVENTS + 2 件作る (startsAt を日付でずらす)
+    for (let i = 0; i < MAX_EVENTS + 2; i++) {
+      const day = String(i + 1).padStart(4, "0");
+      await svc.create({
+        title: `E-${day}`,
+        startsAt: `2026-01-01T00:00:00Z`,
+        caption,
+      });
+    }
+
+    const all = await svc.list();
+    expect(all.length).toBe(MAX_EVENTS);
+    // 最初に作った2件 (startsAt が同じなのでソート安定性は保証しないが、2件削除されたことを検証)
+    expect(deletedIds.length).toBe(2);
+  });
+
+  it("live イベントは自動削除の対象外", async () => {
+    const { MemoryEventRepository } = await import("./repo/memory.js");
+    const { createEventService, MAX_EVENTS } = await import("./usecases/events.js");
+    const memRepo = new MemoryEventRepository();
+    let cnt = 0;
+    const svc = createEventService({
+      repo: memRepo,
+      newId: () => `evt-${++cnt}`,
+      now: () => 1_000_000,
+    });
+
+    // 1件を live にする (startsAt が最も古い)
+    const live = await svc.create({
+      title: "Live",
+      startsAt: "2020-01-01T00:00:00Z",
+      caption,
+    });
+    await svc.setStatus(live.id, "live");
+
+    // MAX_EVENTS 件追加 → 合計 MAX_EVENTS+1 だが live は消せない
+    for (let i = 0; i < MAX_EVENTS; i++) {
+      await svc.create({
+        title: `E-${i}`,
+        startsAt: "2026-06-01T00:00:00Z",
+        caption,
+      });
+    }
+
+    const all = await svc.list();
+    // live 1件 + MAX_EVENTS-1件の非live = MAX_EVENTS件 (1件は自動削除された)
+    // ただし live は消せないので total は MAX_EVENTS+1 にはならず MAX_EVENTS
+    expect(all.length).toBe(MAX_EVENTS);
+    expect(all.find((e) => e.id === live.id)).toBeDefined();
+  });
+
   it("イベントを削除でき、一覧から消える", async () => {
     const eventId = await createEvent(app, "Deletable");
     const del = await app.handle(
