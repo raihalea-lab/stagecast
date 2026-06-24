@@ -61,6 +61,7 @@ export function createEventService(deps: {
   repo: EventRepository;
   newId: () => string;
   now: () => number;
+  cleanupStorage?: (eventId: string) => Promise<void>;
 }) {
   const { repo, newId, now } = deps;
 
@@ -148,6 +149,7 @@ export function createEventService(deps: {
     const e = await get(eventId);
     if (e.status === "live") throw new ValidationError("cannot delete a live event");
     await repo.delete(eventId);
+    await deps.cleanupStorage?.(eventId);
   }
 
   return { create, get, list, update, setStatus, remove };

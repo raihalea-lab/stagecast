@@ -270,6 +270,7 @@ describe("control-api integration (in-memory)", () => {
         async presignGet(key) {
           return `https://signed/${key}`;
         },
+        async deletePrefix() {},
       },
     });
     const res = await app2.handle(
@@ -291,6 +292,7 @@ describe("control-api integration (in-memory)", () => {
         async presignGet() {
           return "";
         },
+        async deletePrefix() {},
       },
     });
     const res = await app2.handle(req({ method: "GET", path: "/events/evt-9/artifacts" }));
@@ -351,6 +353,60 @@ describe("control-api integration (in-memory)", () => {
       }),
     );
     expect(res.status).toBe(404);
+  });
+
+  it("イベントを削除でき、一覧から消える", async () => {
+    const eventId = await createEvent(app, "Deletable");
+    const del = await app.handle(
+      req({ method: "DELETE", path: `/events/${eventId}`, headers: adminAuth }),
+    );
+    expect(del.status).toBe(204);
+    const list = await app.handle(req({ method: "GET", path: "/events", headers: adminAuth }));
+    expect((list.body as unknown[]).length).toBe(0);
+  });
+
+  it("配信中のイベントは削除できない", async () => {
+    const eventId = await createEvent(app);
+    await app.handle(
+      req({
+        method: "POST",
+        path: `/events/${eventId}/status`,
+        headers: adminAuth,
+        body: { status: "live" },
+      }),
+    );
+    const del = await app.handle(
+      req({ method: "DELETE", path: `/events/${eventId}`, headers: adminAuth }),
+    );
+    expect(del.status).toBe(400);
+  });
+
+  it("削除時に関連ストレージが cleanup される", async () => {
+    const deletedPrefixes: string[] = [];
+    const app2 = buildControlApi({
+      inviteSecret: "test-secret",
+      now: () => 1_000_000,
+      newId: () => `id-${++counter}`,
+      artifactStore: {
+        async list() {
+          return [];
+        },
+        async presignGet() {
+          return "";
+        },
+        async deletePrefix(prefix) {
+          deletedPrefixes.push(prefix);
+        },
+      },
+    });
+    const id = await createEvent(app2);
+    const del = await app2.handle(
+      req({ method: "DELETE", path: `/events/${id}`, headers: adminAuth }),
+    );
+    expect(del.status).toBe(204);
+    expect(deletedPrefixes).toEqual(
+      expect.arrayContaining([`assets/${id}/`, `recordings/${id}/`, `captions/${id}/`]),
+    );
   });
 });
 
@@ -448,9 +504,7 @@ describe("settings (LiveKit / YouTube) HTTP", () => {
 
   it("regenerate も認証が必要 (401)", async () => {
     const app = buildAppWithSettings();
-    const res = await app.handle(
-      req({ method: "POST", path: "/settings/livekit/regenerate" }),
-    );
+    const res = await app.handle(req({ method: "POST", path: "/settings/livekit/regenerate" }));
     expect(res.status).toBe(401);
   });
 
