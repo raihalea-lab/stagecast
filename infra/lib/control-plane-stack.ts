@@ -443,12 +443,19 @@ export class ControlPlaneStack extends Stack {
       },
     });
 
-    // 公開ルート (招待トークン検証 / 入室) — 招待 URL でアクセスするモデレーター/登壇者用 (4.1)。
+    // 公開ルート (招待トークン検証 / 入室 / プレビュー token) — 招待 URL でアクセスする
+    // モデレーター/登壇者用 (4.1, R17-Phase3 / ADR 0012 D-6)。
     // API Gateway の JWT を通さず、control-api 内で招待トークンを検証する。
     // OPTIONS (preflight) は $default (JWT) ルートに吸い込まれて 401 になるため、
     // 明示的に NONE で登録して Lambda に流す。Lambda 側は OPTIONS を即 204 返却する。
     // API Gateway の corsConfiguration が CORS ヘッダ (Allow-Origin 等) を自動付与する。
-    for (const route of ["POST /invites/verify", "POST /join", "OPTIONS /{proxy+}"]) {
+    // POST /preview-token は stage-web の PreviewWindow が招待トークンで叩く (R17-Phase3)。
+    for (const route of [
+      "POST /invites/verify",
+      "POST /join",
+      "POST /preview-token",
+      "OPTIONS /{proxy+}",
+    ]) {
       new apigwv2.CfnRoute(this, `PublicRoute${route.replace(/[^A-Za-z0-9]/g, "_")}`, {
         apiId: httpApi.ref,
         routeKey: route,

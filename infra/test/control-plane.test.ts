@@ -152,6 +152,11 @@ describe("ControlPlaneStack", () => {
       RouteKey: "POST /join",
       AuthorizationType: "NONE",
     });
+    // R17-Phase3 / ADR 0012 D-6: stage-web の PreviewWindow が招待トークンで叩く public route。
+    template.hasResourceProperties("AWS::ApiGatewayV2::Route", {
+      RouteKey: "POST /preview-token",
+      AuthorizationType: "NONE",
+    });
   });
 
   it("OPTIONS preflight は NONE 認証で登録 ($default JWT をバイパス、Lambda が 204 返却)", () => {
