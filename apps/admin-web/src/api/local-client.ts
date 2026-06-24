@@ -25,6 +25,7 @@ import type {
   EgressStartResult,
   IssuedInvite,
   PreviewTokenResult,
+  StageTokenResult,
 } from "./types.js";
 
 const ADMIN_AUTH = "Bearer fake:admin-local:admin@stagecast.local";
@@ -75,6 +76,9 @@ export class LocalControlApiClient implements ControlApiClient {
   }
   issueAdminToken(eventId: string): Promise<AdminTokenResult> {
     return this.call("POST", `/events/${eventId}/admin-token`);
+  }
+  issueStageToken(eventId: string): Promise<StageTokenResult> {
+    return this.call("POST", `/events/${eventId}/stage-token`);
   }
   issuePreviewToken(eventId: string): Promise<PreviewTokenResult> {
     return this.call("POST", `/events/${eventId}/preview-token`);

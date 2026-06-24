@@ -21,6 +21,7 @@ import type {
   EgressStartResult,
   IssuedInvite,
   PreviewTokenResult,
+  StageTokenResult,
 } from "./types.js";
 
 export class HttpControlApiClient implements ControlApiClient {
@@ -69,6 +70,9 @@ export class HttpControlApiClient implements ControlApiClient {
   }
   issueAdminToken(eventId: string): Promise<AdminTokenResult> {
     return this.call("POST", `/events/${eventId}/admin-token`);
+  }
+  issueStageToken(eventId: string): Promise<StageTokenResult> {
+    return this.call("POST", `/events/${eventId}/stage-token`);
   }
   issuePreviewToken(eventId: string): Promise<PreviewTokenResult> {
     return this.call("POST", `/events/${eventId}/preview-token`);

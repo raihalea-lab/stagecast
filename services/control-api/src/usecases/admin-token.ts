@@ -28,6 +28,12 @@ export interface AdminTokenResult {
   room: string;
 }
 
+export interface StageTokenResult {
+  token: string;
+  livekitUrl: string;
+  expiresAt: number;
+}
+
 export interface AdminTokenServiceConfig {
   events: EventService;
   liveKitMinter: LiveKitTokenMinter;
@@ -37,29 +43,39 @@ export interface AdminTokenServiceConfig {
 
 export function createAdminTokenService(config: AdminTokenServiceConfig) {
   const ttlSec = config.ttlSec ?? 6 * 60 * 60;
+
+  async function mintForEvent(eventId: string, identity: string) {
+    const event = await config.events.get(eventId);
+    if (event.status !== "live") {
+      throw new ServiceUnavailableError("event is not live");
+    }
+    if (!event.media?.livekitUrl) {
+      throw new ServiceUnavailableError("LiveKit URL not ready", { retryAfterSec: 30 });
+    }
+    const livekitToken = config.liveKitMinter.mint({
+      identity,
+      room: eventId,
+      role: "admin",
+      ttlSec,
+      name: "Admin",
+    });
+    return { livekitUrl: event.media.livekitUrl, livekitToken, room: eventId };
+  }
+
   return {
     async issue(eventId: string): Promise<AdminTokenResult> {
-      const event = await config.events.get(eventId);
-      if (event.status !== "live") {
-        throw new ServiceUnavailableError("event is not live");
-      }
-      if (!event.media?.livekitUrl) {
-        throw new ServiceUnavailableError("LiveKit URL not ready", { retryAfterSec: 30 });
-      }
-      // admin-{uuid} で複数 admin が同時接続できる identity を生成。
       const identity = `admin-${randomUUID()}`;
-      const livekitToken = config.liveKitMinter.mint({
-        identity,
-        room: eventId,
-        role: "admin",
-        ttlSec,
-        name: "Admin",
-      });
+      const { livekitUrl, livekitToken, room } = await mintForEvent(eventId, identity);
+      return { livekitUrl, livekitToken, identity, room };
+    },
+
+    async issueStageToken(eventId: string, userId: string): Promise<StageTokenResult> {
+      const identity = `admin-${userId}`;
+      const { livekitUrl, livekitToken } = await mintForEvent(eventId, identity);
       return {
-        livekitUrl: event.media.livekitUrl,
-        livekitToken,
-        identity,
-        room: eventId,
+        token: livekitToken,
+        livekitUrl,
+        expiresAt: Date.now() + ttlSec * 1000,
       };
     },
   };
