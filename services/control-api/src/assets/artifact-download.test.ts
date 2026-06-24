@@ -15,6 +15,7 @@ class FakeStore implements ArtifactStore {
   async presignGet(key: string): Promise<string> {
     return `https://signed/${key}`;
   }
+  async deletePrefix(): Promise<void> {}
 }
 
 describe("createArtifactDownloadService (N1)", () => {

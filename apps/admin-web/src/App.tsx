@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Navigate, Route, Routes, useNavigate, useParams, useLocation } from "react-router-dom";
-import type { EventDefinition } from "@stagecast/shared";
+import type { EventDefinition, EventStatus } from "@stagecast/shared";
 import type { CreateEventInput } from "@stagecast/control-api";
 import {
   AppShell,
@@ -25,7 +25,7 @@ import {
   TooltipProvider,
   type ThemeMode,
 } from "@stagecast/ui";
-import { LogOut, Plus, Settings, Users } from "@stagecast/ui/icons";
+import { ArrowDownUp, LogOut, Plus, Settings, Users } from "@stagecast/ui/icons";
 import { HttpControlApiClient } from "./api/http-client.js";
 import { HttpAssetService } from "./api/http-asset-service.js";
 import { HttpArtifactService } from "./api/http-artifact-service.js";
@@ -108,6 +108,8 @@ export function App(props: {
   const [busy, setBusy] = useState(false);
   const [sheetOpen, setSheetOpen] = useState(false);
   const [theme, setTheme] = useState<ThemeMode>(readInitialTheme);
+  const [statusFilter, setStatusFilter] = useState<EventStatus | "all">("all");
+  const [sortNewestFirst, setSortNewestFirst] = useState(true);
 
   useEffect(() => {
     applyTheme(theme);
@@ -172,6 +174,22 @@ export function App(props: {
       await refresh();
       setSheetOpen(false);
       navigate(`/events/${created.id}`);
+    });
+
+  const filteredEvents = useMemo(() => {
+    let list = statusFilter === "all" ? events : events.filter((e) => e.status === statusFilter);
+    list = [...list].sort((a, b) => {
+      const diff = Date.parse(a.startsAt) - Date.parse(b.startsAt);
+      return sortNewestFirst ? -diff : diff;
+    });
+    return list;
+  }, [events, statusFilter, sortNewestFirst]);
+
+  const deleteEvent = (id: string) =>
+    run(async () => {
+      await client.deleteEvent(id);
+      await refresh();
+      navigate("/events");
     });
 
   const login = async () => {
@@ -268,10 +286,35 @@ export function App(props: {
           </SheetContent>
         </Sheet>
       </div>
-      <nav className="flex flex-col gap-px overflow-auto py-2">
-        <span className="px-3 pb-1 text-[10px] uppercase tracking-wider text-text-tertiary">
-          イベント
-        </span>
+      <nav className="flex min-h-0 flex-1 flex-col overflow-hidden py-2">
+        <div className="flex items-center justify-between px-3 pb-1">
+          <span className="text-[10px] uppercase tracking-wider text-text-tertiary">イベント</span>
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            aria-label={sortNewestFirst ? "古い順にする" : "新しい順にする"}
+            onClick={() => setSortNewestFirst((v) => !v)}
+            title={sortNewestFirst ? "新しい順" : "古い順"}
+          >
+            <ArrowDownUp className="size-3.5" />
+          </Button>
+        </div>
+        <div className="flex gap-1 px-3 pb-2">
+          {(["all", "draft", "live", "ended"] as const).map((s) => (
+            <button
+              key={s}
+              type="button"
+              onClick={() => setStatusFilter(s)}
+              className={`rounded-full px-2 py-0.5 text-[10px] font-medium transition-colors ${
+                statusFilter === s
+                  ? "bg-text-primary text-surface-0"
+                  : "bg-surface-2 text-text-secondary hover:bg-surface-3"
+              }`}
+            >
+              {s === "all" ? "すべて" : s === "draft" ? "下書き" : s === "live" ? "配信中" : "終了"}
+            </button>
+          ))}
+        </div>
         {!eventsLoaded ? (
           <ul aria-busy="true" aria-label="読み込み中" className="space-y-1 px-3">
             {[0, 1, 2].map((i) => (
@@ -280,17 +323,21 @@ export function App(props: {
               </li>
             ))}
           </ul>
-        ) : events.length === 0 ? (
+        ) : filteredEvents.length === 0 ? (
           <div className="px-3">
             <EmptyState
-              title="まだイベントがありません"
-              description="上のボタンから作成"
+              title={events.length === 0 ? "まだイベントがありません" : "該当なし"}
+              description={
+                events.length === 0
+                  ? "上のボタンから作成"
+                  : "フィルタ条件に一致するイベントがありません"
+              }
               icon={<Users />}
             />
           </div>
         ) : (
-          <ul>
-            {events.map((e) => (
+          <ul className="overflow-auto">
+            {filteredEvents.map((e) => (
               <li key={e.id}>
                 <EventListItem
                   title={e.title}
@@ -395,6 +442,7 @@ export function App(props: {
                   assets={assets}
                   artifacts={artifacts}
                   onChanged={() => void run(refresh)}
+                  onDelete={deleteEvent}
                 />
               }
             />
@@ -414,6 +462,7 @@ function EventDetailRoute(props: {
   assets: AssetService;
   artifacts: ArtifactService;
   onChanged: () => void;
+  onDelete: (id: string) => void;
 }) {
   const { id } = useParams<{ id: string }>();
   const event = props.events.find((e) => e.id === id);
@@ -435,6 +484,7 @@ function EventDetailRoute(props: {
       assets={props.assets}
       artifacts={props.artifacts}
       onChanged={props.onChanged}
+      onDelete={props.onDelete}
     />
   );
 }

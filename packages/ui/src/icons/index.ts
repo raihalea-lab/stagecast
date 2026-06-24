@@ -7,6 +7,7 @@
 export {
   AlertCircle,
   AlertTriangle,
+  ArrowDownUp,
   Camera,
   CameraOff,
   Check,
