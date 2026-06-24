@@ -2,11 +2,13 @@
  * ランタイム設定 (デプロイ手順 / DESIGN.md 3.1)。
  *
  * 本番は CDK BucketDeployment が S3 に置く `/config.json` を起動時に fetch して読む。
- * stage-web が必要とするのは制御 API の URL のみ。取得できない場合 (ローカル `vp dev` 等) は
- * build-time の `import.meta.env.VITE_CONTROL_API_URL` にフォールバックする。
+ * stage-web が必要とするのは制御 API の URL と (R17-Phase3) composer-template の URL。
+ * 取得できない場合 (ローカル `vp dev` 等) は build-time の `import.meta.env` にフォールバック。
  */
 export interface RuntimeConfig {
   controlApiUrl: string;
+  /** R17-Phase3 / ADR 0012 D-6: 登壇者ビュー右下小窓プレビュー (iframe) の URL。 */
+  composerTemplateUrl?: string;
 }
 
 /**
@@ -16,8 +18,11 @@ export interface RuntimeConfig {
 export function resolveRuntimeConfig(
   fetched: Partial<RuntimeConfig> | undefined,
   fallbackApiUrl: string | undefined,
+  fallbackComposerUrl?: string | undefined,
 ): RuntimeConfig {
-  return { controlApiUrl: fetched?.controlApiUrl ?? fallbackApiUrl ?? "" };
+  const controlApiUrl = fetched?.controlApiUrl ?? fallbackApiUrl ?? "";
+  const composerTemplateUrl = fetched?.composerTemplateUrl ?? fallbackComposerUrl;
+  return composerTemplateUrl ? { controlApiUrl, composerTemplateUrl } : { controlApiUrl };
 }
 
 /** `/config.json` を読み込み、無ければ build-time env にフォールバックして RuntimeConfig を返す。 */
@@ -29,5 +34,9 @@ export async function loadRuntimeConfig(): Promise<RuntimeConfig> {
   } catch {
     // 未配置 / ネットワーク不通はローカル開発とみなし env フォールバック。
   }
-  return resolveRuntimeConfig(fetched, import.meta.env.VITE_CONTROL_API_URL);
+  return resolveRuntimeConfig(
+    fetched,
+    import.meta.env.VITE_CONTROL_API_URL,
+    import.meta.env.VITE_COMPOSER_TEMPLATE_URL,
+  );
 }

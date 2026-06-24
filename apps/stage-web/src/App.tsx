@@ -11,6 +11,7 @@ import type { RoomConnector } from "./lib/room.js";
 import { StageController, type StageSession } from "./stage-controller.js";
 import { parseInviteToken } from "./lib/token.js";
 import { DeviceCheck } from "./components/DeviceCheck.js";
+import { PreviewWindow } from "./components/PreviewWindow.js";
 import type { RuntimeConfig } from "./config.js";
 
 export function App(props: {
@@ -21,13 +22,14 @@ export function App(props: {
   search?: string;
   devices?: MediaDevicesProvider;
 }) {
+  // R17-Phase3: PreviewWindow とも client を共有するため、 useMemo で組み立て直す。
+  const client = useMemo(
+    () => props.client ?? new HttpStageClient(props.config?.controlApiUrl ?? ""),
+    [props.client, props.config],
+  );
   const controller = useMemo(
-    () =>
-      new StageController(
-        props.client ?? new HttpStageClient(props.config?.controlApiUrl ?? ""),
-        props.room ?? new LiveKitRoomConnector(),
-      ),
-    [props.client, props.room, props.config],
+    () => new StageController(client, props.room ?? new LiveKitRoomConnector()),
+    [client, props.room],
   );
   const deviceProvider = useMemo(
     () => props.devices ?? new BrowserMediaDevicesProvider(),
@@ -134,6 +136,14 @@ export function App(props: {
 
   return (
     <main className="stage">
+      {/* R17-Phase3 / ADR 0012 D-6: 登壇者ビュー右下小窓に「現在の配信」をプレビュー。
+          composer-template を viewer-role の subscriber-only token で iframe 埋め込み。
+          ✕ で閉じれば帯域消費を抑えられる (再表示用ボタンを表示)。 */}
+      <PreviewWindow
+        client={client}
+        inviteToken={token}
+        composerTemplateUrl={props.config?.composerTemplateUrl}
+      />
       <h1>
         {session.role === "speaker" ? "登壇者" : "モデレーター"} / イベント {session.eventId}
       </h1>

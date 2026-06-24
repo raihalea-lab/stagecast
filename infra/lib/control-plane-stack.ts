@@ -505,7 +505,12 @@ export class ControlPlaneStack extends Stack {
         distributionPaths: ["/*"],
         sources: [
           s3deploy.Source.asset(props.webAssets.stageWebDir),
-          s3deploy.Source.jsonData("config.json", { controlApiUrl }),
+          s3deploy.Source.jsonData("config.json", {
+            controlApiUrl,
+            // R17-Phase3 / ADR 0012 D-6: stage-web の登壇者ビュー右下小窓プレビューが
+            // composer-template を iframe で開くための URL。
+            composerTemplateUrl: `https://${composerWebDistribution.domainName}`,
+          }),
         ],
       });
       // ADR 0012 D-2: composer-template は config.json を持たない (URL パラメータで token/url を受け取る)。

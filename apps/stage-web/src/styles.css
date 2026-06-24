@@ -109,3 +109,67 @@ button:disabled {
   aspect-ratio: 16 / 9;
   object-fit: cover;
 }
+
+/* R17-Phase3: 登壇者ビュー右下小窓プレビュー (ADR 0012 D-6) */
+.preview-window {
+  position: fixed;
+  right: 16px;
+  bottom: 16px;
+  width: 240px;
+  background: #111;
+  color: #fff;
+  border: 1px solid #444;
+  border-radius: 8px;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.5);
+  z-index: 50;
+  overflow: hidden;
+  font-family: sans-serif;
+}
+.preview-window-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 4px 8px;
+  background: #222;
+  font-size: 12px;
+}
+.preview-window-close {
+  background: transparent;
+  color: #fff;
+  border: none;
+  font-size: 16px;
+  cursor: pointer;
+  line-height: 1;
+  padding: 0 4px;
+}
+.preview-window-iframe {
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  border: none;
+  background: #000;
+  display: block;
+}
+.preview-window-loading,
+.preview-window-error {
+  margin: 0;
+  padding: 12px;
+  font-size: 12px;
+  text-align: center;
+}
+.preview-window-error {
+  color: #ff8888;
+}
+.preview-window-reopen {
+  position: fixed;
+  right: 16px;
+  bottom: 16px;
+  padding: 6px 12px;
+  background: #1f3a93;
+  color: #fff;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 12px;
+  z-index: 50;
+  box-shadow: 0 4px 10px rgba(0, 0, 0, 0.3);
+}

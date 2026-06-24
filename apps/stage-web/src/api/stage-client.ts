@@ -55,8 +55,21 @@ export interface JoinOptions {
   sleep?: (ms: number) => Promise<void>;
 }
 
+/** Preview LiveKit Token 発行結果 (R17-Phase3, ADR 0012 D-6)。 */
+export interface PreviewTokenResponse {
+  livekitUrl: string;
+  livekitToken: string;
+  identity: string;
+  room: string;
+}
+
 export interface StageClient {
   join(token: string, displayName?: string, options?: JoinOptions): Promise<JoinResponse>;
+  /**
+   * 登壇者ビュー右下小窓プレビュー用の viewer-role token を発行する (R17-Phase3, ADR 0012 D-6)。
+   * 入室済みの speaker / moderator が、 入室時と同じ招待トークンを提示して取得する。
+   */
+  issuePreviewToken(inviteToken: string): Promise<PreviewTokenResponse>;
 }
 
 /** ADR 0008 D-3: exponential backoff スケジュール (秒)。 */
@@ -103,5 +116,19 @@ export class HttpStageClient implements StageClient {
       return { status: 503, body: { ok: false, reason: "media-unavailable" } };
     }
     return { status: res.status, body: (await res.json()) as JoinResponse };
+  }
+
+  /** R17-Phase3: 招待トークンを提示して viewer-role の preview token を取得する。 */
+  async issuePreviewToken(inviteToken: string): Promise<PreviewTokenResponse> {
+    const res = await fetch(`${this.baseUrl}/preview-token`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ inviteToken }),
+    });
+    if (!res.ok) {
+      const msg = await res.text().catch(() => res.statusText);
+      throw new Error(`preview-token failed (${res.status}): ${msg}`);
+    }
+    return (await res.json()) as PreviewTokenResponse;
   }
 }
