@@ -42,6 +42,7 @@ export function OpenStageButton({
         const url = new URL(result.stageUrl ?? window.location.origin);
         url.searchParams.set("token", result.token);
         url.searchParams.set("url", result.livekitUrl);
+        url.searchParams.set("eventId", eventId);
         window.open(url.toString(), "_blank", "noopener,noreferrer");
       }
     } finally {
