@@ -2,6 +2,8 @@
  * 入室前デバイステスト UI (N7, DESIGN.md 4.1)。
  * マイク/カメラを選び、マイク音量メーターで実際に拾えているか確認する。
  * ブラウザ依存は `MediaDevicesProvider` 注入で切り離し、ロジックは devices.ts 側でテストする。
+ *
+ * D7: Tabs[マイク|カメラ] + DeviceMeter + Card で再構成。
  */
 import { useEffect, useRef, useState } from "react";
 import {
@@ -17,6 +19,19 @@ import {
   type MicMeter,
   type PreferredDevices,
 } from "../lib/devices.js";
+import {
+  Card,
+  CardContent,
+  CardHeader,
+  CardTitle,
+  DeviceMeter,
+  Label,
+  Tabs,
+  TabsContent,
+  TabsList,
+  TabsTrigger,
+} from "@stagecast/ui";
+import { Mic, Camera } from "@stagecast/ui/icons";
 
 function toPrefs(microphoneId?: string, cameraId?: string): PreferredDevices {
   const prefs: PreferredDevices = {};
@@ -35,9 +50,7 @@ export function DeviceCheck(props: {
   const [devices, setDevices] = useState<DeviceInfo[]>([]);
   const [micId, setMicId] = useState<string | undefined>();
   const [camId, setCamId] = useState<string | undefined>();
-  // メーターは 0..100 の整数% で保持し、値が変わったフレームだけ再描画する
-  // (毎フレーム setState すると入室画面全体が 60fps で再描画されるため)。
-  const [levelPct, setLevelPct] = useState(0);
+  const [level, setLevel] = useState(0);
   const [err, setErr] = useState<string | undefined>();
   const meterRef = useRef<MicMeter | undefined>(undefined);
   const rafRef = useRef<number | undefined>(undefined);
@@ -45,7 +58,6 @@ export function DeviceCheck(props: {
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const previewRef = useRef<CameraPreview | undefined>(undefined);
 
-  // 初回: 権限要求 + 列挙 + 保存済み選択の復元。
   useEffect(() => {
     let cancelled = false;
     void (async () => {
@@ -67,10 +79,8 @@ export function DeviceCheck(props: {
     return () => {
       cancelled = true;
     };
-    // 初回のみ実行する (provider/store/onChange は安定参照を前提)。
   }, []);
 
-  // 選択カメラが変わるたびにプレビュー stream を開き直す (N7 入室前プレビュー)。
   useEffect(() => {
     let stopped = false;
     void (async () => {
@@ -86,7 +96,7 @@ export function DeviceCheck(props: {
           videoRef.current.srcObject = preview.stream;
         }
       } catch {
-        // プレビューはベストエフォート (権限拒否などは無視)。
+        // プレビューはベストエフォート
       }
     })();
     return () => {
@@ -97,7 +107,6 @@ export function DeviceCheck(props: {
     };
   }, [camId, provider]);
 
-  // 選択マイクが変わるたびにメーターを開き直す。
   useEffect(() => {
     let stopped = false;
     void (async () => {
@@ -111,13 +120,13 @@ export function DeviceCheck(props: {
         meterRef.current = meter;
         const tick = () => {
           smoothedRef.current = smoothLevel(smoothedRef.current, meter.level());
-          const pct = Math.round(smoothedRef.current * 100);
-          setLevelPct((prev) => (prev === pct ? prev : pct));
+          const rounded = Math.round(smoothedRef.current * 100);
+          setLevel((prev) => (prev === rounded ? prev : rounded));
           rafRef.current = requestAnimationFrame(tick);
         };
         tick();
       } catch {
-        // メーターはベストエフォート (権限拒否などは無視)。
+        // メーターはベストエフォート
       }
     })();
     return () => {
@@ -142,41 +151,85 @@ export function DeviceCheck(props: {
   };
 
   const { microphones, cameras } = splitDevices(devices);
+
   return (
-    <section className="device-check">
-      <h2>デバイステスト</h2>
-      {err && <p className="error">{err}</p>}
-      <label>
-        マイク
-        <select value={micId ?? ""} onChange={(e) => onMic(e.target.value)}>
-          {microphones.map((d) => (
-            <option key={d.deviceId} value={d.deviceId}>
-              {d.label}
-            </option>
-          ))}
-        </select>
-      </label>
-      <div className="mic-meter" aria-label="マイク音量レベル">
-        <div className="mic-meter-bar" style={{ width: `${levelPct}%` }} />
-      </div>
-      <label>
-        カメラ
-        <select value={camId ?? ""} onChange={(e) => onCam(e.target.value)}>
-          {cameras.map((d) => (
-            <option key={d.deviceId} value={d.deviceId}>
-              {d.label}
-            </option>
-          ))}
-        </select>
-      </label>
-      <video
-        ref={videoRef}
-        className="camera-preview"
-        autoPlay
-        playsInline
-        muted
-        aria-label="カメラプレビュー"
-      />
-    </section>
+    <Card>
+      <CardHeader>
+        <CardTitle className="text-base">デバイステスト</CardTitle>
+      </CardHeader>
+      <CardContent>
+        {err && (
+          <div
+            role="alert"
+            className="mb-4 rounded-md border border-error/40 bg-error/10 px-3 py-2 text-sm text-error"
+          >
+            {err}
+          </div>
+        )}
+        <Tabs defaultValue="mic">
+          <TabsList className="mb-4">
+            <TabsTrigger value="mic" className="gap-1.5">
+              <Mic className="size-3.5" />
+              マイク
+            </TabsTrigger>
+            <TabsTrigger value="camera" className="gap-1.5">
+              <Camera className="size-3.5" />
+              カメラ
+            </TabsTrigger>
+          </TabsList>
+
+          <TabsContent value="mic" className="space-y-4">
+            <div className="grid gap-2">
+              <Label htmlFor="mic-select">マイクを選択</Label>
+              <select
+                id="mic-select"
+                value={micId ?? ""}
+                onChange={(e) => onMic(e.target.value)}
+                className="w-full rounded-md border border-line-2 bg-surface-2 px-3 py-2 text-sm text-text-primary focus:outline-none focus:ring-2 focus:ring-tally-500"
+              >
+                {microphones.map((d) => (
+                  <option key={d.deviceId} value={d.deviceId}>
+                    {d.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div className="space-y-1">
+              <Label>音量レベル</Label>
+              <DeviceMeter level={level / 100} size="lg" showDb />
+            </div>
+          </TabsContent>
+
+          <TabsContent value="camera" className="space-y-4">
+            <div className="grid gap-2">
+              <Label htmlFor="camera-select">カメラを選択</Label>
+              <select
+                id="camera-select"
+                value={camId ?? ""}
+                onChange={(e) => onCam(e.target.value)}
+                className="w-full rounded-md border border-line-2 bg-surface-2 px-3 py-2 text-sm text-text-primary focus:outline-none focus:ring-2 focus:ring-tally-500"
+              >
+                {cameras.map((d) => (
+                  <option key={d.deviceId} value={d.deviceId}>
+                    {d.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div className="overflow-hidden rounded-lg border-2 border-preview-500 shadow-[0_0_8px_rgba(22,163,74,0.3)]">
+              <video
+                ref={videoRef}
+                className="block w-full max-w-sm bg-black"
+                style={{ aspectRatio: "16/9", objectFit: "cover" }}
+                autoPlay
+                playsInline
+                muted
+                aria-label="カメラプレビュー"
+              />
+            </div>
+          </TabsContent>
+        </Tabs>
+      </CardContent>
+    </Card>
   );
 }
