@@ -19,9 +19,15 @@ const repoRoot = join(__dirname, "..", "..");
 const adminWebDir = join(repoRoot, "apps", "admin-web", "dist");
 const stageWebDir = join(repoRoot, "apps", "stage-web", "dist");
 const composerWebDir = join(repoRoot, "apps", "composer-template", "dist");
+const requestWebDir = join(repoRoot, "apps", "request-web", "dist");
 const webAssets =
   existsSync(adminWebDir) && existsSync(stageWebDir) && existsSync(composerWebDir)
-    ? { adminWebDir, stageWebDir, composerWebDir }
+    ? {
+        adminWebDir,
+        stageWebDir,
+        composerWebDir,
+        requestWebDir: existsSync(requestWebDir) ? requestWebDir : undefined,
+      }
     : undefined;
 
 // 制御層 (常時稼働) は常にデプロイ対象。

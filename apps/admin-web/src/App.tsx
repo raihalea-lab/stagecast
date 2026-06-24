@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Navigate, Route, Routes, useNavigate, useParams, useLocation } from "react-router-dom";
-import type { EventDefinition, EventStatus } from "@stagecast/shared";
+import type { EventDefinition, EventRequest, EventStatus } from "@stagecast/shared";
 import type { CreateEventInput } from "@stagecast/control-api";
 import {
   AlertDialog,
@@ -33,13 +33,26 @@ import {
   TooltipProvider,
   type ThemeMode,
 } from "@stagecast/ui";
-import { ArrowDownUp, Check, LogOut, Plus, Settings, Trash2, Users, X } from "@stagecast/ui/icons";
+import {
+  ArrowDownUp,
+  Calendar,
+  Check,
+  Inbox,
+  LogOut,
+  Plus,
+  Settings,
+  Trash2,
+  Users,
+  X,
+} from "@stagecast/ui/icons";
 import { HttpControlApiClient } from "./api/http-client.js";
 import { HttpAssetService } from "./api/http-asset-service.js";
 import { HttpArtifactService } from "./api/http-artifact-service.js";
 import type { ControlApiClient, AssetService, ArtifactService } from "./api/types.js";
+import { CalendarView } from "./components/CalendarView.js";
 import { EventForm } from "./components/EventForm.js";
 import { EventDetail } from "./components/EventDetail.js";
+import { EventRequestList } from "./components/EventRequestList.js";
 import { SettingsPage } from "./components/SettingsPage.js";
 import { CognitoAuthClient, cognitoConfig } from "./auth/cognito.js";
 import type { RuntimeConfig } from "./config.js";
@@ -111,6 +124,7 @@ export function App(props: {
   const location = useLocation();
   const [auth, setAuth] = useState<AuthState>({ status: "loading" });
   const [events, setEvents] = useState<EventDefinition[]>([]);
+  const [eventRequests, setEventRequests] = useState<EventRequest[]>([]);
   const [eventsLoaded, setEventsLoaded] = useState(false);
   const [apiError, setApiError] = useState<string | undefined>();
   const [busy, setBusy] = useState(false);
@@ -170,8 +184,12 @@ export function App(props: {
   }, [authClient]);
 
   const refresh = useCallback(async () => {
-    const list = await client.listEvents();
+    const [list, reqs] = await Promise.all([
+      client.listEvents(),
+      client.listEventRequests().catch(() => [] as EventRequest[]),
+    ]);
     setEvents(list);
+    setEventRequests(reqs);
     setEventsLoaded(true);
   }, [client]);
 
@@ -304,8 +322,11 @@ export function App(props: {
   }
 
   const isSettingsView = location.pathname === "/settings";
+  const isCalendarView = location.pathname === "/calendar";
+  const isRequestsView = location.pathname === "/event-requests";
   const selectedId = location.pathname.match(/^\/events\/(.+)/)?.[1];
   const selected = events.find((e) => e.id === selectedId);
+  const pendingRequestCount = eventRequests.filter((r) => r.status === "pending").length;
 
   const sidebar = (
     <div className="flex h-full flex-col">
@@ -335,6 +356,31 @@ export function App(props: {
             </div>
           </SheetContent>
         </Sheet>
+      </div>
+      <div className="flex gap-1 border-b border-line-1 px-3 py-2">
+        <button
+          type="button"
+          onClick={() => navigate("/events")}
+          className={`flex items-center gap-1 rounded-md px-2 py-1 text-xs font-medium transition-colors ${
+            !isCalendarView && !isRequestsView && !isSettingsView
+              ? "bg-surface-2 text-text-primary"
+              : "text-text-secondary hover:bg-surface-2"
+          }`}
+        >
+          一覧
+        </button>
+        <button
+          type="button"
+          onClick={() => navigate("/calendar")}
+          className={`flex items-center gap-1 rounded-md px-2 py-1 text-xs font-medium transition-colors ${
+            isCalendarView
+              ? "bg-surface-2 text-text-primary"
+              : "text-text-secondary hover:bg-surface-2"
+          }`}
+        >
+          <Calendar className="size-3" />
+          カレンダー
+        </button>
       </div>
       <nav className="flex min-h-0 flex-1 flex-col overflow-hidden py-2">
         <div className="flex items-center justify-between px-3 pb-1">
@@ -480,6 +526,20 @@ export function App(props: {
       </nav>
       <div className="mt-auto flex flex-col gap-2 border-t border-line-1 p-3">
         <Button
+          variant={isRequestsView ? "secondary" : "ghost"}
+          size="sm"
+          onClick={() => navigate("/event-requests")}
+          className="justify-start gap-2"
+        >
+          <Inbox className="size-4" />
+          リクエスト管理
+          {pendingRequestCount > 0 && (
+            <span className="ml-auto rounded-full bg-amber-500 px-1.5 py-0.5 text-[10px] font-bold text-white">
+              {pendingRequestCount}
+            </span>
+          )}
+        </Button>
+        <Button
           variant={isSettingsView ? "secondary" : "ghost"}
           size="sm"
           onClick={() => navigate("/settings")}
@@ -503,7 +563,15 @@ export function App(props: {
   const topBar = (
     <div className="flex h-12 items-center justify-between px-5">
       <div className="flex items-center gap-2 text-xs text-text-secondary">
-        <span>{isSettingsView ? "運用設定" : "イベント"}</span>
+        <span>
+          {isSettingsView
+            ? "運用設定"
+            : isCalendarView
+              ? "カレンダー"
+              : isRequestsView
+                ? "リクエスト管理"
+                : "イベント"}
+        </span>
         {!isSettingsView && selected && (
           <>
             <span className="text-text-tertiary">/</span>
@@ -570,6 +638,28 @@ export function App(props: {
                   artifacts={artifacts}
                   onChanged={() => void run(refresh)}
                   onDelete={deleteEvent}
+                />
+              }
+            />
+            <Route
+              path="/calendar"
+              element={
+                <CalendarView
+                  events={events}
+                  requests={eventRequests}
+                  onEventClick={(id) => navigate(`/events/${id}`)}
+                />
+              }
+            />
+            <Route
+              path="/event-requests"
+              element={
+                <EventRequestList
+                  client={client}
+                  onApproved={(eventId) => {
+                    void run(refresh);
+                    navigate(`/events/${eventId}`);
+                  }}
                 />
               }
             />

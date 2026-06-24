@@ -34,6 +34,18 @@ importers:
 
   apps/admin-web:
     dependencies:
+      '@schedule-x/calendar':
+        specifier: ^4.6.0
+        version: 4.6.0(@preact/signals@2.9.2(preact@10.29.2))(preact@10.29.2)(temporal-polyfill@1.0.1)
+      '@schedule-x/events-service':
+        specifier: ^4.6.0
+        version: 4.6.0
+      '@schedule-x/react':
+        specifier: ^4.1.0
+        version: 4.1.0(@schedule-x/calendar@4.6.0(@preact/signals@2.9.2(preact@10.29.2))(preact@10.29.2)(temporal-polyfill@1.0.1))(react-dom@19.2.7(react@19.2.7))(react@19.2.7)
+      '@schedule-x/theme-default':
+        specifier: ^4.6.0
+        version: 4.6.0
       '@stagecast/control-api':
         specifier: workspace:*
         version: link:../../services/control-api
@@ -52,6 +64,9 @@ importers:
       react-router-dom:
         specifier: ^7.18.0
         version: 7.18.0(react-dom@19.2.7(react@19.2.7))(react@19.2.7)
+      temporal-polyfill:
+        specifier: ^1.0.1
+        version: 1.0.1
     devDependencies:
       '@types/react':
         specifier: ^19.2.17
@@ -114,6 +129,58 @@ importers:
       vitest:
         specifier: npm:@voidzero-dev/vite-plus-test@latest
         version: '@voidzero-dev/vite-plus-test@0.1.24(@types/node@25.9.2)(@voidzero-dev/vite-plus-core@0.2.1(@types/node@25.9.2)(esbuild@0.28.1)(jiti@1.21.7)(tsx@4.22.4)(typescript@6.0.3))(esbuild@0.28.1)(jiti@1.21.7)(jsdom@25.0.1)(tsx@4.22.4)(typescript@6.0.3)'
+
+  apps/request-web:
+    dependencies:
+      '@schedule-x/calendar':
+        specifier: ^4.6.0
+        version: 4.6.0(@preact/signals@2.9.2(preact@10.29.2))(preact@10.29.2)(temporal-polyfill@0.3.2)
+      '@schedule-x/react':
+        specifier: ^4.1.0
+        version: 4.1.0(@schedule-x/calendar@4.6.0(@preact/signals@2.9.2(preact@10.29.2))(preact@10.29.2)(temporal-polyfill@0.3.2))(react-dom@19.2.7(react@19.2.7))(react@19.2.7)
+      '@schedule-x/theme-default':
+        specifier: ^4.6.0
+        version: 4.6.0
+      '@stagecast/shared':
+        specifier: workspace:*
+        version: link:../../packages/shared
+      '@stagecast/ui':
+        specifier: workspace:*
+        version: link:../../packages/ui
+      react:
+        specifier: ^19.2.7
+        version: 19.2.7
+      react-dom:
+        specifier: ^19.2.7
+        version: 19.2.7(react@19.2.7)
+      temporal-polyfill:
+        specifier: ^0.3.0
+        version: 0.3.2
+    devDependencies:
+      '@types/react':
+        specifier: ^19.2.17
+        version: 19.2.17
+      '@types/react-dom':
+        specifier: ^19.2.3
+        version: 19.2.3(@types/react@19.2.17)
+      '@vitejs/plugin-react':
+        specifier: ^6.0.0
+        version: 6.0.2(@voidzero-dev/vite-plus-core@0.2.1(@types/node@25.9.2)(esbuild@0.28.1)(jiti@1.21.7)(tsx@4.22.4)(typescript@6.0.3))
+      autoprefixer:
+        specifier: ^10.4.20
+        version: 10.5.0(postcss@8.5.15)
+      postcss:
+        specifier: ^8.5.0
+        version: 8.5.15
+      tailwindcss:
+        specifier: ^3.4.17
+        version: 3.4.19(tsx@4.22.4)
+      typescript:
+        specifier: ^6.0.3
+        version: 6.0.3
+      vite:
+        specifier: npm:@voidzero-dev/vite-plus-core@latest
+        version: '@voidzero-dev/vite-plus-core@0.2.1(@types/node@25.9.2)(esbuild@0.28.1)(jiti@1.21.7)(tsx@4.22.4)(typescript@6.0.3)'
 
   apps/stage-web:
     dependencies:
@@ -1344,6 +1411,14 @@ packages:
   '@polka/url@1.0.0-next.29':
     resolution: {integrity: sha512-wwQAWhWSuHaag8c4q/KN/vCoeOJYshAIvMQwD4GpSb3OiZklFfvAgmj0VCBBImRpuF/aFgIRzllXlVX93Jevww==}
 
+  '@preact/signals-core@1.14.3':
+    resolution: {integrity: sha512-m0K3vnbSLC5rHs2ZVfeAMvBtT1zIyq4mxx5OlNncSgMj5Iz6W5Rn3kPrDxAC+iIKmiVe0lSl6U37t5ZkEWoVAw==}
+
+  '@preact/signals@2.9.2':
+    resolution: {integrity: sha512-DvFPISNMSh3vPqRwPa1tAVAHl85aDq4pTyNu1bTGfrKr64F3EOCHjdUl9aUdohKBf1v9PRGLYuGFcJpfztkdoQ==}
+    peerDependencies:
+      preact: '>= 10.25.0 || >=11.0.0-0'
+
   '@radix-ui/number@1.1.2':
     resolution: {integrity: sha512-ceTwaxc4I5IOi97DgCotl3pqiyRGvffcc0oOsE2dQYaJOFIDsDt4VWG6xEbg1QePv9QWausCEIppud/tJ1wNig==}
 
@@ -1823,6 +1898,26 @@ packages:
 
   '@rolldown/pluginutils@1.0.1':
     resolution: {integrity: sha512-2j9bGt5Jh8hj+vPtgzPtl72j0yRxHAyumoo6TNfAjsLB04UtpSvPbPcDcBMxz7n+9CYB0c1GxQFxYRg2jimqGw==}
+
+  '@schedule-x/calendar@4.6.0':
+    resolution: {integrity: sha512-8Rf5bUf0DVphJB2BaudtG4IHkw21wgMJiiuk5o+7SIOq6YH4hkVJo+Kk12pWSfp2KTZ9mnnUuLV+szBVhiEPlg==}
+    peerDependencies:
+      '@preact/signals': ^2.0.2
+      preact: ^10.19.2
+      temporal-polyfill: 0.3.0
+
+  '@schedule-x/events-service@4.6.0':
+    resolution: {integrity: sha512-czUSPdanESNYgckCxId3weoL3omSG6FKuJMYMefCyzx/NFBxJM83b6PKQQ+pJeRnPuyax+KNKFc/DQFCC05YLA==}
+
+  '@schedule-x/react@4.1.0':
+    resolution: {integrity: sha512-l2hn1kdTModk4Lbt+nEr/VAcuNMA+w+hAAtgz8VLOj5UeieM7PWoK+cDapzPHCjUKisCSPd8QZfAX966Ma82kQ==}
+    peerDependencies:
+      '@schedule-x/calendar': ^3.1.0 || ^4.0.0
+      react: ^16.7.0 || ^17 || ^18 || ^19
+      react-dom: ^16.7.0 || ^17 || ^18 || ^19
+
+  '@schedule-x/theme-default@4.6.0':
+    resolution: {integrity: sha512-SM3bcvROJeG7ScH14lBIHZSTOBTR8h+oTswbpx1gpscddUfQfAnu7cFW4OJJI+ii+Si1IdTd4T3+rrnKd4HDDg==}
 
   '@smithy/core@3.24.7':
     resolution: {integrity: sha512-KoUi4M1f3BG6kzN1FnCwL7oyFptTbyBJKjR6yhSib+JHRdUmM1o+VwsFtJ66NZCkCzVfJMWRHJNo0R0jznp0Pg==}
@@ -2867,6 +2962,9 @@ packages:
     resolution: {integrity: sha512-FfR8sjd4em2T6fb3I2MwAJU7HWVMr9zba+enmQeeWFfCbm+UOC/0X4DS8XtpUTMwWMGbjKYP7xjfNekzyGmB3A==}
     engines: {node: ^10 || ^12 || >=14}
 
+  preact@10.29.2:
+    resolution: {integrity: sha512-7tNmwg/7mzzAoB/8kSg6Hl37JraAZw3Z3A0JSY7VXlZwo82Xn0G7wKbNNs2qoF4ZEEsQGTwDAroNdqKs1ofJxQ==}
+
   pretty-format@27.5.1:
     resolution: {integrity: sha512-Qb1gy5OrP5+zDf2Bvnzdl3jsTf1qXVMazbvCoKhtKqVs4/YK4ozX4gKQJJVyNe+cajNPn0KoC0MC3FUmaHWEmQ==}
     engines: {node: ^10.13.0 || ^12.13.0 || ^14.15.0 || >=15.0.0}
@@ -3080,6 +3178,21 @@ packages:
     resolution: {integrity: sha512-3ofp+LL8E+pK/JuPLPggVAIaEuhvIz4qNcf3nA1Xn2o/7fb7s/TYpHhwGDv1ZU3PkBluUVaF8PyCHcm48cKLWQ==}
     engines: {node: '>=14.0.0'}
     hasBin: true
+
+  temporal-polyfill@0.3.2:
+    resolution: {integrity: sha512-TzHthD/heRK947GNiSu3Y5gSPpeUDH34+LESnfsq8bqpFhsB79HFBX8+Z834IVX68P3EUyRPZK5bL/1fh437Eg==}
+
+  temporal-polyfill@1.0.1:
+    resolution: {integrity: sha512-N2SoI9olnW7BUsU8RosDphZQl9s+WJ8O7PoJMFCr/e5/1rFkVI4GNOWaSeySG+UoP04foPYsnLWbJmbXOiShZg==}
+
+  temporal-spec@0.3.1:
+    resolution: {integrity: sha512-B4TUhezh9knfSIMwt7RVggApDRJZo73uZdj8AacL2mZ8RP5KtLianh2MXxL06GN9ESYiIsiuoLQhgVfwe55Yhw==}
+
+  temporal-spec@1.0.0:
+    resolution: {integrity: sha512-00Ahj1e1ifaERTMOIIGpOCdOo9IEk2m6GGSMedsn9a2SIsGLdOTbmME1Htv6IM82b6VHrzSUTIVc7YHy6hdhFQ==}
+
+  temporal-utils@1.0.1:
+    resolution: {integrity: sha512-HAixuesxFQIUaQk3ptX2jhfO/FsOkgVkDDMawvp6n/fkB1q6BKfs3lURw9I+pK/2e2e/q/vrLrxmeqauBoyGMQ==}
 
   thenify-all@1.6.0:
     resolution: {integrity: sha512-RNxQH/qI8/t3thXJDwcstUO4zeqo64+Uy/+sNVRBx4Xn2OX+OZ9oP+iJnNFqplFra2ZUVeKCSa2oVWi3T4uVmA==}
@@ -4308,6 +4421,13 @@ snapshots:
 
   '@polka/url@1.0.0-next.29': {}
 
+  '@preact/signals-core@1.14.3': {}
+
+  '@preact/signals@2.9.2(preact@10.29.2)':
+    dependencies:
+      '@preact/signals-core': 1.14.3
+      preact: 10.29.2
+
   '@radix-ui/number@1.1.2': {}
 
   '@radix-ui/primitive@1.1.4': {}
@@ -4733,6 +4853,34 @@ snapshots:
     optional: true
 
   '@rolldown/pluginutils@1.0.1': {}
+
+  '@schedule-x/calendar@4.6.0(@preact/signals@2.9.2(preact@10.29.2))(preact@10.29.2)(temporal-polyfill@0.3.2)':
+    dependencies:
+      '@preact/signals': 2.9.2(preact@10.29.2)
+      preact: 10.29.2
+      temporal-polyfill: 0.3.2
+
+  '@schedule-x/calendar@4.6.0(@preact/signals@2.9.2(preact@10.29.2))(preact@10.29.2)(temporal-polyfill@1.0.1)':
+    dependencies:
+      '@preact/signals': 2.9.2(preact@10.29.2)
+      preact: 10.29.2
+      temporal-polyfill: 1.0.1
+
+  '@schedule-x/events-service@4.6.0': {}
+
+  '@schedule-x/react@4.1.0(@schedule-x/calendar@4.6.0(@preact/signals@2.9.2(preact@10.29.2))(preact@10.29.2)(temporal-polyfill@0.3.2))(react-dom@19.2.7(react@19.2.7))(react@19.2.7)':
+    dependencies:
+      '@schedule-x/calendar': 4.6.0(@preact/signals@2.9.2(preact@10.29.2))(preact@10.29.2)(temporal-polyfill@0.3.2)
+      react: 19.2.7
+      react-dom: 19.2.7(react@19.2.7)
+
+  '@schedule-x/react@4.1.0(@schedule-x/calendar@4.6.0(@preact/signals@2.9.2(preact@10.29.2))(preact@10.29.2)(temporal-polyfill@1.0.1))(react-dom@19.2.7(react@19.2.7))(react@19.2.7)':
+    dependencies:
+      '@schedule-x/calendar': 4.6.0(@preact/signals@2.9.2(preact@10.29.2))(preact@10.29.2)(temporal-polyfill@1.0.1)
+      react: 19.2.7
+      react-dom: 19.2.7(react@19.2.7)
+
+  '@schedule-x/theme-default@4.6.0': {}
 
   '@smithy/core@3.24.7':
     dependencies:
@@ -5698,6 +5846,8 @@ snapshots:
       picocolors: 1.1.1
       source-map-js: 1.2.1
 
+  preact@10.29.2: {}
+
   pretty-format@27.5.1:
     dependencies:
       ansi-regex: 5.0.1
@@ -5931,6 +6081,21 @@ snapshots:
     transitivePeerDependencies:
       - tsx
       - yaml
+
+  temporal-polyfill@0.3.2:
+    dependencies:
+      temporal-spec: 0.3.1
+
+  temporal-polyfill@1.0.1:
+    dependencies:
+      temporal-spec: 1.0.0
+      temporal-utils: 1.0.1
+
+  temporal-spec@0.3.1: {}
+
+  temporal-spec@1.0.0: {}
+
+  temporal-utils@1.0.1: {}
 
   thenify-all@1.6.0:
     dependencies:

@@ -39,11 +39,21 @@ export function defaultFormValues(): EventFormValues {
   return {
     title: "",
     startsAt: "",
+    endsAt: "",
     languages: ["ja", "en"],
     youtubeLanguage: "ja",
     engine: "transcribe",
     customApiEnabled: false,
   };
+}
+
+export function computeDefaultEndsAt(startsAt: string): string {
+  if (!startsAt) return "";
+  const ms = Date.parse(startsAt);
+  if (Number.isNaN(ms)) return "";
+  const d = new Date(ms + 2 * 60 * 60 * 1000);
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
 
 export interface FormValidation {
@@ -58,6 +68,9 @@ export function validateForm(values: EventFormValues): FormValidation {
   if (values.languages.length === 0) errors.push("対応言語を 1 つ以上選択してください");
   if (!values.languages.includes(values.youtubeLanguage)) {
     errors.push("YouTube 送出言語は対応言語に含めてください");
+  }
+  if (values.endsAt && values.startsAt && Date.parse(values.endsAt) < Date.parse(values.startsAt)) {
+    errors.push("終了日時は開始日時より後にしてください");
   }
   return { ok: errors.length === 0, errors };
 }
@@ -76,7 +89,7 @@ export function toCreateEventInput(values: EventFormValues): CreateEventInput {
   return {
     title: values.title.trim(),
     startsAt: values.startsAt,
-    endsAt: values.endsAt,
+    endsAt: values.endsAt || undefined,
     caption,
     youtube:
       values.rtmpUrl && values.streamKeyRef

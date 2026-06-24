@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { createEgressService, joinRtmpUrl, type EgressStarter, type StreamKeyResolver } from "./egress.js";
+import {
+  createEgressService,
+  joinRtmpUrl,
+  type EgressStarter,
+  type StreamKeyResolver,
+} from "./egress.js";
 import { createEventService } from "./events.js";
 import { MemoryEventRepository } from "../repo/memory.js";
 import { ValidationError } from "./events.js";
@@ -44,7 +49,12 @@ describe("EgressService.start (R12)", () => {
     const created = await events.create({
       title: "test",
       startsAt: "2026-06-19T00:00:00.000Z",
-      caption: { languages: ["ja"], youtubeLanguage: "ja", engine: "transcribe", customApiEnabled: false },
+      caption: {
+        languages: ["ja"],
+        youtubeLanguage: "ja",
+        engine: "transcribe",
+        customApiEnabled: false,
+      },
       youtube: { rtmpUrl: "rtmp://a.rtmp.youtube.com/live2", streamKeyRef: "key1" },
     });
     await events.setStatus(created.id, "live");
@@ -61,9 +71,7 @@ describe("EgressService.start (R12)", () => {
     const result = await egress.start(created.id);
 
     expect(result.egressId).toBe("egress-1");
-    expect(starter.calls[0]?.streamUrl).toBe(
-      "rtmp://a.rtmp.youtube.com/live2/secret-stream-key",
-    );
+    expect(starter.calls[0]?.streamUrl).toBe("rtmp://a.rtmp.youtube.com/live2/secret-stream-key");
     expect(starter.calls[0]?.roomName).toBe(created.id);
     expect(starter.calls[0]?.livekitUrl).toBe("wss://x");
   });
@@ -73,7 +81,12 @@ describe("EgressService.start (R12)", () => {
     const created = await events.create({
       title: "draft",
       startsAt: "2026-06-19T00:00:00.000Z",
-      caption: { languages: ["ja"], youtubeLanguage: "ja", engine: "transcribe", customApiEnabled: false },
+      caption: {
+        languages: ["ja"],
+        youtubeLanguage: "ja",
+        engine: "transcribe",
+        customApiEnabled: false,
+      },
       youtube: { rtmpUrl: "rtmp://x", streamKeyRef: "k" },
     });
     const egress = createEgressService({
@@ -89,7 +102,12 @@ describe("EgressService.start (R12)", () => {
     const created = await events.create({
       title: "live",
       startsAt: "2026-06-19T00:00:00.000Z",
-      caption: { languages: ["ja"], youtubeLanguage: "ja", engine: "transcribe", customApiEnabled: false },
+      caption: {
+        languages: ["ja"],
+        youtubeLanguage: "ja",
+        engine: "transcribe",
+        customApiEnabled: false,
+      },
       youtube: { rtmpUrl: "rtmp://x", streamKeyRef: "k" },
     });
     await events.setStatus(created.id, "live");
@@ -106,7 +124,12 @@ describe("EgressService.start (R12)", () => {
     const created = await events.create({
       title: "no-youtube",
       startsAt: "2026-06-19T00:00:00.000Z",
-      caption: { languages: ["ja"], youtubeLanguage: "ja", engine: "transcribe", customApiEnabled: false },
+      caption: {
+        languages: ["ja"],
+        youtubeLanguage: "ja",
+        engine: "transcribe",
+        customApiEnabled: false,
+      },
     });
     await events.setStatus(created.id, "live");
     await events.update(created.id, { media: { livekitUrl: "wss://x", readyAt: 1 } } as never);

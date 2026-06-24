@@ -4,6 +4,7 @@
  */
 import type {
   EventDefinition,
+  EventRequest,
   EventStatus,
   InvitedRole,
   LiveKitCredentials,
@@ -14,7 +15,7 @@ import type {
   YouTubeCredentials,
   YouTubeSettingsStatus,
 } from "@stagecast/shared";
-import type { CreateEventInput } from "@stagecast/control-api";
+import type { CreateEventInput, CreateEventRequestInput } from "@stagecast/control-api";
 import type {
   AdminTokenResult,
   ControlApiClient,
@@ -111,5 +112,32 @@ export class HttpControlApiClient implements ControlApiClient {
   }
   putYouTubeSettings(creds: YouTubeCredentials): Promise<YouTubeSettingsStatus> {
     return this.call("PUT", "/settings/youtube", creds);
+  }
+  listEventRequests(): Promise<EventRequest[]> {
+    return this.call("GET", "/event-requests");
+  }
+  createEventRequest(input: CreateEventRequestInput): Promise<EventRequest> {
+    return this.callPublic("POST", "/event-requests", input);
+  }
+  approveEventRequest(id: string): Promise<{ request: EventRequest; event: EventDefinition }> {
+    return this.call("POST", `/event-requests/${id}/approve`);
+  }
+  rejectEventRequest(id: string, reason?: string): Promise<EventRequest> {
+    return this.call("POST", `/event-requests/${id}/reject`, { reason });
+  }
+  listPublicEvents() {
+    return this.callPublic<
+      { id: string; title: string; startsAt: string; endsAt?: string; status: string }[]
+    >("GET", "/events/public");
+  }
+
+  private async callPublic<T>(method: string, path: string, body?: unknown): Promise<T> {
+    const res = await fetch(`${this.baseUrl}${path}`, {
+      method,
+      headers: { "content-type": "application/json" },
+      body: body === undefined ? undefined : JSON.stringify(body),
+    });
+    if (!res.ok) throw new Error(`${method} ${path} failed: ${res.status}`);
+    return (res.status === 204 ? undefined : await res.json()) as T;
   }
 }

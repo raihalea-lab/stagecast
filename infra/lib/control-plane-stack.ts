@@ -41,7 +41,12 @@ export interface ControlPlaneStackProps extends StackProps {
    * ビルド済み SPA の dist ディレクトリ。指定時のみ S3 配信 + config.json 生成 + CloudFront
    * invalidation を行う (bin/app.ts が dist 存在時に渡す)。未指定ならビルド前 synth でも壊れない。
    */
-  webAssets?: { adminWebDir: string; stageWebDir: string; composerWebDir: string };
+  webAssets?: {
+    adminWebDir: string;
+    stageWebDir: string;
+    composerWebDir: string;
+    requestWebDir?: string;
+  };
 }
 
 /**
@@ -132,9 +137,7 @@ export class ControlPlaneStack extends Stack {
     const sharedMediaVpc = new ec2.Vpc(this, "SharedMediaVpc", {
       maxAzs: 2,
       natGateways: 0,
-      subnetConfiguration: [
-        { name: "Public", subnetType: ec2.SubnetType.PUBLIC, cidrMask: 24 },
-      ],
+      subnetConfiguration: [{ name: "Public", subnetType: ec2.SubnetType.PUBLIC, cidrMask: 24 }],
     });
 
     // --- LiveKit シグナリング用ドメイン / ACM 証明書 (ADR 0009 D-3) ---
@@ -175,6 +178,11 @@ export class ControlPlaneStack extends Stack {
     const composerWebDistribution = this.buildSpaDistribution(
       "ComposerWebDistribution",
       composerWebBucket,
+    );
+    const requestWebBucket = this.buildSpaBucket("RequestWebBucket");
+    const requestWebDistribution = this.buildSpaDistribution(
+      "RequestWebDistribution",
+      requestWebBucket,
     );
 
     // --- Cognito: 管理者認証 (DESIGN.md 4 表, F-12, T6) ---
@@ -394,10 +402,7 @@ export class ControlPlaneStack extends Stack {
     // - GetIceServerConfig: 上記 endpoint に対して呼ぶ。 iceServers (URL + username + credential) を返す
     controlApiFn.addToRolePolicy(
       new iam.PolicyStatement({
-        actions: [
-          "kinesisvideo:GetSignalingChannelEndpoint",
-          "kinesisvideo:GetIceServerConfig",
-        ],
+        actions: ["kinesisvideo:GetSignalingChannelEndpoint", "kinesisvideo:GetIceServerConfig"],
         resources: [kvsSignalingChannel.attrArn],
       }),
     );
@@ -458,6 +463,8 @@ export class ControlPlaneStack extends Stack {
       "POST /invites/verify",
       "POST /join",
       "POST /preview-token",
+      "POST /event-requests",
+      "GET /events/public",
       "OPTIONS /{proxy+}",
     ]) {
       new apigwv2.CfnRoute(this, `PublicRoute${route.replace(/[^A-Za-z0-9]/g, "_")}`, {
@@ -533,13 +540,27 @@ export class ControlPlaneStack extends Stack {
         distributionPaths: ["/*"],
         sources: [s3deploy.Source.asset(props.webAssets.composerWebDir)],
       });
+      if (props.webAssets.requestWebDir) {
+        new s3deploy.BucketDeployment(this, "RequestWebDeployment", {
+          destinationBucket: requestWebBucket,
+          distribution: requestWebDistribution,
+          distributionPaths: ["/*"],
+          sources: [
+            s3deploy.Source.asset(props.webAssets.requestWebDir),
+            s3deploy.Source.jsonData("config.json", { controlApiUrl }),
+          ],
+        });
+      }
     }
 
     // --- 出力 (フロントビルド / 運用) ---
     new CfnOutput(this, "AdminWebUrl", { value: `https://${adminWebDistribution.domainName}` });
     new CfnOutput(this, "StageWebUrl", { value: `https://${stageWebDistribution.domainName}` });
     // ADR 0012 D-3: ComposerWebUrl は Egress config の template_base に渡される (event-media-stack.ts)。
-    new CfnOutput(this, "ComposerWebUrl", { value: `https://${composerWebDistribution.domainName}` });
+    new CfnOutput(this, "ComposerWebUrl", {
+      value: `https://${composerWebDistribution.domainName}`,
+    });
+    new CfnOutput(this, "RequestWebUrl", { value: `https://${requestWebDistribution.domainName}` });
     new CfnOutput(this, "ControlApiId", { value: httpApi.ref });
     new CfnOutput(this, "ControlApiEndpoint", {
       value: `https://${httpApi.ref}.execute-api.${this.region}.amazonaws.com`,
@@ -555,7 +576,9 @@ export class ControlPlaneStack extends Stack {
     new CfnOutput(this, "ComposerWebBucketName", { value: composerWebBucket.bucketName });
     new CfnOutput(this, "AdminWebDistributionId", { value: adminWebDistribution.distributionId });
     new CfnOutput(this, "StageWebDistributionId", { value: stageWebDistribution.distributionId });
-    new CfnOutput(this, "ComposerWebDistributionId", { value: composerWebDistribution.distributionId });
+    new CfnOutput(this, "ComposerWebDistributionId", {
+      value: composerWebDistribution.distributionId,
+    });
     new CfnOutput(this, "AdminUserPoolId", { value: adminUserPool.userPoolId });
     new CfnOutput(this, "AdminUserPoolClientId", { value: adminUserPoolClient.userPoolClientId });
     new CfnOutput(this, "AdminAuthDomain", {
@@ -569,7 +592,9 @@ export class ControlPlaneStack extends Stack {
     // LiveKit シグナリング TLS 用のドメイン / 証明書 (ADR 0009 D-3)。EventMediaStack の NLB が attach する。
     // context `mediaHostedZoneName` 未指定時は CfnOutput も作らない (TLS スタック構築をスキップ)。
     if (tlsConfig) {
-      new CfnOutput(this, "MediaCertificateArn", { value: tlsConfig.mediaCertificate.certificateArn });
+      new CfnOutput(this, "MediaCertificateArn", {
+        value: tlsConfig.mediaCertificate.certificateArn,
+      });
       new CfnOutput(this, "MediaHostedZoneId", { value: tlsConfig.mediaHostedZone.hostedZoneId });
       new CfnOutput(this, "MediaHostedZoneName", { value: mediaHostedZoneName! });
       new CfnOutput(this, "MediaDomainName", { value: tlsConfig.mediaDomainName });

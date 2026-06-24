@@ -7,6 +7,7 @@
 import type {
   AssetRef,
   EventDefinition,
+  EventRequest,
   EventStatus,
   InvitedRole,
   LiveKitCredentials,
@@ -17,7 +18,7 @@ import type {
   YouTubeCredentials,
   YouTubeSettingsStatus,
 } from "@stagecast/shared";
-import type { CreateEventInput } from "@stagecast/control-api";
+import type { CreateEventInput, CreateEventRequestInput } from "@stagecast/control-api";
 
 export interface IssuedInvite {
   jti: string;
@@ -100,6 +101,14 @@ export interface ControlApiClient {
   regenerateLiveKitKeys(): Promise<LiveKitSettingsStatus>;
   getYouTubeSettings(): Promise<YouTubeSettingsStatus>;
   putYouTubeSettings(creds: YouTubeCredentials): Promise<YouTubeSettingsStatus>;
+
+  listEventRequests(): Promise<EventRequest[]>;
+  createEventRequest(input: CreateEventRequestInput): Promise<EventRequest>;
+  approveEventRequest(id: string): Promise<{ request: EventRequest; event: EventDefinition }>;
+  rejectEventRequest(id: string, reason?: string): Promise<EventRequest>;
+  listPublicEvents(): Promise<
+    { id: string; title: string; startsAt: string; endsAt?: string; status: string }[]
+  >;
 }
 
 /**

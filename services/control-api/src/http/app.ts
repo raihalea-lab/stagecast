@@ -21,6 +21,7 @@ import type { createAssetUploadService } from "../assets/asset-upload.js";
 import type { createArtifactDownloadService } from "../assets/artifact-download.js";
 import type { AdminTokenService } from "../usecases/admin-token.js";
 import type { EgressService } from "../usecases/egress.js";
+import type { EventRequestService, CreateEventRequestInput } from "../usecases/event-requests.js";
 import type { PreviewTokenService } from "../usecases/preview-token.js";
 import type { SettingsService } from "../usecases/settings.js";
 
@@ -62,6 +63,8 @@ export interface AppDeps {
   adminToken?: AdminTokenService;
   /** Preview LiveKit token 発行 (R17 / ADR 0012 D-6: admin-web/stage-web iframe プレビュー用)。未設定なら省略され 503。 */
   previewToken?: PreviewTokenService;
+  /** イベントリクエスト (モデレーター向け公開 + 管理者承認)。 */
+  eventRequests?: EventRequestService;
 }
 
 const json = (status: number, body: unknown): HttpResponse => ({ status, body });
@@ -107,6 +110,26 @@ export function createApp(deps: AppDeps) {
         body.displayName as string | undefined,
       );
       return json(result.ok ? 200 : 401, result);
+    }
+
+    // 公開: イベントリクエスト作成 (モデレーター向け、認証不要)
+    if (req.method === "POST" && req.path === "/event-requests" && deps.eventRequests) {
+      return json(201, await deps.eventRequests.create(body as unknown as CreateEventRequestInput));
+    }
+
+    // 公開: イベント公開情報 (タイトル・時間帯のみ、draft 除外)
+    if (req.method === "GET" && req.path === "/events/public") {
+      const all = await events.list();
+      const publicEvents = all
+        .filter((e) => e.status !== "draft")
+        .map((e) => ({
+          id: e.id,
+          title: e.title,
+          startsAt: e.startsAt,
+          endsAt: e.endsAt,
+          status: e.status,
+        }));
+      return json(200, publicEvents);
     }
 
     // 公開: stage-web の登壇者ビュー右下小窓プレビュー用 (R17-Phase3, ADR 0012 D-6)。
@@ -206,18 +229,10 @@ export function createApp(deps: AppDeps) {
         //          event.youtube.rtmpUrl と event.youtube.streamKeyRef が設定済み。
         if (!egress) throw new ServiceUnavailableError("egress not configured");
         return json(202, await egress.start(eventId));
-      } else if (
-        segments[2] === "admin-token" &&
-        segments.length === 3 &&
-        req.method === "POST"
-      ) {
+      } else if (segments[2] === "admin-token" && segments.length === 3 && req.method === "POST") {
         if (!adminToken) throw new ServiceUnavailableError("admin token service not configured");
         return json(201, await adminToken.issue(eventId));
-      } else if (
-        segments[2] === "stage-token" &&
-        segments.length === 3 &&
-        req.method === "POST"
-      ) {
+      } else if (segments[2] === "stage-token" && segments.length === 3 && req.method === "POST") {
         // ADR 0014 D-4: admin が stage-web に入るための LiveKit token 発行。
         // identity は Cognito userId を使用 (admin-{userId})。
         if (!adminToken) throw new ServiceUnavailableError("admin token service not configured");
@@ -231,8 +246,26 @@ export function createApp(deps: AppDeps) {
         // admin-web / stage-web が composer-template を iframe で開く際に使う。
         // 認証は requireAdmin (Cognito JWT) で完了済 (R17-Phase1)。
         // 将来 R17-Phase3 で stage-web 用に invite token 検証経由のパスを追加検討。
-        if (!previewToken) throw new ServiceUnavailableError("preview token service not configured");
+        if (!previewToken)
+          throw new ServiceUnavailableError("preview token service not configured");
         return json(201, await previewToken.issue(eventId));
+      }
+    }
+
+    // /event-requests (管理者)
+    if (segments[0] === "event-requests" && deps.eventRequests) {
+      const requestId = segments[1];
+      if (!requestId && req.method === "GET") {
+        return json(200, await deps.eventRequests.list());
+      }
+      if (requestId && segments[2] === "approve" && req.method === "POST") {
+        return json(200, await deps.eventRequests.approve(requestId));
+      }
+      if (requestId && segments[2] === "reject" && req.method === "POST") {
+        return json(
+          200,
+          await deps.eventRequests.reject(requestId, body.reason as string | undefined),
+        );
       }
     }
 

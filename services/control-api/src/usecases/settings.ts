@@ -38,11 +38,7 @@ export type SettingsService = ReturnType<typeof createSettingsService>;
 
 const LIVEKIT_FIELDS: ReadonlyArray<keyof LiveKitCredentials> = ["apiKey", "apiSecret"];
 /** YouTube の OAuth/API 設定 (`configured` 判定対象)。streamKey は別系統で判定する (R12)。 */
-const YOUTUBE_OAUTH_FIELDS = [
-  "apiKey",
-  "oauthClientId",
-  "oauthClientSecret",
-] as const;
+const YOUTUBE_OAUTH_FIELDS = ["apiKey", "oauthClientId", "oauthClientSecret"] as const;
 /** ストリームキーのフィールド名 (Secret 内で R12 が参照する `streamKeyRef`)。 */
 const YOUTUBE_STREAM_KEY_FIELD = "streamKey";
 
@@ -74,7 +70,9 @@ function parseYouTubeInput(body: unknown): YouTubeCredentials {
     result.oauthClientSecret = requireString("oauthClientSecret", b.oauthClientSecret);
   if (b.streamKey !== undefined) result.streamKey = requireString("streamKey", b.streamKey);
   if (Object.keys(result).length === 0) {
-    throw new ValidationError("at least one of apiKey/oauthClientId/oauthClientSecret/streamKey is required");
+    throw new ValidationError(
+      "at least one of apiKey/oauthClientId/oauthClientSecret/streamKey is required",
+    );
   }
   return result;
 }

@@ -9,13 +9,14 @@
  *  - 発表状態:      pk=`EVENT#{id}`,   sk=`PRESENTATION`
  *  - 招待トークン:  pk=`INVITE#{jti}`, sk=`META`         GSI1: gsi1pk=`INVITE#{eventId}`, gsi1sk=`{jti}`
  */
-import type { EventDefinition, PresentationState } from "@stagecast/shared";
+import type { EventDefinition, EventRequest, PresentationState } from "@stagecast/shared";
 import type { InviteTokenRecord } from "./types.js";
 
 export type Item = Record<string, unknown>;
 
 export const eventPk = (id: string): string => `EVENT#${id}`;
 export const invitePk = (jti: string): string => `INVITE#${jti}`;
+export const eventRequestPk = (id: string): string => `EVENT_REQUEST#${id}`;
 
 // --- イベント ---
 export function eventToItem(event: EventDefinition): Item {
@@ -73,6 +74,35 @@ export function itemToInvite(item: Item): InviteTokenRecord {
     role: item.role as InviteTokenRecord["role"],
     currentVersion: item.currentVersion as number,
     revoked: item.revoked as boolean,
+  };
+}
+
+// --- イベントリクエスト ---
+export function eventRequestToItem(request: EventRequest): Item {
+  return {
+    pk: eventRequestPk(request.id),
+    sk: "META",
+    type: "event_request",
+    gsi1pk: "EVENT_REQUEST",
+    gsi1sk: `${request.createdAtMs}#${request.id}`,
+    ...request,
+  };
+}
+
+export function itemToEventRequest(item: Item): EventRequest {
+  return {
+    id: item.id as string,
+    requesterName: item.requesterName as string,
+    requesterEmail: item.requesterEmail as string | undefined,
+    title: item.title as string,
+    startsAt: item.startsAt as string,
+    endsAt: item.endsAt as string,
+    description: item.description as string | undefined,
+    status: item.status as EventRequest["status"],
+    approvedEventId: item.approvedEventId as string | undefined,
+    rejectionReason: item.rejectionReason as string | undefined,
+    createdAtMs: item.createdAtMs as number,
+    updatedAtMs: item.updatedAtMs as number,
   };
 }
 

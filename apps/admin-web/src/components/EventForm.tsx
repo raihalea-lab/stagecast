@@ -1,6 +1,7 @@
 import { useState } from "react";
 import type { LanguageCode } from "@stagecast/shared";
 import {
+  computeDefaultEndsAt,
   defaultFormValues,
   ENGINE_OPTIONS,
   LANGUAGE_OPTIONS,
@@ -14,9 +15,23 @@ import { Button, Input, Label } from "@stagecast/ui";
 export function EventForm(props: { onCreate: (input: CreateEventInput) => void; busy?: boolean }) {
   const [values, setValues] = useState<EventFormValues>(defaultFormValues());
   const [errors, setErrors] = useState<string[]>([]);
+  const [endsAtManual, setEndsAtManual] = useState(false);
 
   const set = <K extends keyof EventFormValues>(key: K, value: EventFormValues[K]) =>
     setValues((v) => ({ ...v, [key]: value }));
+
+  const setStartsAt = (v: string) => {
+    setValues((prev) => {
+      const next = { ...prev, startsAt: v };
+      if (!endsAtManual) next.endsAt = computeDefaultEndsAt(v);
+      return next;
+    });
+  };
+
+  const setEndsAt = (v: string) => {
+    setEndsAtManual(true);
+    set("endsAt", v);
+  };
 
   const toggleLanguage = (lang: LanguageCode) =>
     setValues((v) => ({
@@ -36,6 +51,7 @@ export function EventForm(props: { onCreate: (input: CreateEventInput) => void; 
     setErrors([]);
     props.onCreate(toCreateEventInput(values));
     setValues(defaultFormValues());
+    setEndsAtManual(false);
   };
 
   return (
@@ -52,13 +68,25 @@ export function EventForm(props: { onCreate: (input: CreateEventInput) => void; 
         <Input id="ef-title" value={values.title} onChange={(e) => set("title", e.target.value)} />
       </div>
       <div className="grid gap-2">
-        <Label htmlFor="ef-starts">開催日時</Label>
+        <Label htmlFor="ef-starts">開始日時</Label>
         <Input
           id="ef-starts"
           type="datetime-local"
           value={values.startsAt}
-          onChange={(e) => set("startsAt", e.target.value)}
+          onChange={(e) => setStartsAt(e.target.value)}
         />
+      </div>
+      <div className="grid gap-2">
+        <Label htmlFor="ef-ends">終了日時</Label>
+        <Input
+          id="ef-ends"
+          type="datetime-local"
+          value={values.endsAt ?? ""}
+          onChange={(e) => setEndsAt(e.target.value)}
+        />
+        <p className="text-xs text-text-tertiary">
+          未入力の場合、開始から 2 時間が自動設定されます
+        </p>
       </div>
 
       <fieldset className="grid gap-2">

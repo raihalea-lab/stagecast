@@ -150,9 +150,7 @@ describe("SettingsService YouTube", () => {
   it("空文字列のフィールドは ValidationError", async () => {
     const { reader, writer } = fakeStorage();
     const svc = createSettingsService({ reader, writer, youtubeSecretArn });
-    await expect(
-      svc.putYouTube({ oauthClientId: "" }),
-    ).rejects.toBeInstanceOf(ValidationError);
+    await expect(svc.putYouTube({ oauthClientId: "" })).rejects.toBeInstanceOf(ValidationError);
   });
 
   it("PUT 後の値は writer に保存されている", async () => {

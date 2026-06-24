@@ -8,15 +8,18 @@ import { randomUUID } from "node:crypto";
 import { FakeAdminAuthVerifier, type AdminAuthVerifier } from "./auth/admin-auth.js";
 import {
   MemoryEventRepository,
+  MemoryEventRequestRepository,
   MemoryInviteTokenRepository,
   MemoryPresentationRepository,
 } from "./repo/memory.js";
 import type {
   EventRepository,
+  EventRequestRepository,
   InviteTokenRepository,
   PresentationRepository,
 } from "./repo/types.js";
 import { createEventService } from "./usecases/events.js";
+import { createEventRequestService } from "./usecases/event-requests.js";
 import { createInviteService } from "./usecases/invites.js";
 import { createPresentationService } from "./usecases/presentation.js";
 import { createJoinService, type IceServerProvider } from "./usecases/join.js";
@@ -45,6 +48,7 @@ import type { SettingsService } from "./usecases/settings.js";
 export interface FactoryConfig {
   auth?: AdminAuthVerifier;
   eventRepo?: EventRepository;
+  eventRequestRepo?: EventRequestRepository;
   inviteRepo?: InviteTokenRepository;
   presentationRepo?: PresentationRepository;
   inviteSecret?: string;
@@ -149,6 +153,13 @@ export function buildControlApi(config: FactoryConfig = {}) {
         })
       : undefined;
 
+  const eventRequests = createEventRequestService({
+    repo: config.eventRequestRepo ?? dynamo?.eventRequestRepo ?? new MemoryEventRequestRepository(),
+    events,
+    newId,
+    now,
+  });
+
   // R16 / ADR 0012 D-4: 管理者用 LiveKit token 発行 (layout 切替 broadcast 用)。
   // livekitMinter が無い (LiveKit 環境変数未設定) 環境ではこのサービスは無効。
   const liveKitMinter = config.livekitMinter ?? livekitFromEnv();
@@ -170,5 +181,6 @@ export function buildControlApi(config: FactoryConfig = {}) {
     egress,
     adminToken,
     previewToken,
+    eventRequests,
   });
 }
