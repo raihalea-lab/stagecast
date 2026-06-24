@@ -16,7 +16,7 @@ export const AppShell = React.forwardRef<HTMLDivElement, AppShellProps>(
   ({ sidebar, topBar, sidebarWidth = 260, children, className, style, ...props }, ref) => (
     <div
       ref={ref}
-      className={cn("grid min-h-dvh bg-surface-0 text-text-primary", className)}
+      className={cn("grid h-dvh overflow-hidden bg-surface-0 text-text-primary", className)}
       style={{
         gridTemplateColumns: `${sidebarWidth}px 1fr`,
         gridTemplateRows: "auto 1fr",
