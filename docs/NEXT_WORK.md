@@ -76,7 +76,7 @@ R12-followup-1〜22 で **stage-web から SFU への WebRTC 接続** が完了 
 
 8. **N3 残: SNS Slack subscribe** (アラート通知の届け先設定)
 
-9. **N6: shadcn/ui への移行 (admin-web の見栄え改善)**
+9. ~~**N6: shadcn/ui への移行 (admin-web の見栄え改善)**~~ ✅ 完了 (D1-D12, PR #141-#153, ADR 0013/0014)
 
 10. **N4: 配信前リハーサル機能** (status=draft で 5 分起動 → 自動破棄)
 
@@ -368,10 +368,15 @@ reconcile Lambda 自身は `cloudformation:*` (スタック操作) + `iam:PassRo
 - 録画 + 字幕 (SRT) + 統計 (字幕数 / 平均遅延 / アラーム発生有無) をまとめてメール / Slack
 - DESIGN.md 8 章「イベント設定」の延長として価値が高い
 
-### N6. shadcn/ui への移行 (admin-web)
+### N6. ~~shadcn/ui への移行~~ → UI/UX 全面リニューアル ✅ 完了
 
-現状の admin-web はプレーン CSS。shadcn/ui + Tailwind に置き換えると見栄えと開発体験が
-大幅に改善する。`/shadcn` スキルで段階的に。
+D1-D12 の 12 PR で完了 (2026-06-24)。[ADR 0013](decisions/0013-design-system.md) (デザインシステム) / [ADR 0014](decisions/0014-screen-responsibility.md) (画面責務再配置) 参照。
+
+- `packages/ui` 新設: shadcn/ui primitives + stagecast 固有 components 20 個
+- admin-web: AppShell + Sidebar + react-router-dom + Tabs 簡素化 + 旧 CSS 完全削除
+- stage-web: StageShell + ロール別サブビュー (Speaker/Moderator/Admin) + 旧 CSS 完全削除
+- composer-template: WaitingScreen + Tile 視覚刷新 + CSS class 化 + talking.ts
+- control-api: `POST /events/:id/stage-token` 追加 (admin → stage-web 直接接続)
 
 ### N7. stage-web の入室体験改善
 
