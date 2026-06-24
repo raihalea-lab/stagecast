@@ -394,7 +394,6 @@ export function App(props: {
                   client={client}
                   assets={assets}
                   artifacts={artifacts}
-                  composerTemplateUrl={props.config?.composerTemplateUrl}
                   onChanged={() => void run(refresh)}
                 />
               }
@@ -414,7 +413,6 @@ function EventDetailRoute(props: {
   client: ControlApiClient;
   assets: AssetService;
   artifacts: ArtifactService;
-  composerTemplateUrl?: string;
   onChanged: () => void;
 }) {
   const { id } = useParams<{ id: string }>();
@@ -436,7 +434,6 @@ function EventDetailRoute(props: {
       client={props.client}
       assets={props.assets}
       artifacts={props.artifacts}
-      composerTemplateUrl={props.composerTemplateUrl}
       onChanged={props.onChanged}
     />
   );
