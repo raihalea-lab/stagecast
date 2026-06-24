@@ -1,13 +1,5 @@
-/**
- * 管理コンソールのルート (DESIGN.md 3.1, 8 章, F-12)。
- *
- * Cognito Hosted UI (Authorization Code + PKCE) でログインしてから制御 API を呼ぶ。
- * VITE_COGNITO_* が未設定なら認証スキップ (ローカル開発で sessionStorage に直接トークンを
- * 入れて使える)。
- *
- * UI は @stagecast/ui の AppShell + デザイントークン上に乗る (ADR 0013)。
- */
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { Navigate, Route, Routes, useNavigate, useParams, useLocation } from "react-router-dom";
 import type { EventDefinition } from "@stagecast/shared";
 import type { CreateEventInput } from "@stagecast/control-api";
 import {
@@ -20,6 +12,11 @@ import {
   CardTitle,
   EmptyState,
   EventListItem,
+  Sheet,
+  SheetContent,
+  SheetHeader,
+  SheetTitle,
+  SheetDescription,
   Skeleton,
   StatusPill,
   TallyIndicator,
@@ -28,7 +25,7 @@ import {
   TooltipProvider,
   type ThemeMode,
 } from "@stagecast/ui";
-import { LogOut, Settings, Users } from "@stagecast/ui/icons";
+import { LogOut, Plus, Settings, Users } from "@stagecast/ui/icons";
 import { HttpControlApiClient } from "./api/http-client.js";
 import { HttpAssetService } from "./api/http-asset-service.js";
 import { HttpArtifactService } from "./api/http-artifact-service.js";
@@ -72,7 +69,6 @@ function applyTheme(mode: ThemeMode) {
 }
 
 export function App(props: {
-  /** ランタイム設定 (main.tsx が config.json から解決して渡す)。未指定はテスト/認証なし。 */
   config?: RuntimeConfig;
   client?: ControlApiClient;
   assets?: AssetService;
@@ -103,13 +99,14 @@ export function App(props: {
     [props.artifacts, apiBaseUrl, getIdToken],
   );
 
+  const navigate = useNavigate();
+  const location = useLocation();
   const [auth, setAuth] = useState<AuthState>({ status: "loading" });
   const [events, setEvents] = useState<EventDefinition[]>([]);
   const [eventsLoaded, setEventsLoaded] = useState(false);
-  const [selectedId, setSelectedId] = useState<string | undefined>();
   const [apiError, setApiError] = useState<string | undefined>();
   const [busy, setBusy] = useState(false);
-  const [view, setView] = useState<"events" | "settings">("events");
+  const [sheetOpen, setSheetOpen] = useState(false);
   const [theme, setTheme] = useState<ThemeMode>(readInitialTheme);
 
   useEffect(() => {
@@ -141,7 +138,7 @@ export function App(props: {
         const state = url.searchParams.get("state");
         if (code && state) {
           await authClient.exchangeCode(code, state);
-          window.history.replaceState({}, "", "/");
+          window.history.replaceState({}, "", "/events");
           if (!cancelled) setAuth({ status: "authenticated" });
           return;
         }
@@ -173,7 +170,8 @@ export function App(props: {
     run(async () => {
       const created = await client.createEvent(input);
       await refresh();
-      setSelectedId(created.id);
+      setSheetOpen(false);
+      navigate(`/events/${created.id}`);
     });
 
   const login = async () => {
@@ -237,6 +235,8 @@ export function App(props: {
     );
   }
 
+  const isSettingsView = location.pathname === "/settings";
+  const selectedId = location.pathname.match(/^\/events\/(.+)/)?.[1];
   const selected = events.find((e) => e.id === selectedId);
 
   const sidebar = (
@@ -248,7 +248,25 @@ export function App(props: {
         </span>
       </div>
       <div className="border-b border-line-1 px-3 py-3">
-        <EventForm onCreate={create} busy={busy} />
+        <Sheet open={sheetOpen} onOpenChange={setSheetOpen}>
+          <Button
+            variant="outline"
+            className="w-full justify-start gap-2"
+            onClick={() => setSheetOpen(true)}
+          >
+            <Plus className="size-4" />
+            新規イベント
+          </Button>
+          <SheetContent side="right">
+            <SheetHeader>
+              <SheetTitle>新規イベント</SheetTitle>
+              <SheetDescription>配信イベントを作成します</SheetDescription>
+            </SheetHeader>
+            <div className="mt-6">
+              <EventForm onCreate={create} busy={busy} />
+            </div>
+          </SheetContent>
+        </Sheet>
       </div>
       <nav className="flex flex-col gap-px overflow-auto py-2">
         <span className="px-3 pb-1 text-[10px] uppercase tracking-wider text-text-tertiary">
@@ -266,7 +284,7 @@ export function App(props: {
           <div className="px-3">
             <EmptyState
               title="まだイベントがありません"
-              description="上のフォームから作成"
+              description="上のボタンから作成"
               icon={<Users />}
             />
           </div>
@@ -279,10 +297,7 @@ export function App(props: {
                   startsAt={e.startsAt}
                   status={e.status}
                   active={e.id === selectedId}
-                  onClick={() => {
-                    setSelectedId(e.id);
-                    setView("events");
-                  }}
+                  onClick={() => navigate(`/events/${e.id}`)}
                 />
               </li>
             ))}
@@ -291,9 +306,9 @@ export function App(props: {
       </nav>
       <div className="mt-auto flex flex-col gap-2 border-t border-line-1 p-3">
         <Button
-          variant={view === "settings" ? "secondary" : "ghost"}
+          variant={isSettingsView ? "secondary" : "ghost"}
           size="sm"
-          onClick={() => setView("settings")}
+          onClick={() => navigate("/settings")}
           className="justify-start gap-2"
         >
           <Settings className="size-4" />
@@ -314,8 +329,8 @@ export function App(props: {
   const topBar = (
     <div className="flex h-12 items-center justify-between px-5">
       <div className="flex items-center gap-2 text-xs text-text-secondary">
-        <span>{view === "settings" ? "運用設定" : "イベント"}</span>
-        {view === "events" && selected && (
+        <span>{isSettingsView ? "運用設定" : "イベント"}</span>
+        {!isSettingsView && selected && (
           <>
             <span className="text-text-tertiary">/</span>
             <span className="text-text-primary">{selected.title}</span>
@@ -323,7 +338,7 @@ export function App(props: {
         )}
       </div>
       <div className="flex items-center gap-3">
-        {view === "events" && selected && (
+        {!isSettingsView && selected && (
           <StatusPill
             variant={
               selected.status === "live" ? "live" : selected.status === "ended" ? "ended" : "draft"
@@ -359,27 +374,70 @@ export function App(props: {
               </Button>
             </div>
           )}
-          {view === "settings" ? (
-            <SettingsPage client={client} />
-          ) : selected ? (
-            <EventDetail
-              event={selected}
-              client={client}
-              assets={assets}
-              artifacts={artifacts}
-              composerTemplateUrl={props.config?.composerTemplateUrl}
-              onChanged={() => void run(refresh)}
+          <Routes>
+            <Route path="/" element={<Navigate to="/events" replace />} />
+            <Route
+              path="/events"
+              element={
+                <EmptyState
+                  title="イベントを選択してください"
+                  description="左のサイドバーから選ぶか、新規作成"
+                  icon={<Users />}
+                />
+              }
             />
-          ) : (
-            <EmptyState
-              title="イベントを選択してください"
-              description="左のサイドバーから選ぶか、 新規作成"
-              icon={<Users />}
+            <Route
+              path="/events/:id"
+              element={
+                <EventDetailRoute
+                  events={events}
+                  client={client}
+                  assets={assets}
+                  artifacts={artifacts}
+                  composerTemplateUrl={props.config?.composerTemplateUrl}
+                  onChanged={() => void run(refresh)}
+                />
+              }
             />
-          )}
+            <Route path="/settings" element={<SettingsPage client={client} />} />
+            <Route path="*" element={<Navigate to="/events" replace />} />
+          </Routes>
         </div>
       </AppShell>
       <Toaster />
     </TooltipProvider>
+  );
+}
+
+function EventDetailRoute(props: {
+  events: EventDefinition[];
+  client: ControlApiClient;
+  assets: AssetService;
+  artifacts: ArtifactService;
+  composerTemplateUrl?: string;
+  onChanged: () => void;
+}) {
+  const { id } = useParams<{ id: string }>();
+  const event = props.events.find((e) => e.id === id);
+
+  if (!event) {
+    return (
+      <EmptyState
+        title="イベントが見つかりません"
+        description="サイドバーから別のイベントを選んでください"
+        icon={<Users />}
+      />
+    );
+  }
+
+  return (
+    <EventDetail
+      event={event}
+      client={props.client}
+      assets={props.assets}
+      artifacts={props.artifacts}
+      composerTemplateUrl={props.composerTemplateUrl}
+      onChanged={props.onChanged}
+    />
   );
 }
