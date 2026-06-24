@@ -7,6 +7,11 @@ StreamYard 型の YouTube ライブ配信プラットフォーム。配信管理
 設計の正は [`DESIGN.md`](./DESIGN.md)。技術選定は [ADR 0001](./docs/decisions/0001-tech-stack.md)、
 実装計画は [`docs/PLAN.md`](./docs/PLAN.md) を参照。
 
+- 実 AWS デプロイ・統合に向けた残作業 (T1〜T10) は [`docs/REMAINING_WORK.md`](./docs/REMAINING_WORK.md) … **完了** ✅
+- 本番配信までの次フェーズ全体は [`docs/NEXT_WORK.md`](./docs/NEXT_WORK.md) にまとめ済み
+  (R = ADR 0005 R1〜R7 / O 運用準備 / D 技術的負債 / N nice-to-have / L 法的 / P pending PR)。
+- 設計意思決定: [ADR 0005](./docs/decisions/0005-media-layer-rollout.md) (メディア層実体化と段階的デプロイ戦略)
+
 ## アーキテクチャ概要 (DESIGN.md 3 章 / 9 章)
 
 3 層構成。**制御層のみ常時稼働**し、メディア層・翻訳層は配信時のみ起動し非配信時はゼロスケールする (N-1)。
@@ -51,9 +56,9 @@ StreamYard 型の YouTube ライブ配信プラットフォーム。配信管理
 DESIGN.md             # 設計の正
 ```
 
-現在の実装状況: **フェーズ 0〜6 すべて実装済み**（`pnpm build` / `typecheck` / `lint` / `test` 全通過、66 tests）。
+現在の実装状況: **フェーズ 0〜12 すべて実装済み**（`vp run -r build / typecheck / test` + `vp lint / fmt` 全通過、136 tests）。
 外部依存（AWS SDK・LiveKit・YouTube 等）は差し替え可能なインターフェース + フェイクで実装し、
-テストは外部接続なしで完結する。実 AWS への結線・デプロイは残作業。詳細は `docs/PLAN.md`。
+テストは外部接続なしで完結する。実 AWS への結線・デプロイは残作業。詳細は `docs/PLAN.md` / `docs/REMAINING_WORK.md`。
 
 | パッケージ                    | 役割                                                                   | フェーズ |
 | ----------------------------- | ---------------------------------------------------------------------- | -------- |
@@ -67,18 +72,37 @@ DESIGN.md             # 設計の正
 
 ## ローカル起動手順
 
-前提: Node.js 22+, pnpm 10+。
+前提: Vite+ CLI (`vp`)。Node.js / pnpm は `vp` が裏で管理する。
 
 ```bash
-pnpm install          # 依存をインストール
+# 初回のみ: Vite+ CLI のインストール
+curl -fsSL https://vite.plus | bash    # macOS / Linux
+# (Windows PowerShell の場合は: irm https://vite.plus/ps1 | iex)
+
+vp install            # 依存をインストール (内部で pnpm install を実行)
 cp .env.example .env  # 環境変数を用意 (実値はコミットしない)
 
-pnpm build            # 全ワークスペースをビルド
-pnpm test             # 全ワークスペースのテスト (外部接続なしで完結)
-pnpm typecheck        # 型チェック
-pnpm lint             # ESLint
-pnpm format           # Prettier 整形
+vp run -r build       # 全ワークスペースをビルド
+vp run -r test        # 全ワークスペースのテスト (外部接続なしで完結)
+vp run -r typecheck   # 型チェック
+vp lint               # oxlint 相当
+vp fmt                # oxfmt 相当
+vp check              # lint + fmt + typecheck をまとめて
+
+# パッケージ追加例
+vp add -D some-pkg --filter @stagecast/admin-web   # admin-web に dev 依存を追加
 ```
+
+> ℹ️ **Vite+ について**: フロントエンド/テスト/パッケージ管理の統合ツールチェイン。
+> `pnpm-workspace.yaml` の `overrides` で `vite` / `vitest` を
+> `@voidzero-dev/vite-plus-*` にエイリアスしているため、各 package.json の
+> `vite` / `vitest` 記述はそのままで Vite+ 実装が使われる。
+> `vp install` は `pnpm-workspace.yaml` + `pnpm-lock.yaml` を検出して
+> pnpm を裏で呼び出すため、ロックファイルや packageManager 設定はそのまま。
+> 公式: https://viteplus.dev/
+
+> 💡 `pnpm <script>` 経由でも実行可（root scripts も `vp run -r ...` を呼ぶように
+> なっているため、好みの入り口で OK）。devenv が用意する `pnpm` を引き続き使える。
 
 外部依存 (YouTube Live API, LiveKit, Transcribe, Translate, Bedrock 等) は
 フェイク実装に切り替えられる (`USE_FAKE_ADAPTERS=true`)。テストは外部接続なしで通る。
@@ -86,25 +110,92 @@ pnpm format           # Prettier 整形
 ## デプロイ手順
 
 制御層 (常時稼働) の CDK スタックを synth/deploy する。
+**手動デプロイ** と **GitHub Actions (手動 dispatch)** の 2 経路がある。
+
+### 事前準備 (一度きり)
 
 ```bash
-# 制御層スタックの合成 (テンプレ確認)
-pnpm --filter @stagecast/infra synth
+# AWS 認証 (ローカル) — Claude Code 実行時はブラウザで認証操作する
+aws sso login    # または aws login
 
-# デプロイ (要 AWS 資格情報・cdk bootstrap 済み)
-pnpm --filter @stagecast/infra cdk deploy StagecastControlPlane
-
-# 管理 SPA をビルドし、出力された S3 バケットへ配置 (CloudFront 配信)
-pnpm --filter @stagecast/admin-web build
-# aws s3 sync apps/admin-web/dist s3://<AdminWebBucket> --delete
+# CDK bootstrap (アカウント x リージョンごとに 1 回)
+vp run --filter @stagecast/infra cdk -- bootstrap aws://<account>/<region>
 ```
 
-- 常時稼働するのは制御層スタックのみ (S3/CloudFront・API Gateway/Lambda・DynamoDB・Cognito・成果物S3)。
+### ローカルから手動デプロイ
+
+SPA は **環境非依存に1回ビルド**しておけば、`cdk deploy` の中で S3 配信 + `config.json` 生成 +
+CloudFront invalidation まで自動で行われる (BucketDeployment)。**手動 `aws s3 sync` は不要**。
+API URL / Cognito 設定はビルド時に焼き込まず、ブラウザが起動時に `/config.json` を読む。
+
+```bash
+# 1. SPA を含め全ワークスペースをビルド (dist が無いと cdk が SPA 配信をスキップする)
+vp run -r build
+
+# 2. 差分確認 (SPA 配信リソースも含まれる)
+vp run --filter @stagecast/infra cdk -- diff StagecastControlPlane
+
+# 3. 制御層 + SPA をデプロイ (control-api / Secrets / Cognito / reconcile + admin/stage の配信)
+vp run --filter @stagecast/infra cdk -- deploy StagecastControlPlane \
+  --require-approval never \
+  --outputs-file infra/cdk-outputs.json
+
+# 4. シークレットを実値で更新 (LiveKit / YouTube)
+aws secretsmanager update-secret --secret-id stagecast/livekit \
+  --secret-string '{"url":"wss://...","apiKey":"...","apiSecret":"..."}'
+```
+
+> SPA を更新したら `vp run -r build` → `cdk deploy` を再実行するだけ。BucketDeployment が
+> 差分アップロードと invalidation を行う。`config.json` はスタックの実値から毎回生成される。
+
+### GitHub Actions から (T10)
+
+`.github/workflows/deploy.yml` を **Actions → Deploy → Run workflow** で起動する。
+入力:
+
+- `environment`: dev / staging / prod のいずれか (GitHub Environment と一致)
+- `dry-run`: true (cdk diff のみ) / false (cdk deploy = 制御層 + SPA 配信まで実行)
+
+事前に Environment ごとに以下を設定する:
+
+- `vars.AWS_DEPLOY_ROLE_ARN`: GitHub OIDC で引き受ける IAM Role の ARN
+- `vars.AWS_REGION`: 既定 ap-northeast-1
+
+### 運用上の注意
+
+- 常時稼働するのは制御層スタックのみ (S3/CloudFront・API Gateway/Lambda・DynamoDB・Cognito・成果物S3・SNS Topic)。
   メディア層/字幕層は `media-orchestrator` がイベント単位で起動・破棄する (N-1)。
-- シークレット (YouTube API キー・LiveKit キー等) はコードに置かず、
-  SSM パラメータストア / Secrets Manager で管理する (ADR D-10)。
-- 残作業: control-api 実ハンドラの NodejsFunction 化、イベント単位メディアスタックの
-  CDK 定義、各フェイクの実 AWS SDK 実装 (`docs/PLAN.md` 末尾参照)。
+- イベント単位スタックの起動・破棄は **reconcile Lambda** (60s tick) が自動で行う (ADR 0003 D-2)。
+- シークレット (YouTube API キー・LiveKit キー等) はコードに置かず、Secrets Manager から注入する (T7, ADR D-10)。
+- 実 AWS との疎通確認は `pnpm run test:integration` (`*.integration.test.ts`) で行える (T8)。
+  RUN_INTEGRATION 環境変数が立たない通常 CI ではスキップされる。
+
+## 管理コンソールからイベントを起動する（イベントごとの `cdk deploy` は不要）
+
+**イベントを増やすたびに `cdk deploy` する必要はない**。制御層を一度デプロイすれば、以降は
+管理コンソール (admin-web) の操作だけでメディア/字幕スタックが自動で起動・破棄される:
+
+1. 管理コンソールでイベントを作成（タイトル・字幕エンジン・言語・YouTube RTMP URL / ストリームキー参照を入力）
+2. **「配信開始 (live)」** をクリック → control-api がイベントを `live` にして DynamoDB に保存
+3. **reconcile Lambda (60s tick)** が `live` イベントを検出し、`StagecastEventMedia-<id>`
+   スタックを CloudFormation で自動 CreateStack（ADR 0003 D-2）
+4. **「配信終了 (ended)」** をクリック → 次の tick でスタックを自動 DeleteStack
+
+`cdk deploy -c eventId=<id>` は手動の代替経路として残るが、通常運用では使わない。
+
+### コンソール運用を始める前のワンタイム準備（環境ごとに一度）
+
+イベント単位ではなく、**環境構築時に一度だけ** 整えておくもの。これが揃っていないと
+自動起動したスタックのコンテナが正しく動かない:
+
+- [ ] **CDK bootstrap** + 制御層 deploy（reconcile Lambda・CFN 実行ロール・`gsi-live` GSI が入る）
+- [ ] **字幕ワーカーのコンテナイメージを ECR に push**
+      （`Actions → Build caption-worker image → Run workflow`）。未 push だと placeholder
+      イメージにフォールバックし字幕ワーカーが動かない。
+- [ ] **Secrets Manager に実値を投入**: `stagecast/livekit`（url / apiKey / apiSecret）、
+      必要なら `stagecast/youtube`。CDK は空値で作成する。
+- [ ] 録画の出力先は制御層の成果物バケットを自動共用する（`RECORDINGS_BUCKET_NAME` を
+      reconcile/render-template に注入済み）。専用バケットの手動作成は不要。
 
 ## 開発ルール
 

@@ -4,9 +4,38 @@
  * 署名 (HMAC) は invite/token.ts、失効状態は InviteTokenRepository が担う。
  * 検証は「署名・有効期限」(token.ts) に加えて「失効していないか・version 一致」(repo) を確認する。
  */
-import type { InvitedRole } from '@stagecast/shared';
-import type { InviteTokenRepository } from '../repo/types.js';
-import { signInviteToken, verifyInviteToken } from '../invite/token.js';
+import type { InvitedRole } from "@stagecast/shared";
+import type { InviteTokenRepository } from "../repo/types.js";
+import { signInviteToken, verifyInviteToken } from "../invite/token.js";
+import { NotFoundError, ValidationError } from "./events.js";
+
+/** 招待 TTL の許容範囲 (1 分〜7 日)。短すぎ/長すぎる招待 URL を防ぐ。 */
+export const MIN_TTL_SEC = 60;
+export const MAX_TTL_SEC = 7 * 24 * 60 * 60;
+
+function validateRole(role: unknown): InvitedRole {
+  if (role !== "moderator" && role !== "speaker") {
+    throw new ValidationError("role must be 'moderator' or 'speaker'");
+  }
+  return role;
+}
+
+function validateTtlSec(ttlSec: unknown): number {
+  if (typeof ttlSec !== "number" || !Number.isFinite(ttlSec) || !Number.isInteger(ttlSec)) {
+    throw new ValidationError("ttlSec must be an integer (seconds)");
+  }
+  if (ttlSec < MIN_TTL_SEC || ttlSec > MAX_TTL_SEC) {
+    throw new ValidationError(`ttlSec must be between ${MIN_TTL_SEC} and ${MAX_TTL_SEC}`);
+  }
+  return ttlSec;
+}
+
+function validateEventId(eventId: unknown): string {
+  if (typeof eventId !== "string" || !eventId.trim()) {
+    throw new ValidationError("eventId is required");
+  }
+  return eventId;
+}
 
 export interface IssuedInvite {
   jti: string;
@@ -23,12 +52,12 @@ export type InviteVerifyResult =
   | {
       valid: false;
       reason:
-        | 'malformed'
-        | 'bad-signature'
-        | 'expired'
-        | 'invalid-payload'
-        | 'revoked'
-        | 'stale-version';
+        | "malformed"
+        | "bad-signature"
+        | "expired"
+        | "invalid-payload"
+        | "revoked"
+        | "stale-version";
     };
 
 export function createInviteService(deps: {
@@ -46,35 +75,31 @@ export function createInviteService(deps: {
     role: InvitedRole;
     ttlSec: number;
   }): Promise<IssuedInvite> {
+    const eventId = validateEventId(input.eventId);
+    const role = validateRole(input.role);
+    const ttlSec = validateTtlSec(input.ttlSec);
     const jti = newJti();
     const version = 1;
     const issuedAtSec = Math.floor(now() / 1000);
-    await repo.put({
-      jti,
-      eventId: input.eventId,
-      role: input.role,
-      currentVersion: version,
-      revoked: false,
-    });
-    const token = signInviteToken(
-      { eventId: input.eventId, role: input.role, jti, issuedAtSec, ttlSec: input.ttlSec, version },
-      secret,
-    );
+    await repo.put({ jti, eventId, role, currentVersion: version, revoked: false });
+    const token = signInviteToken({ eventId, role, jti, issuedAtSec, ttlSec, version }, secret);
     return {
       jti,
       token,
       url: `${baseUrl}?token=${encodeURIComponent(token)}`,
-      role: input.role,
-      eventId: input.eventId,
-      expiresAtSec: issuedAtSec + input.ttlSec,
+      role,
+      eventId,
+      expiresAtSec: issuedAtSec + ttlSec,
       version,
     };
   }
 
   /** 既存トークンを失効させ、version を繰り上げて新トークンを再発行する。 */
-  async function reissue(jti: string, ttlSec: number): Promise<IssuedInvite> {
+  async function reissue(jti: string, ttlSecInput: number): Promise<IssuedInvite> {
+    const ttlSec = validateTtlSec(ttlSecInput);
     const record = await repo.get(jti);
-    if (!record) throw new Error(`invite ${jti} not found`);
+    // 存在しない jti の再発行は 404 にする (内部エラー 500 にしない, #35 と統一)。
+    if (!record) throw new NotFoundError(`invite ${jti} not found`);
     const version = record.currentVersion + 1;
     const issuedAtSec = Math.floor(now() / 1000);
     // 再発行は同じ jti を使い version だけ繰り上げる。古い version のトークンは stale-version で弾く。
@@ -105,9 +130,9 @@ export function createInviteService(deps: {
     const res = verifyInviteToken(token, secret, nowSec);
     if (!res.valid) return { valid: false, reason: res.reason };
     const record = await repo.get(res.payload.jti);
-    if (!record || record.revoked) return { valid: false, reason: 'revoked' };
+    if (!record || record.revoked) return { valid: false, reason: "revoked" };
     if (res.payload.version !== record.currentVersion) {
-      return { valid: false, reason: 'stale-version' };
+      return { valid: false, reason: "stale-version" };
     }
     return {
       valid: true,

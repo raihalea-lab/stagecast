@@ -4,16 +4,16 @@
  * 管理者が配信前にイベント単位で準備・登録する。設定は DynamoDB に、
  * 素材 (QR・スライド等) は S3 に保存する。
  */
-import type { LanguageCode } from './caption.js';
+import type { LanguageCode } from "./caption.js";
 
 /** イベントのライフサイクル状態 (DESIGN.md 7.1)。 */
-export type EventStatus = 'draft' | 'scheduled' | 'live' | 'ended';
+export type EventStatus = "draft" | "scheduled" | "live" | "ended";
 
 /** 字幕エンジンの経路種別 (DESIGN.md 6.2)。 */
-export type CaptionEngineKind = 'transcribe' | 'llm' | 'self-hosted-asr';
+export type CaptionEngineKind = "transcribe" | "llm" | "self-hosted-asr";
 
 /** 字幕出力先の種別 (DESIGN.md 6.3)。 */
-export type CaptionSinkKind = 'youtube' | 'custom-api';
+export type CaptionSinkKind = "youtube" | "custom-api";
 
 /** S3 に保存された素材への参照 (QR・背景・ロゴ・スライド等)。 */
 export interface AssetRef {
@@ -44,6 +44,22 @@ export interface YouTubeTarget {
   streamKeyRef: string;
 }
 
+/**
+ * EventMediaStack 起動完了後にメディア層が公開する接続情報 (ADR 0008 D-1)。
+ *
+ * reconcile Lambda が ECS task の Public IP を取得して書き戻す。`/join` はこのフィールドを
+ * 読んで stage-web に返す。status=live でも EventMediaStack 起動完了前は undefined。
+ */
+export interface EventMediaInfo {
+  /**
+   * LiveKit Server に登壇者が WebSocket 接続するための URL。
+   * `wss://<TaskPublicIp>:7880` 形式 (NLB を経由しない、ADR 0008 D-4)。
+   */
+  livekitUrl: string;
+  /** URL が確定し DynamoDB に書き戻されたエポックミリ秒。診断用。 */
+  readyAt: number;
+}
+
 /** イベント定義 (DESIGN.md 8 章)。 */
 export interface EventDefinition {
   /** イベント ID。 */
@@ -63,6 +79,11 @@ export interface EventDefinition {
   slideAssets?: AssetRef[];
   caption: CaptionSettings;
   youtube?: YouTubeTarget;
+  /**
+   * EventMediaStack 起動完了後のメディア層接続情報 (ADR 0008 D-1)。
+   * status="draft"/"ended" や、status="live" でも起動完了前は undefined。
+   */
+  media?: EventMediaInfo;
   createdAtMs: number;
   updatedAtMs: number;
 }

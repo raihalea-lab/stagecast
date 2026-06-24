@@ -5,9 +5,9 @@
  * 発表者の出し入れ (管理者操作 → Valkey) が状態に反映されると、レイアウトを再計算して
  * Egress に即時反映する (F-4)。録画は S3 に保存する (N-4)。
  */
-import type { PresentationState } from '@stagecast/shared';
-import { computeLayout, type BrandingInput, type CompositionLayout } from './layout.js';
-import type { EgressClient, EgressHandle, RecordingConfig } from './egress.js';
+import type { PresentationState } from "@stagecast/shared";
+import { computeLayout, type BrandingInput, type CompositionLayout } from "./layout.js";
+import type { EgressClient, EgressHandle, RecordingConfig } from "./egress.js";
 
 export interface StreamComposerConfig {
   eventId: string;
@@ -18,8 +18,8 @@ export interface StreamComposerConfig {
 }
 
 export class StreamComposer {
-  private handle?: EgressHandle;
-  private lastLayout?: CompositionLayout;
+  private handle: EgressHandle | undefined;
+  private lastLayout: CompositionLayout | undefined;
 
   constructor(
     private readonly egress: EgressClient,
@@ -54,7 +54,7 @@ export class StreamComposer {
    * @returns レイアウトが更新されたら true。
    */
   async onPresentationChanged(state: PresentationState): Promise<boolean> {
-    if (!this.handle) throw new Error('composer not started');
+    if (!this.handle) throw new Error("composer not started");
     const next = computeLayout(state, this.config.branding);
     if (this.lastLayout && layoutEquals(this.lastLayout, next)) return false;
     this.lastLayout = next;

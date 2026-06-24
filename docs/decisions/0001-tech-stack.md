@@ -33,7 +33,7 @@
   型（字幕イベント、イベント設定、ロール、招待トークン）を全層で共有する。
 - 例外: GPU 上の自前 ASR（`DESIGN.md` 6.2「自前 ASR」, 9.1）が必要になった場合のみ Python 等を許容。
   本フェーズではインターフェースのみ用意し、実装は将来拡張とする。
-- ランタイムは Node.js 22（Lambda・Fargate ともに 22 系を前提）。
+- ランタイムは Node.js 24（Lambda・Fargate ともに 24 系を前提）。
 
 ### D-3. フロントエンド: React + TypeScript + Vite
 
@@ -80,6 +80,10 @@
 - 確定字幕は S3 に保存、SRT/VTT 出力に対応（6.4, N-4）。
 
 ### D-9. テスト/Lint/ビルド
+
+> 🔄 **2026-06-15 更新**: ツールチェイン具体は [ADR 0004](./0004-toolchain-vite-plus.md) に
+> よって **Vite+ (`vp`) ベース** へ統合された。Vitest API は維持しつつ、ESLint/Prettier/tsup は
+> oxlint/oxfmt/Rolldown に置換。CI も `setup-vp@v1` に集約。本項は方針の原典として残す。
 
 - テスト: **Vitest**（全パッケージ共通、外部接続なしで完結。モック/フェイクを同梱）。
 - Lint: **ESLint** + **Prettier**。型チェック: `tsc --noEmit`。

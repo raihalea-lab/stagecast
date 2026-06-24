@@ -5,7 +5,7 @@
  * トークンにはイベント ID・ロール・有効期限を含め、サーバー側で署名検証する。
  * 失効・再発行に対応するため、トークン ID とバージョンを持つ。
  */
-import type { InvitedRole } from './roles.js';
+import type { InvitedRole } from "./roles.js";
 
 export interface InviteTokenPayload {
   /** トークン ID。失効管理の単位 (DynamoDB に保存し、失効済みを照合)。 */
@@ -29,14 +29,14 @@ export function isInviteTokenTimeValid(payload: InviteTokenPayload, nowSec: numb
 
 /** 招待トークンのペイロードとして妥当な形かを検証する (署名検証は別途)。 */
 export function isValidInviteTokenPayload(value: unknown): value is InviteTokenPayload {
-  if (typeof value !== 'object' || value === null) return false;
+  if (typeof value !== "object" || value === null) return false;
   const p = value as Record<string, unknown>;
   return (
-    typeof p.jti === 'string' &&
-    typeof p.eventId === 'string' &&
-    (p.role === 'moderator' || p.role === 'speaker') &&
-    typeof p.iat === 'number' &&
-    typeof p.exp === 'number' &&
-    typeof p.version === 'number'
+    typeof p.jti === "string" &&
+    typeof p.eventId === "string" &&
+    (p.role === "moderator" || p.role === "speaker") &&
+    typeof p.iat === "number" &&
+    typeof p.exp === "number" &&
+    typeof p.version === "number"
   );
 }

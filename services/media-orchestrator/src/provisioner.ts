@@ -7,7 +7,7 @@
  *
  * 各スタックはイベント単位で独立し、相互に干渉しない (N-5, 7.3)。
  */
-import type { CaptionEngineKind } from '@stagecast/shared';
+import type { CaptionEngineKind } from "@stagecast/shared";
 
 export interface EventMediaSpec {
   eventId: string;
@@ -16,10 +16,12 @@ export interface EventMediaSpec {
   /** 独自字幕配信 API を起動するか (DESIGN.md 6.3.2, 任意起動)。 */
   customCaptionApi: boolean;
   /** YouTube RTMP 送出先 (任意。未指定はモック送出)。 */
-  rtmpUrl?: string;
+  rtmpUrl?: string | undefined;
+  /** YouTube ストリームキー参照名 (Secret 内のフィールド名)。R12, ADR 0006 D-4。 */
+  streamKeyRef?: string | undefined;
 }
 
-export type StackStatus = 'provisioning' | 'running' | 'destroying' | 'destroyed';
+export type StackStatus = "provisioning" | "running" | "destroying" | "destroyed";
 
 /** プロビジョン済みスタックのハンドル。イベント単位で独立した資源参照を持つ。 */
 export interface MediaStackHandle {
@@ -34,7 +36,7 @@ export interface MediaStackHandle {
   /** 共有状態の名前空間 (= eventId)。 */
   valkeyNamespace: string;
   /** 独自字幕 API のエンドポイント (有効化時のみ)。 */
-  customCaptionApiUrl?: string;
+  customCaptionApiUrl?: string | undefined;
 }
 
 export interface MediaStackProvisioner {
@@ -57,7 +59,7 @@ export class FakeMediaStackProvisioner implements MediaStackProvisioner {
     return {
       eventId: spec.eventId,
       stackId,
-      status: 'running',
+      status: "running",
       sfuUrl: `wss://sfu-${spec.eventId}.media.local`,
       captionPipelineId: `caption-${spec.eventId}`,
       valkeyNamespace: spec.eventId,

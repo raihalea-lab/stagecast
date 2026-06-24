@@ -8,20 +8,25 @@
   "scripts": {
     "build": "tsc -b",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run",
+    "test": "vp test",
     "clean": "rm -rf dist *.tsbuildinfo"
   },
   "dependencies": {
-    "@aws-sdk/client-bedrock-runtime": "^3.717.0",
-    "@aws-sdk/client-s3": "^3.717.0",
-    "@aws-sdk/client-transcribe-streaming": "^3.717.0",
-    "@aws-sdk/client-translate": "^3.717.0",
+    "@aws-sdk/client-bedrock-runtime": "^3.1068.0",
+    "@aws-sdk/client-s3": "^3.1068.0",
+    "@aws-sdk/client-transcribe-streaming": "^3.1068.0",
+    "@aws-sdk/client-translate": "^3.1068.0",
     "@stagecast/shared": "workspace:*",
-    "ws": "^8.18.0"
+    "ioredis": "^5.11.1",
+    "ws": "^8.21.0"
   },
   "devDependencies": {
-    "@types/ws": "^8.5.13",
-    "typescript": "^5.7.2",
-    "vitest": "^2.1.8"
+    "@types/node": "^25.9.2",
+    "@types/ws": "^8.18.1",
+    "typescript": "^6.0.3",
+    "vitest": "^4.1.0"
+  },
+  "optionalDependencies": {
+    "@livekit/rtc-node": "^0.13.29"
   }
 }

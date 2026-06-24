@@ -5,7 +5,7 @@
  * 実装は任意とする (PROMPT フェーズ5)。GPU を要するため、採用時のみ EC2 GPU を
  * 検討する (ADR D-6)。
  */
-import type { AudioChunk, CaptionEngine, CaptionEvent, LanguageCode } from '@stagecast/shared';
+import type { AudioChunk, CaptionEngine, CaptionEvent, LanguageCode } from "@stagecast/shared";
 
 export interface SelfHostedAsrConfig {
   sourceLanguage: LanguageCode;
@@ -20,7 +20,7 @@ export interface SelfHostedAsrConfig {
  * 後から他エンジンと差し替え可能 (F-8)。実体は未実装。
  */
 export class SelfHostedAsrEngine implements CaptionEngine {
-  readonly kind = 'self-hosted-asr';
+  readonly kind = "self-hosted-asr";
   readonly sourceLanguage: LanguageCode;
   readonly targetLanguages: LanguageCode[];
   /** 推論エンドポイント (GPU タスク)。実装時に使用する。 */
@@ -33,10 +33,10 @@ export class SelfHostedAsrEngine implements CaptionEngine {
   }
 
   async start(): Promise<void> {
-    throw new Error('SelfHostedAsrEngine is an extension point and not yet implemented');
+    throw new Error("SelfHostedAsrEngine is an extension point and not yet implemented");
   }
   async pushAudio(_chunk: AudioChunk): Promise<void> {
-    throw new Error('not implemented');
+    throw new Error("not implemented");
   }
   onCaption(_handler: (caption: CaptionEvent) => void): void {
     /* extension point */

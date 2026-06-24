@@ -1,5 +1,30 @@
 packages:
-  - 'apps/*'
-  - 'services/*'
-  - 'packages/*'
-  - 'infra'
+  - "apps/*"
+  - "services/*"
+  - "packages/*"
+  - "infra"
+
+# pnpm 11 以降: postinstall などの build script の実行可否を明示。
+# esbuild は Vite+ パッケージの内部依存。バイナリ配置に postinstall が必要。
+allowBuilds:
+  esbuild: true
+
+# Vite+ への切替: ワークスペース全体の vite / vitest を Vite+ パッケージに
+# エイリアスする。各 package.json では従来通り "vite" / "vitest" を
+# devDependencies に記述しておけば、pnpm がインストール時に Vite+ 版を解決する。
+# (docs: https://viteplus.dev/guide/migrate)
+#
+# esbuild は Vite+ alpha (0.1.x) の内部依存に古い (CVE 含む) ものが残るため、
+# CVE-fix 済み 0.28.1+ を強制する (本体の Vite 8 は Rolldown 製で esbuild 非依存)。
+overrides:
+  vite: "npm:@voidzero-dev/vite-plus-core@latest"
+  vitest: "npm:@voidzero-dev/vite-plus-test@latest"
+  esbuild: ">=0.28.1"
+
+# Vite+ パッケージ (vite-plus-core / vite-plus-test) は中身が Vite 8 ベースだが
+# npm: エイリアス越しでは peer 解決時にパッケージ自身のバージョン (0.1.x) しか
+# 見えないため、@vitejs/plugin-react などの "vite@^8" peer が満たせない誤検知が出る。
+# 実装は適合しているので、vite peer の制約を緩和する。
+peerDependencyRules:
+  allowedVersions:
+    vite: "*"

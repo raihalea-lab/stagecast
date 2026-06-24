@@ -5,8 +5,8 @@
  * 最大 3 イベントを同時並行で起動でき、各イベントは独立した資源・共有状態名前空間を
  * 持つため相互に干渉しない。非配信時はスタックを保持せず、課金対象を残さない (N-1)。
  */
-import type { EventMediaSpec, MediaStackHandle, MediaStackProvisioner } from './provisioner.js';
-import type { SharedStateStore } from './shared-state.js';
+import type { EventMediaSpec, MediaStackHandle, MediaStackProvisioner } from "./provisioner.js";
+import type { SharedStateStore } from "./shared-state.js";
 
 /** 同時並行で起動できる最大イベント数 (DESIGN.md F-9, 7.x)。 */
 export const MAX_CONCURRENT_EVENTS = 3;
@@ -14,7 +14,7 @@ export const MAX_CONCURRENT_EVENTS = 3;
 export class ConcurrencyLimitError extends Error {
   constructor(public readonly limit: number) {
     super(`concurrent event limit reached (${limit})`);
-    this.name = 'ConcurrencyLimitError';
+    this.name = "ConcurrencyLimitError";
   }
 }
 
@@ -61,8 +61,8 @@ export class MediaOrchestrator {
 
     const handle = await this.provisioner.provision(spec);
     // イベント名前空間に初期共有状態を書き込む (発表状態の初期化)。他イベントとは隔離される。
-    await this.sharedState.set(spec.eventId, 'stackId', handle.stackId);
-    await this.sharedState.set(spec.eventId, 'status', 'running');
+    await this.sharedState.set(spec.eventId, "stackId", handle.stackId);
+    await this.sharedState.set(spec.eventId, "status", "running");
     this.active.set(spec.eventId, { handle, startedAtMs: this.now() });
     return handle;
   }

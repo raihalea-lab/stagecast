@@ -7,17 +7,17 @@
  *
  * 接続は `wss://.../?token=...&lang=ja,en` を想定 (token は任意認証, lang は初期購読)。
  */
-import { WebSocketServer } from 'ws';
-import type { IncomingMessage } from 'node:http';
-import type { LanguageCode } from '@stagecast/shared';
-import type { CaptionConnectionHub, ServerMessage } from './caption-hub.js';
+import { WebSocketServer } from "ws";
+import type { IncomingMessage } from "node:http";
+import type { LanguageCode } from "@stagecast/shared";
+import type { CaptionConnectionHub, ServerMessage } from "./caption-hub.js";
 
 /** ws の最小サブセット (テストで fake を渡せるよう抽象化)。 */
 export interface WebSocketLike {
   send(data: string): void;
   close(): void;
-  on(event: 'message', handler: (data: unknown) => void): void;
-  on(event: 'close', handler: () => void): void;
+  on(event: "message", handler: (data: unknown) => void): void;
+  on(event: "close", handler: () => void): void;
 }
 
 let connectionSeq = 0;
@@ -36,12 +36,12 @@ export function attachConnection(
   };
   if (!hub.addConnection(conn, opts.token)) return undefined;
   if (opts.languages?.length) {
-    hub.handleMessage(id, { action: 'subscribe', languages: opts.languages });
+    hub.handleMessage(id, { action: "subscribe", languages: opts.languages });
   }
-  socket.on('message', (data: unknown) => {
-    hub.handleMessage(id, typeof data === 'string' ? data : String(data));
+  socket.on("message", (data: unknown) => {
+    hub.handleMessage(id, typeof data === "string" ? data : String(data));
   });
-  socket.on('close', () => hub.removeConnection(id));
+  socket.on("close", () => hub.removeConnection(id));
   return id;
 }
 
@@ -50,11 +50,11 @@ export function parseConnectionQuery(url: string | undefined): {
   token?: string;
   languages?: LanguageCode[];
 } {
-  const params = new URL(url ?? '', 'http://localhost').searchParams;
-  const token = params.get('token') ?? undefined;
-  const langParam = params.get('lang');
+  const params = new URL(url ?? "", "http://localhost").searchParams;
+  const token = params.get("token") ?? undefined;
+  const langParam = params.get("lang");
   const languages = langParam
-    ? (langParam.split(',').filter((l) => l) as LanguageCode[])
+    ? (langParam.split(",").filter((l) => l) as LanguageCode[])
     : undefined;
   return { token, languages };
 }
@@ -67,12 +67,22 @@ export class WebSocketCaptionServer {
     private readonly options: { port: number },
   ) {}
 
-  start(): void {
-    this.wss = new WebSocketServer({ port: this.options.port });
-    this.wss.on('connection', (socket, req: IncomingMessage) => {
-      const { token, languages } = parseConnectionQuery(req.url);
-      attachConnection(this.hub, socket as unknown as WebSocketLike, { token, languages });
+  /** サーバを起動し、listen 開始で解決する (port:0 でエフェメラルポート)。 */
+  start(): Promise<void> {
+    return new Promise((resolve) => {
+      this.wss = new WebSocketServer({ port: this.options.port });
+      this.wss.on("connection", (socket, req: IncomingMessage) => {
+        const { token, languages } = parseConnectionQuery(req.url);
+        attachConnection(this.hub, socket as unknown as WebSocketLike, { token, languages });
+      });
+      this.wss.on("listening", () => resolve());
     });
+  }
+
+  /** 実際に listen しているポート番号 (未起動なら undefined)。 */
+  get port(): number | undefined {
+    const addr = this.wss?.address();
+    return typeof addr === "object" && addr !== null ? addr.port : undefined;
   }
 
   async stop(): Promise<void> {

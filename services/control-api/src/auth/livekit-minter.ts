@@ -1,12 +1,13 @@
 /**
- * LiveKit アクセストークンの発行抽象 (DESIGN.md 4.1, 5 章)。
+ * LiveKit アクセストークンの発行抽象 (DESIGN.md 4.1, 5 章, ADR 0008 D-5)。
  *
  * 招待トークンを検証した参加者に、SFU(LiveKit) 接続用のアクセストークンを払い出す。
  * 署名鍵 (LiveKit apiKey/apiSecret) は制御層で安全に保持し、ブラウザには渡さない (ADR D-10)。
- * 既定実装は media-composer の純粋なトークン生成関数を用いる。テストはフェイクを注入する。
+ * apiKey/apiSecret は全イベント共有 (ADR 0008 D-5)。URL は per-event (events.media.livekitUrl)
+ * から取得するため、minter は URL を持たない (ADR 0008 D-1)。
  */
-import type { Role } from '@stagecast/shared';
-import { createLiveKitAccessToken } from '@stagecast/media-composer';
+import type { Role } from "@stagecast/shared";
+import { createLiveKitAccessToken } from "@stagecast/media-composer";
 
 export interface MintInput {
   identity: string;
@@ -17,22 +18,16 @@ export interface MintInput {
 }
 
 export interface LiveKitTokenMinter {
-  /** SFU 接続先 URL (wss://...)。 */
-  readonly url: string;
   mint(input: MintInput): string;
 }
 
 export interface LiveKitConfig {
-  url: string;
   apiKey: string;
   apiSecret: string;
 }
 
 export class DefaultLiveKitTokenMinter implements LiveKitTokenMinter {
-  readonly url: string;
-  constructor(private readonly config: LiveKitConfig) {
-    this.url = config.url;
-  }
+  constructor(private readonly config: LiveKitConfig) {}
   mint(input: MintInput): string {
     return createLiveKitAccessToken({
       apiKey: this.config.apiKey,

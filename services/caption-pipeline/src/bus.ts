@@ -7,7 +7,7 @@
  * ここではプロセス内実装を提供する (ADR D-8)。将来クロスサービス化する場合は、同じ
  * CaptionBus インターフェースのまま Kinesis / Redis Streams 等の実装へ差し替える。
  */
-import type { CaptionBus, CaptionEvent } from '@stagecast/shared';
+import type { CaptionBus, CaptionEvent } from "@stagecast/shared";
 
 export class InProcessCaptionBus implements CaptionBus {
   private readonly handlers = new Set<(caption: CaptionEvent) => void>();

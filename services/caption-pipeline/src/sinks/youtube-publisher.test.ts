@@ -1,45 +1,59 @@
-import { describe, expect, it, vi } from 'vitest';
-import type { CaptionEvent } from '@stagecast/shared';
-import { HttpYouTubeCaptionPublisher, formatYouTubeTimestamp } from './youtube-publisher.js';
+import { describe, expect, it, vi } from "vitest";
+import type { CaptionEvent } from "@stagecast/shared";
+import {
+  CaptionIngestionError,
+  HttpYouTubeCaptionPublisher,
+  formatYouTubeTimestamp,
+} from "./youtube-publisher.js";
 
 const final: CaptionEvent = {
   startMs: 1500,
   endMs: 2500,
-  language: 'ja',
-  text: 'こんにちは',
-  status: 'final',
+  language: "ja",
+  text: "こんにちは",
+  status: "final",
 };
 
-describe('HttpYouTubeCaptionPublisher (DESIGN.md 6.3.1)', () => {
-  it('formats timestamps relative to the stream base time', () => {
+describe("HttpYouTubeCaptionPublisher (DESIGN.md 6.3.1)", () => {
+  it("formats timestamps relative to the stream base time", () => {
     expect(formatYouTubeTimestamp(Date.UTC(2026, 0, 1, 0, 0, 1, 500))).toBe(
-      '2026-01-01T00:00:01.500',
+      "2026-01-01T00:00:01.500",
     );
   });
 
-  it('POSTs timestamped body with an incrementing sequence', async () => {
+  it("POSTs timestamped body with an incrementing sequence", async () => {
     const fetchFn = vi.fn().mockResolvedValue({ ok: true, status: 200 });
     const pub = new HttpYouTubeCaptionPublisher({
-      ingestionUrl: 'https://upload.youtube.com/closedcaption?cid=abc',
+      ingestionUrl: "https://upload.youtube.com/closedcaption?cid=abc",
       baseEpochMs: Date.UTC(2026, 0, 1, 0, 0, 0, 0),
       fetchFn,
     });
     await pub.publish(final);
-    await pub.publish({ ...final, startMs: 3000, text: 'さようなら' });
+    await pub.publish({ ...final, startMs: 3000, text: "さようなら" });
 
     expect(fetchFn).toHaveBeenCalledTimes(2);
-    expect(fetchFn.mock.calls[0][0]).toContain('seq=1');
-    expect(fetchFn.mock.calls[1][0]).toContain('seq=2');
-    expect(fetchFn.mock.calls[0][1].body).toBe('2026-01-01T00:00:01.500\nこんにちは\n');
+    expect(fetchFn.mock.calls[0][0]).toContain("seq=1");
+    expect(fetchFn.mock.calls[1][0]).toContain("seq=2");
+    expect(fetchFn.mock.calls[0][1].body).toBe("2026-01-01T00:00:01.500\nこんにちは\n");
   });
 
-  it('throws when ingestion fails', async () => {
+  it("throws when ingestion fails", async () => {
     const fetchFn = vi.fn().mockResolvedValue({ ok: false, status: 403 });
     const pub = new HttpYouTubeCaptionPublisher({
-      ingestionUrl: 'https://upload.youtube.com/cc',
+      ingestionUrl: "https://upload.youtube.com/cc",
       baseEpochMs: 0,
       fetchFn,
     });
     await expect(pub.publish(final)).rejects.toThrow(/403/);
+  });
+
+  it("4xx は retryable=false、5xx/429 は retryable=true で分類する (ADR 0007)", async () => {
+    // 恒久エラー (4xx) は再試行しても無駄なので即断念させる。
+    expect(new CaptionIngestionError(403).retryable).toBe(false);
+    expect(new CaptionIngestionError(400).retryable).toBe(false);
+    // 一過性 (5xx / スロットリング / タイムアウト) は再試行する。
+    expect(new CaptionIngestionError(503).retryable).toBe(true);
+    expect(new CaptionIngestionError(429).retryable).toBe(true);
+    expect(new CaptionIngestionError(408).retryable).toBe(true);
   });
 });

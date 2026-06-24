@@ -133,18 +133,40 @@
       （注入 CloudFormationLike でテスト）（7.1）
 - 受け入れ基準: ws 橋渡し・選択・worker E2E・CFN 作成/待機/失敗/削除 をテスト ✅
 
+### フェーズ 12: 障害時方針・実テンプレート供給・実ポート起動
+
+- [x] **ADR 0003 障害時フェイルオーバー**（調整ループ・RTMP 再接続・Valkey Streams 追いつき・
+      状態外部化）（`DESIGN.md` 9.1）
+- [x] 実テンプレート供給：infra `renderEventMediaTemplate`（CDK を synth してテンプレート JSON 生成）+ `bin/render-template.ts` CLI + テスト
+- [x] 実 CFN 結線：media-orchestrator `AwsCloudFormationClient`（SDK 実装）+
+      `createAwsMediaStackProvisioner`（renderTemplate 注入の合流点）
+- [x] 字幕ワーカー bootstrap：`CaptionService`（worker + WebSocket 実ポート起動 + AudioSource）、
+      `configFromEnv`/`realProvidersFromEnv`/`runFromEnv` + `main.ts`、グレースフルシャットダウン
+- 受け入れ基準: 実テンプレート生成・実 CFN マッピング・**実 ws ポートでの E2E**（実 ws クライアント
+  が字幕受信）をテスト ✅
+
 ---
 
 ## 現在のステータス
 
-- 完了: **フェーズ 0〜11 すべて** ✅（build / typecheck / lint / test / format 全通過、計 123 tests）
-- パッケージ別テスト: shared 9 / infra 12 / control-api 26 / media-orchestrator 12 /
-  media-composer 12 / caption-pipeline 39 / admin-web 4 / stage-web 9
-- 実アダプタ・トランスポート・プロビジョナは注入クライアント/フェイクで単体テスト済み。
-- 字幕バス分散化は **ADR 0002 で Valkey Streams を採用**し、`ValkeyStreamsCaptionBus`
-  （`CaptionBus` 互換・イベント単位ストリーム名前空間）を実装・テスト済み。
-- 残（実 AWS 環境での E2E・運用が本体の事項, `DESIGN.md` 9.1）:
-  - 実 `cdk synth` テンプレートを `CloudFormationMediaStackProvisioner.renderTemplate` へ供給する配線
-  - WebSocket サーバの実ポート起動・スケール運用（橋渡しロジックは実装・テスト済み）
-  - `ValkeyStreamsCaptionBus` の実 Valkey クライアント結線（I/F・ロジックは実装・テスト済み）
-  - **障害時フェイルオーバー方針（次の ADR 0003 候補）**
+- 完了: **フェーズ 0〜12 + REMAINING_WORK T1〜T10 すべて** ✅
+  （build / typecheck / lint / test / format 全通過、計 **190 tests** + 9 integration tests）
+- パッケージ別テスト: shared 9 / infra 21 / control-api 32 / media-orchestrator 30 /
+  media-composer 20 / caption-pipeline 59 / admin-web 10 / stage-web 9
+- ADR: 0001 技術選定 / 0002 字幕バス分散化 (Valkey Streams) / 0003 障害時フェイルオーバー /
+  0004 ツールチェイン (Vite+)
+
+### REMAINING_WORK T1〜T10 の達成内容（2026-06-15）
+
+| ID      | 主な追加・差し替え                                                                                   | テスト追加                       |
+| ------- | ---------------------------------------------------------------------------------------------------- | -------------------------------- |
+| **T5**  | `control-plane-stack` を NodejsFunction + Cognito JWT Authorizer 化、`lambda.ts` で Secrets 経由起動 | control-api +5 / infra +1        |
+| **T7**  | Secrets Manager (`invite-token` / `livekit` / `youtube`) を CDK 定義、Lambda に grantRead            | infra +2                         |
+| **T6**  | stage-web 用 S3+CloudFront、admin-web に Cognito Hosted UI (PKCE) クライアント実装                   | admin-web +6                     |
+| **T4**  | `reconcile.ts` 純粋関数 + EventBridge スケジュール Lambda (`reconcile-handler`)、CDK 配線            | media-orchestrator +9 / infra +1 |
+| **T2**  | `LiveKitEgressClient` (RoomComposite + S3 録画 + layoutToLiveKit) + `attachComposerToPresentation`   | media-composer +8                |
+| **T1**  | `LiveKitAudioSource` + `resampleLinearInt16` + `liveKitAudioSourceFromEnv`                           | caption-pipeline +5              |
+| **T3**  | `ValkeyStreamClient` (ioredis ベース XADD/XREAD)、`CAPTION_BUS=valkey` で runtime 切替               | caption-pipeline +3              |
+| **T9**  | `CaptionMetricsCollector` + EMF Sink、EventMediaStack に Alarm/MetricFilter/Dashboard                | caption-pipeline +4 / infra +1   |
+| **T8**  | `*.integration.test.ts` + `RUN_INTEGRATION=1` ゲート、ルートに `test:integration` script             | integration +9                   |
+| **T10** | CI に `cdk synth` ステップ追加、`deploy.yml` (手動 dispatch + OIDC)、README デプロイ手順刷新         | —                                |

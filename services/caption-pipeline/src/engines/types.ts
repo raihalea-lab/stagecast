@@ -4,7 +4,7 @@
  * ASR・翻訳・LLM の具体実装 (Amazon Transcribe / Translate / Bedrock 等) はこれらの
  * アダプタとして注入する。テストでは外部接続なしのフェイクを注入する (PROMPT 共通ルール)。
  */
-import type { AudioChunk, LanguageCode } from '@stagecast/shared';
+import type { AudioChunk, LanguageCode } from "@stagecast/shared";
 
 /** ASR が出力する 1 区間の認識結果。 */
 export interface TranscriptSegment {

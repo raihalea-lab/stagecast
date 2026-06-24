@@ -5,23 +5,28 @@
   "bin": {
     "stagecast": "bin/app.ts"
   },
+  "exports": {
+    "./render-template": "./lib/render-template.ts"
+  },
   "scripts": {
-    "build": "tsc -p tsconfig.json",
+    "build": "tsc --noEmit -p tsconfig.json",
     "typecheck": "tsc --noEmit",
     "synth": "cdk synth",
     "cdk": "cdk",
-    "test": "vitest run",
+    "test": "vp test",
     "clean": "rm -rf dist cdk.out *.tsbuildinfo"
   },
   "dependencies": {
     "@stagecast/shared": "workspace:*",
-    "aws-cdk-lib": "^2.170.0",
-    "constructs": "^10.4.2"
+    "aws-cdk-lib": "^2.260.0",
+    "constructs": "^10.6.0"
   },
   "devDependencies": {
-    "aws-cdk": "^2.170.0",
-    "ts-node": "^10.9.2",
-    "typescript": "^5.7.2",
-    "vitest": "^2.1.8"
+    "@types/node": "^25.9.2",
+    "aws-cdk": "^2.1128.0",
+    "esbuild": "^0.28.1",
+    "tsx": "^4.22.4",
+    "typescript": "^6.0.3",
+    "vitest": "^4.1.0"
   }
 }

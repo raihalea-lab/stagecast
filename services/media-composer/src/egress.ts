@@ -4,7 +4,7 @@
  * 合成済み映像を RTMP で YouTube Live へ送出し、同時に録画を S3 に保存する。
  * 本番は LiveKit Egress を呼ぶが、ここでは差し替え可能なインターフェースとフェイクを置く。
  */
-import type { CompositionLayout } from './layout.js';
+import type { CompositionLayout } from "./layout.js";
 
 export interface RecordingConfig {
   /** 録画を保存する S3 バケット。 */
@@ -18,18 +18,18 @@ export interface StartEgressInput {
   room: string;
   layout: CompositionLayout;
   /** RTMP 送出先 (YouTube Live)。未指定はモック送出 (ローカル検証用)。 */
-  rtmpUrl?: string;
-  recording?: RecordingConfig;
+  rtmpUrl?: string | undefined;
+  recording?: RecordingConfig | undefined;
 }
 
-export type EgressStatus = 'starting' | 'active' | 'stopped';
+export type EgressStatus = "starting" | "active" | "stopped";
 
 export interface EgressHandle {
   egressId: string;
   eventId: string;
   status: EgressStatus;
-  rtmpUrl?: string;
-  recordingS3Uri?: string;
+  rtmpUrl?: string | undefined;
+  recordingS3Uri?: string | undefined;
 }
 
 export interface EgressClient {
@@ -53,7 +53,7 @@ export class FakeEgressClient implements EgressClient {
     return {
       egressId,
       eventId: input.eventId,
-      status: 'active',
+      status: "active",
       rtmpUrl: input.rtmpUrl,
       recordingS3Uri,
     };

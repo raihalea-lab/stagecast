@@ -2,8 +2,8 @@
  * テスト/ローカル用フェイクアダプタ (PROMPT 共通ルール)。
  * 外部接続なしに ASR・翻訳・LLM の挙動を再現する。
  */
-import type { AudioChunk, LanguageCode } from '@stagecast/shared';
-import type { AsrAdapter, LlmAdapter, Translator, TranscriptSegment } from './types.js';
+import type { AudioChunk, LanguageCode } from "@stagecast/shared";
+import type { AsrAdapter, LlmAdapter, Translator, TranscriptSegment } from "./types.js";
 
 /**
  * 投入された音声チャンクごとに、事前に与えた台本の認識結果を返すフェイク ASR。

@@ -1,9 +1,5 @@
-/**
- * イベント作成フォーム (DESIGN.md 8 章)。
- * タイトル/日時・字幕言語・YouTube送出言語・エンジン・独自API有効化・YouTube配信先を登録する。
- */
-import { useState } from 'react';
-import type { LanguageCode } from '@stagecast/shared';
+import { useState } from "react";
+import type { LanguageCode } from "@stagecast/shared";
 import {
   defaultFormValues,
   ENGINE_OPTIONS,
@@ -11,10 +7,11 @@ import {
   toCreateEventInput,
   validateForm,
   type EventFormValues,
-} from '../lib/event-form.js';
-import type { CreateEventInput } from '@stagecast/control-api';
+} from "../lib/event-form.js";
+import type { CreateEventInput } from "@stagecast/control-api";
+import { Button, Input, Label } from "@stagecast/ui";
 
-export function EventForm(props: { onCreate: (input: CreateEventInput) => void }) {
+export function EventForm(props: { onCreate: (input: CreateEventInput) => void; busy?: boolean }) {
   const [values, setValues] = useState<EventFormValues>(defaultFormValues());
   const [errors, setErrors] = useState<string[]>([]);
 
@@ -42,47 +39,55 @@ export function EventForm(props: { onCreate: (input: CreateEventInput) => void }
   };
 
   return (
-    <form onSubmit={submit} className="event-form">
-      <h2>新規イベント</h2>
+    <form onSubmit={submit} className="flex flex-col gap-4">
       {errors.length > 0 && (
-        <ul className="errors">
+        <ul className="space-y-1 rounded-md border border-error/40 bg-error/10 px-3 py-2 text-xs text-error">
           {errors.map((err) => (
             <li key={err}>{err}</li>
           ))}
         </ul>
       )}
-      <label>
-        タイトル
-        <input value={values.title} onChange={(e) => set('title', e.target.value)} />
-      </label>
-      <label>
-        開催日時
-        <input
+      <div className="grid gap-2">
+        <Label htmlFor="ef-title">タイトル</Label>
+        <Input id="ef-title" value={values.title} onChange={(e) => set("title", e.target.value)} />
+      </div>
+      <div className="grid gap-2">
+        <Label htmlFor="ef-starts">開催日時</Label>
+        <Input
+          id="ef-starts"
           type="datetime-local"
           value={values.startsAt}
-          onChange={(e) => set('startsAt', e.target.value)}
+          onChange={(e) => set("startsAt", e.target.value)}
         />
-      </label>
+      </div>
 
-      <fieldset>
-        <legend>字幕の対応言語</legend>
-        {LANGUAGE_OPTIONS.map((lang) => (
-          <label key={lang} className="inline">
-            <input
-              type="checkbox"
-              checked={values.languages.includes(lang)}
-              onChange={() => toggleLanguage(lang)}
-            />
-            {lang}
-          </label>
-        ))}
+      <fieldset className="grid gap-2">
+        <legend className="text-sm font-medium text-text-primary">字幕の対応言語</legend>
+        <div className="flex flex-wrap gap-3">
+          {LANGUAGE_OPTIONS.map((lang) => (
+            <label
+              key={lang}
+              className="inline-flex items-center gap-1.5 text-sm text-text-secondary"
+            >
+              <input
+                type="checkbox"
+                checked={values.languages.includes(lang)}
+                onChange={() => toggleLanguage(lang)}
+                className="accent-tally-500"
+              />
+              {lang}
+            </label>
+          ))}
+        </div>
       </fieldset>
 
-      <label>
-        YouTube 送出言語 (1 言語)
+      <div className="grid gap-2">
+        <Label htmlFor="ef-yt-lang">YouTube 送出言語 (1 言語)</Label>
         <select
+          id="ef-yt-lang"
           value={values.youtubeLanguage}
-          onChange={(e) => set('youtubeLanguage', e.target.value as LanguageCode)}
+          onChange={(e) => set("youtubeLanguage", e.target.value as LanguageCode)}
+          className="rounded-md border border-line-2 bg-surface-1 px-3 py-2 text-sm text-text-primary"
         >
           {values.languages.map((lang) => (
             <option key={lang} value={lang}>
@@ -90,13 +95,15 @@ export function EventForm(props: { onCreate: (input: CreateEventInput) => void }
             </option>
           ))}
         </select>
-      </label>
+      </div>
 
-      <label>
-        字幕エンジン
+      <div className="grid gap-2">
+        <Label htmlFor="ef-engine">字幕エンジン</Label>
         <select
+          id="ef-engine"
           value={values.engine}
-          onChange={(e) => set('engine', e.target.value as EventFormValues['engine'])}
+          onChange={(e) => set("engine", e.target.value as EventFormValues["engine"])}
+          className="rounded-md border border-line-2 bg-surface-1 px-3 py-2 text-sm text-text-primary"
         >
           {ENGINE_OPTIONS.map((opt) => (
             <option key={opt.value} value={opt.value}>
@@ -104,30 +111,38 @@ export function EventForm(props: { onCreate: (input: CreateEventInput) => void }
             </option>
           ))}
         </select>
-      </label>
+      </div>
 
-      <label className="inline">
+      <label className="inline-flex items-center gap-2 text-sm text-text-secondary">
         <input
           type="checkbox"
           checked={values.customApiEnabled}
-          onChange={(e) => set('customApiEnabled', e.target.checked)}
+          onChange={(e) => set("customApiEnabled", e.target.checked)}
+          className="accent-tally-500"
         />
-        独自字幕配信 API を有効化する (多言語・任意起動)
+        独自字幕配信 API を有効化する
       </label>
 
-      <label>
-        YouTube RTMP URL
-        <input value={values.rtmpUrl ?? ''} onChange={(e) => set('rtmpUrl', e.target.value)} />
-      </label>
-      <label>
-        ストリームキー参照 (Secrets 名)
-        <input
-          value={values.streamKeyRef ?? ''}
-          onChange={(e) => set('streamKeyRef', e.target.value)}
+      <div className="grid gap-2">
+        <Label htmlFor="ef-rtmp">YouTube RTMP URL</Label>
+        <Input
+          id="ef-rtmp"
+          value={values.rtmpUrl ?? ""}
+          onChange={(e) => set("rtmpUrl", e.target.value)}
         />
-      </label>
+      </div>
+      <div className="grid gap-2">
+        <Label htmlFor="ef-skey">ストリームキー参照 (Secrets 名)</Label>
+        <Input
+          id="ef-skey"
+          value={values.streamKeyRef ?? ""}
+          onChange={(e) => set("streamKeyRef", e.target.value)}
+        />
+      </div>
 
-      <button type="submit">イベントを作成</button>
+      <Button type="submit" disabled={props.busy}>
+        {props.busy ? "作成中…" : "イベントを作成"}
+      </Button>
     </form>
   );
 }

@@ -6,8 +6,8 @@ import {
   SUPPORTED_LANGUAGES,
   type CaptionEngineKind,
   type LanguageCode,
-} from '@stagecast/shared';
-import type { CreateEventInput } from '@stagecast/control-api';
+} from "@stagecast/shared";
+import type { CreateEventInput } from "@stagecast/control-api";
 
 export interface EventFormValues {
   title: string;
@@ -28,20 +28,20 @@ export interface EventFormValues {
 }
 
 export const ENGINE_OPTIONS: { value: CaptionEngineKind; label: string }[] = [
-  { value: 'transcribe', label: 'Amazon Transcribe + Translate (常用・低遅延)' },
-  { value: 'llm', label: 'LLM 経路 (品質重視)' },
-  { value: 'self-hosted-asr', label: '自前 ASR (拡張用)' },
+  { value: "transcribe", label: "Amazon Transcribe + Translate (常用・低遅延)" },
+  { value: "llm", label: "LLM 経路 (品質重視)" },
+  { value: "self-hosted-asr", label: "自前 ASR (拡張用)" },
 ];
 
 export const LANGUAGE_OPTIONS = SUPPORTED_LANGUAGES;
 
 export function defaultFormValues(): EventFormValues {
   return {
-    title: '',
-    startsAt: '',
-    languages: ['ja', 'en'],
-    youtubeLanguage: 'ja',
-    engine: 'transcribe',
+    title: "",
+    startsAt: "",
+    languages: ["ja", "en"],
+    youtubeLanguage: "ja",
+    engine: "transcribe",
     customApiEnabled: false,
   };
 }
@@ -53,11 +53,11 @@ export interface FormValidation {
 
 export function validateForm(values: EventFormValues): FormValidation {
   const errors: string[] = [];
-  if (!values.title.trim()) errors.push('タイトルは必須です');
-  if (!values.startsAt) errors.push('開催日時は必須です');
-  if (values.languages.length === 0) errors.push('対応言語を 1 つ以上選択してください');
+  if (!values.title.trim()) errors.push("タイトルは必須です");
+  if (!values.startsAt) errors.push("開催日時は必須です");
+  if (values.languages.length === 0) errors.push("対応言語を 1 つ以上選択してください");
   if (!values.languages.includes(values.youtubeLanguage)) {
-    errors.push('YouTube 送出言語は対応言語に含めてください');
+    errors.push("YouTube 送出言語は対応言語に含めてください");
   }
   return { ok: errors.length === 0, errors };
 }
@@ -71,7 +71,7 @@ export function toCreateEventInput(values: EventFormValues): CreateEventInput {
     customApiEnabled: values.customApiEnabled,
   };
   if (!isValidCaptionSettings(caption)) {
-    throw new Error('invalid caption settings');
+    throw new Error("invalid caption settings");
   }
   return {
     title: values.title.trim(),

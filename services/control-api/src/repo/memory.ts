@@ -2,13 +2,13 @@
  * インメモリ・リポジトリ実装 (テスト/ローカル用)。
  * 本番では同じインターフェースの DynamoDB 実装に差し替える。
  */
-import type { EventDefinition, PresentationState, SpeakerVisibility } from '@stagecast/shared';
+import type { EventDefinition, PresentationState, SpeakerVisibility } from "@stagecast/shared";
 import type {
   EventRepository,
   InviteTokenRecord,
   InviteTokenRepository,
   PresentationRepository,
-} from './types.js';
+} from "./types.js";
 
 export class MemoryEventRepository implements EventRepository {
   private readonly store = new Map<string, EventDefinition>();
@@ -79,7 +79,7 @@ export class MemoryPresentationRepository implements PresentationRepository {
 
   async setSlide(
     eventId: string,
-    slide: Pick<PresentationState, 'slideSource' | 'slidePage'>,
+    slide: Pick<PresentationState, "slideSource" | "slidePage">,
   ): Promise<PresentationState> {
     const s = this.ensure(eventId);
     s.slideSource = slide.slideSource;

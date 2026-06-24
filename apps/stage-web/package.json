@@ -4,25 +4,26 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "vite",
-    "build": "vite build",
+    "dev": "vp dev",
+    "build": "vp build",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run",
-    "preview": "vite preview",
+    "test": "vp test",
+    "preview": "vp preview",
     "clean": "rm -rf dist"
   },
   "dependencies": {
     "@stagecast/shared": "workspace:*",
-    "livekit-client": "^2.7.5",
-    "react": "^18.3.1",
-    "react-dom": "^18.3.1"
+    "@stagecast/ui": "workspace:*",
+    "livekit-client": "^2.19.2",
+    "react": "^19.2.7",
+    "react-dom": "^19.2.7"
   },
   "devDependencies": {
-    "@types/react": "^18.3.18",
-    "@types/react-dom": "^18.3.5",
-    "@vitejs/plugin-react": "^4.3.4",
-    "typescript": "^5.7.2",
-    "vite": "^5.4.11",
-    "vitest": "^2.1.8"
+    "@types/react": "^19.2.17",
+    "@types/react-dom": "^19.2.3",
+    "@vitejs/plugin-react": "^6.0.0",
+    "typescript": "^6.0.3",
+    "vite": "^8.0.16",
+    "vitest": "^4.1.0"
   }
 }

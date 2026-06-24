@@ -1,0 +1,42 @@
+version: 2
+updates:
+  # npm / pnpm 依存。ワークスペース全体を週 1 でスキャン。
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 10
+    # pnpm 11 の minimumReleaseAge (デフォルト 1440 分 = 1 日) と衝突しないよう、
+    # 新しいパッケージは 7 日 (semver-major は 14 日) 寝かせてから PR を作る。
+    # これがないと CI で ERR_PNPM_MINIMUM_RELEASE_AGE_VIOLATION で fail する。
+    cooldown:
+      default-days: 7
+      semver-major-days: 14
+    groups:
+      aws-sdk:
+        patterns:
+          - "@aws-sdk/*"
+      aws-cdk:
+        patterns:
+          - "aws-cdk"
+          - "aws-cdk-lib"
+          - "constructs"
+      vite-plus:
+        patterns:
+          - "vite-plus"
+          - "@voidzero-dev/*"
+      types:
+        patterns:
+          - "@types/*"
+      livekit:
+        patterns:
+          - "livekit-server-sdk"
+          - "@livekit/*"
+
+  # GitHub Actions のバージョンも週 1 で更新を提案。
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday

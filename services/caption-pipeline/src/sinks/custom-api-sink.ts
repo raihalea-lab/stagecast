@@ -9,7 +9,8 @@
  * 想定トランスポートは WebSocket / SSE。本モジュールはトランスポート非依存の
  * CaptionBroadcaster 抽象を介して配信し、メッセージスキーマ (CaptionStreamMessage) を定義する。
  */
-import type { CaptionEvent, CaptionSink, LanguageCode } from '@stagecast/shared';
+import type { CaptionEvent, CaptionSink, LanguageCode } from "@stagecast/shared";
+import { CAPTION_SINK_KINDS } from "@stagecast/shared";
 
 /**
  * 独自字幕配信プロトコルのメッセージスキーマ (v1)。
@@ -18,7 +19,7 @@ import type { CaptionEvent, CaptionSink, LanguageCode } from '@stagecast/shared'
 export interface CaptionStreamMessage {
   /** プロトコルバージョン。 */
   v: 1;
-  type: 'caption';
+  type: "caption";
   eventId?: string;
   language: LanguageCode;
   text: string;
@@ -44,7 +45,7 @@ export interface CustomCaptionApiSinkConfig {
 }
 
 export class CustomCaptionApiSink implements CaptionSink {
-  readonly kind = 'custom-api';
+  readonly kind = CAPTION_SINK_KINDS.customApi;
 
   constructor(
     private readonly broadcaster: CaptionBroadcaster,
@@ -60,13 +61,13 @@ export class CustomCaptionApiSink implements CaptionSink {
     if (!this.config.languages.includes(caption.language)) return;
     await this.broadcaster.broadcast({
       v: 1,
-      type: 'caption',
+      type: "caption",
       eventId: caption.eventId ?? this.config.eventId,
       language: caption.language,
       text: caption.text,
       startMs: caption.startMs,
       endMs: caption.endMs,
-      final: caption.status === 'final',
+      final: caption.status === "final",
       speakerId: caption.speakerId,
     });
   }

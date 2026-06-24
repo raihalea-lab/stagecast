@@ -5,17 +5,32 @@
  * ソース言語をストリーミング ASR で認識し、各ターゲット言語へ翻訳して字幕イベントを発行する。
  * ソース言語の字幕もそのまま発行する。暫定/確定フラグは ASR の結果を引き継ぐ。
  */
-import type { AudioChunk, CaptionEngine, CaptionEvent, LanguageCode } from '@stagecast/shared';
-import type { AsrAdapter, Translator, TranscriptSegment } from './types.js';
+import type { AudioChunk, CaptionEngine, CaptionEvent, LanguageCode } from "@stagecast/shared";
+import { createLogger, withRetry, withTimeout, type RetryOptions } from "@stagecast/shared";
+import type { AsrAdapter, Translator, TranscriptSegment } from "./types.js";
+
+const log = createLogger({ component: "transcribe-engine" });
+
+/** 翻訳 1 回のタイムアウト既定値 (ms)。固まった翻訳が pushAudio を止めるのを防ぐ (N-2)。 */
+const DEFAULT_TRANSLATE_TIMEOUT_MS = 8_000;
 
 export interface TranscribeEngineConfig {
   sourceLanguage: LanguageCode;
   targetLanguages: LanguageCode[];
   eventId?: string;
+  /**
+   * 翻訳呼び出しの一過性失敗に対するリトライ設定 (省略時は既定の指数バックオフ)。
+   * 全リトライ失敗時はその言語をスキップし、ソース字幕と他言語は流す (翻訳は best-effort, N-2)。
+   */
+  translateRetry?: RetryOptions;
+  /** 翻訳 1 回のタイムアウト (ms, 既定 8000)。応答しない翻訳が pushAudio を止めるのを防ぐ。0 以下で無効。 */
+  translateTimeoutMs?: number;
+  /** 翻訳が全リトライ失敗しその言語を諦めたときの通知 (メトリクス計測用)。 */
+  onTranslateError?: (target: LanguageCode, err: unknown) => void;
 }
 
 export class TranscribeStreamingEngine implements CaptionEngine {
-  readonly kind = 'transcribe';
+  readonly kind = "transcribe";
   readonly sourceLanguage: LanguageCode;
   readonly targetLanguages: LanguageCode[];
   private readonly handlers: ((c: CaptionEvent) => void)[] = [];
@@ -42,10 +57,10 @@ export class TranscribeStreamingEngine implements CaptionEngine {
   }
 
   private async handleSegment(segment: TranscriptSegment): Promise<void> {
-    const baseEvent: Omit<CaptionEvent, 'language' | 'text'> = {
+    const baseEvent: Omit<CaptionEvent, "language" | "text"> = {
       startMs: segment.startMs,
       endMs: segment.endMs,
-      status: segment.isFinal ? 'final' : 'interim',
+      status: segment.isFinal ? "final" : "interim",
       speakerId: segment.speakerId,
       eventId: this.config.eventId,
     };
@@ -54,10 +69,30 @@ export class TranscribeStreamingEngine implements CaptionEngine {
     this.emit({ ...baseEvent, language: this.sourceLanguage, text: segment.text });
 
     // ターゲット言語へ翻訳して発行 (ソース言語と同一はスキップ)。
+    // 翻訳は一過性失敗をバックオフ再試行し、全滅したらその言語だけ諦める (best-effort, N-2)。
     for (const target of this.targetLanguages) {
       if (target === this.sourceLanguage) continue;
-      const text = await this.translator.translate(segment.text, this.sourceLanguage, target);
-      this.emit({ ...baseEvent, language: target, text });
+      try {
+        const text = await withRetry(
+          () =>
+            withTimeout(
+              () => this.translator.translate(segment.text, this.sourceLanguage, target),
+              {
+                timeoutMs: this.config.translateTimeoutMs ?? DEFAULT_TRANSLATE_TIMEOUT_MS,
+                message: `translate to ${target} timed out`,
+              },
+            ),
+          this.config.translateRetry,
+        );
+        this.emit({ ...baseEvent, language: target, text });
+      } catch (err) {
+        log.error("translate failed after retries", {
+          target,
+          ...(this.config.eventId ? { eventId: this.config.eventId } : {}),
+          err,
+        });
+        this.config.onTranslateError?.(target, err);
+      }
     }
   }
 

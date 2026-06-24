@@ -5,7 +5,7 @@
  * しないよう最小の操作だけを ValkeyClient として抽象化し、テストでは fake を注入する。
  * 名前空間化はキー規約 (stagecast:{eventId}:{key}) で行い、イベント間の干渉を防ぐ (N-5)。
  */
-import { namespacedKey, type SharedStateStore } from './shared-state.js';
+import { namespacedKey, type SharedStateStore } from "./shared-state.js";
 
 export interface ValkeyClient {
   get(key: string): Promise<string | null>;
@@ -29,7 +29,7 @@ export class ValkeySharedStateStore implements SharedStateStore {
     await this.client.del(namespacedKey(eventId, key));
   }
   async clearNamespace(eventId: string): Promise<void> {
-    const prefix = namespacedKey(eventId, '');
+    const prefix = namespacedKey(eventId, "");
     const keys = await this.client.keysByPrefix(prefix);
     await Promise.all(keys.map((k) => this.client.del(k)));
   }

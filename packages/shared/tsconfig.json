@@ -3,7 +3,11 @@
   "compilerOptions": {
     "rootDir": "./src",
     "outDir": "./dist",
-    "tsBuildInfoFile": "./dist/.tsbuildinfo"
+    "tsBuildInfoFile": "./dist/.tsbuildinfo",
+    // R16 / ADR 0012 D-4: layout-protocol.ts で Web 標準の TextEncoder/TextDecoder を使う
+    // (Node.js 11+ と browser の両方で globalThis に存在する)。 DOM lib を追加して型を解決。
+    // window などのブラウザ専用 API は使わない (shared は Node.js 環境でも import される)。
+    "lib": ["ES2022", "DOM"]
   },
   "include": ["src/**/*.ts"],
   "exclude": ["src/**/*.test.ts", "src/**/*.spec.ts", "dist"]

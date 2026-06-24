@@ -8,14 +8,15 @@
  * テンプレートは EventMediaStack を `cdk synth` で生成したものを renderTemplate で供給する
  * (eventId 等をパラメータ化)。
  */
-import type { EventMediaSpec, MediaStackHandle, MediaStackProvisioner } from './provisioner.js';
+import { withRetry, type RetryOptions } from "@stagecast/shared";
+import type { EventMediaSpec, MediaStackHandle, MediaStackProvisioner } from "./provisioner.js";
 
 export interface StackOutput {
-  OutputKey?: string;
-  OutputValue?: string;
+  OutputKey?: string | undefined;
+  OutputValue?: string | undefined;
 }
 export interface DescribeResult {
-  Stacks?: { StackStatus?: string; Outputs?: StackOutput[] }[];
+  Stacks?: { StackStatus?: string | undefined; Outputs?: StackOutput[] | undefined }[] | undefined;
 }
 
 /** CloudFormation の最小サブセット。 */
@@ -23,23 +24,32 @@ export interface CloudFormationLike {
   createStack(input: {
     StackName: string;
     TemplateBody: string;
-    Capabilities?: string[];
-  }): Promise<{ StackId?: string }>;
+    Capabilities?: string[] | undefined;
+    /** CFN サービスロール ARN (R5)。指定時 CFN はこのロールでリソースを作成する。 */
+    RoleARN?: string | undefined;
+  }): Promise<{ StackId?: string | undefined }>;
   deleteStack(input: { StackName: string }): Promise<void>;
   describeStacks(input: { StackName: string }): Promise<DescribeResult>;
 }
 
 export interface CfnProvisionerConfig {
   cfn: CloudFormationLike;
-  /** イベント仕様 → CloudFormation テンプレート (JSON 文字列)。 */
-  renderTemplate: (spec: EventMediaSpec) => string;
+  /** イベント仕様 → CloudFormation テンプレート (JSON 文字列)。別 Lambda 呼び出しで async 可 (D1)。 */
+  renderTemplate: (spec: EventMediaSpec) => string | Promise<string>;
   /** イベント ID → スタック名 (infra の eventMediaStackName と一致させる)。 */
   stackName: (eventId: string) => string;
+  /** CFN サービスロール ARN (R5)。createStack の RoleARN に渡す。 */
+  roleArn?: string | undefined;
   /** 完了待ちのポーリング間隔・最大回数 (テストでは 0/1)。 */
-  pollIntervalMs?: number;
-  maxPolls?: number;
+  pollIntervalMs?: number | undefined;
+  maxPolls?: number | undefined;
   /** 待機関数 (テストで差し替え可能)。 */
-  delay?: (ms: number) => Promise<void>;
+  delay?: ((ms: number) => Promise<void>) | undefined;
+  /**
+   * describeStacks の一過性失敗 (CFN スロットリング等) に対するリトライ設定。
+   * 既定では provisioner の `delay` を sleep に使い、テストは実時間を待たない。
+   */
+  describeRetry?: RetryOptions | undefined;
 }
 
 const COMPLETE = /COMPLETE$/;
@@ -60,9 +70,14 @@ export class CloudFormationMediaStackProvisioner implements MediaStackProvisione
     const delay = this.config.delay ?? ((ms: number) => new Promise((r) => setTimeout(r, ms)));
     const maxPolls = this.config.maxPolls ?? 60;
     const interval = this.config.pollIntervalMs ?? 5000;
+    // describeStacks の一過性失敗は 1 tick を諦めず短く再試行する (sleep は delay を流用)。
+    const describeRetry: RetryOptions = { sleep: delay, ...this.config.describeRetry };
     for (let i = 0; i < maxPolls; i++) {
-      const res = await this.config.cfn.describeStacks({ StackName: stackName });
-      const status = res.Stacks?.[0]?.StackStatus ?? '';
+      const res = await withRetry(
+        () => this.config.cfn.describeStacks({ StackName: stackName }),
+        describeRetry,
+      );
+      const status = res.Stacks?.[0]?.StackStatus ?? "";
       if (FAILED.test(status)) throw new Error(`stack ${stackName} failed: ${status}`);
       if (COMPLETE.test(status)) return this.outputs(res);
       await delay(interval);
@@ -74,14 +89,15 @@ export class CloudFormationMediaStackProvisioner implements MediaStackProvisione
     const stackName = this.config.stackName(spec.eventId);
     const created = await this.config.cfn.createStack({
       StackName: stackName,
-      TemplateBody: this.config.renderTemplate(spec),
-      Capabilities: ['CAPABILITY_IAM', 'CAPABILITY_NAMED_IAM'],
+      TemplateBody: await this.config.renderTemplate(spec),
+      Capabilities: ["CAPABILITY_IAM", "CAPABILITY_NAMED_IAM"],
+      ...(this.config.roleArn ? { RoleARN: this.config.roleArn } : {}),
     });
     const outputs = await this.waitForComplete(stackName);
     return {
       eventId: spec.eventId,
       stackId: created.StackId ?? stackName,
-      status: 'running',
+      status: "running",
       // 出力があれば使い、無ければ規約ベースで補完する。
       sfuUrl: outputs.SfuUrl ?? `wss://sfu-${spec.eventId}.media.internal`,
       captionPipelineId: outputs.CaptionPipelineId ?? `caption-${spec.eventId}`,

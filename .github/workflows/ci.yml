@@ -1,38 +1,56 @@
 name: CI
 
+# ローカル pre-push フックで同等のチェックを実行するため一時無効化。
+# 戻すときは workflow_dispatch を on.push / on.pull_request に戻す。
 on:
-  push:
-    branches: ['**']
-  pull_request:
+  workflow_dispatch:
+
+# 同じブランチ/PR の古い run は新しい push でキャンセル。main は守る。
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 jobs:
   build-test:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       # pnpm のバージョンは package.json の packageManager から解決する
-      # (二重指定すると ERR_PNPM_BAD_PM_VERSION になるため version は指定しない)
-      - uses: pnpm/action-setup@v4
+      # (二重指定すると ERR_PNPM_BAD_PM_VERSION になるため version は指定しない)。
+      # setup-vp は Node の取得は面倒を見るが、pnpm 本体は別途セットアップが必要。
+      - uses: pnpm/action-setup@v6
 
-      - uses: actions/setup-node@v4
+      # Vite+ CLI 導入 + Node.js セットアップ + 依存インストールまでを一括。
+      # - node-version: 24 で actions/setup-node の代わりに vp env が Node を用意
+      # - cache: true で pnpm-lock.yaml をキーに依存キャッシュ
+      # - run-install: true で `vp install --frozen-lockfile` 相当を実行
+      - uses: voidzero-dev/setup-vp@v1
         with:
-          node-version: 22
-          cache: pnpm
+          node-version: "24"
+          cache: true
+          run-install: true
 
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile
-
-      - name: Lint
-        run: pnpm lint
+      - name: Lint (oxlint via vp)
+        run: vp lint
 
       # ワークスペース間の型解決には各パッケージの dist (型宣言) が必要なため、
       # typecheck / test の前に build を実行する。
-      - name: Build
-        run: pnpm build
+      - name: Build (vp run -r build)
+        run: vp run -r build
 
-      - name: Typecheck
-        run: pnpm typecheck
+      - name: Typecheck (vp run -r typecheck)
+        run: vp run -r typecheck
 
-      - name: Test
-        run: pnpm test
+      - name: Test (vp run -r test)
+        run: vp run -r test
+
+      # T10: CDK synth でテンプレ生成の健全性を CI でも確認する。
+      # CDK_DEFAULT_* を渡さないと bin/app.ts が environment-agnostic に synth する
+      # (実 AWS 認証は不要)。NodejsFunction / ReconcileFunction の esbuild バンドルが
+      # 走るが、ローカルテストでも同じ経路を通っているので追加コストは小さい。
+      - name: CDK synth (infra)
+        env:
+          CDK_DEFAULT_ACCOUNT: "111111111111"
+          CDK_DEFAULT_REGION: "ap-northeast-1"
+        run: vp run --filter @stagecast/infra synth -- --quiet

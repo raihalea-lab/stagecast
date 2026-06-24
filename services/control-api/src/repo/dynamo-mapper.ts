@@ -9,8 +9,8 @@
  *  - 発表状態:      pk=`EVENT#{id}`,   sk=`PRESENTATION`
  *  - 招待トークン:  pk=`INVITE#{jti}`, sk=`META`         GSI1: gsi1pk=`INVITE#{eventId}`, gsi1sk=`{jti}`
  */
-import type { EventDefinition, PresentationState } from '@stagecast/shared';
-import type { InviteTokenRecord } from './types.js';
+import type { EventDefinition, PresentationState } from "@stagecast/shared";
+import type { InviteTokenRecord } from "./types.js";
 
 export type Item = Record<string, unknown>;
 
@@ -21,10 +21,16 @@ export const invitePk = (jti: string): string => `INVITE#${jti}`;
 export function eventToItem(event: EventDefinition): Item {
   return {
     pk: eventPk(event.id),
-    sk: 'META',
-    type: 'event',
-    gsi1pk: 'EVENT',
+    sk: "META",
+    type: "event",
+    gsi1pk: "EVENT",
     gsi1sk: `${event.startsAt}#${event.id}`,
+    // gsi-live (reconcile が live イベントを引く) のキー属性。eventId はソートキー、
+    // liveStatus はパーティションキー。live のときだけ liveStatus を立て、それ以外は
+    // undefined にして DocClient の removeUndefinedValues で消す → sparse index (live のみ索引)。
+    // live→ended は PutItem 全置換で liveStatus が消え、次の reconcile tick で destroy される。
+    eventId: event.id,
+    liveStatus: event.status === "live" ? "live" : undefined,
     ...event,
   };
 }
@@ -35,12 +41,14 @@ export function itemToEvent(item: Item): EventDefinition {
     title: item.title as string,
     startsAt: item.startsAt as string,
     endsAt: item.endsAt as string | undefined,
-    status: item.status as EventDefinition['status'],
-    qrAsset: item.qrAsset as EventDefinition['qrAsset'],
-    brandingAssets: item.brandingAssets as EventDefinition['brandingAssets'],
-    slideAssets: item.slideAssets as EventDefinition['slideAssets'],
-    caption: item.caption as EventDefinition['caption'],
-    youtube: item.youtube as EventDefinition['youtube'],
+    status: item.status as EventDefinition["status"],
+    qrAsset: item.qrAsset as EventDefinition["qrAsset"],
+    brandingAssets: item.brandingAssets as EventDefinition["brandingAssets"],
+    slideAssets: item.slideAssets as EventDefinition["slideAssets"],
+    caption: item.caption as EventDefinition["caption"],
+    youtube: item.youtube as EventDefinition["youtube"],
+    // ADR 0008 D-1: reconcile が書き戻す per-event LiveKit URL 等。
+    media: item.media as EventDefinition["media"],
     createdAtMs: item.createdAtMs as number,
     updatedAtMs: item.updatedAtMs as number,
   };
@@ -50,8 +58,8 @@ export function itemToEvent(item: Item): EventDefinition {
 export function inviteToItem(record: InviteTokenRecord): Item {
   return {
     pk: invitePk(record.jti),
-    sk: 'META',
-    type: 'invite',
+    sk: "META",
+    type: "invite",
     gsi1pk: `INVITE#${record.eventId}`,
     gsi1sk: record.jti,
     ...record,
@@ -62,7 +70,7 @@ export function itemToInvite(item: Item): InviteTokenRecord {
   return {
     jti: item.jti as string,
     eventId: item.eventId as string,
-    role: item.role as InviteTokenRecord['role'],
+    role: item.role as InviteTokenRecord["role"],
     currentVersion: item.currentVersion as number,
     revoked: item.revoked as boolean,
   };
@@ -72,8 +80,8 @@ export function itemToInvite(item: Item): InviteTokenRecord {
 export function presentationToItem(state: PresentationState): Item {
   return {
     pk: eventPk(state.eventId),
-    sk: 'PRESENTATION',
-    type: 'presentation',
+    sk: "PRESENTATION",
+    type: "presentation",
     ...state,
   };
 }
@@ -81,8 +89,8 @@ export function presentationToItem(state: PresentationState): Item {
 export function itemToPresentation(item: Item): PresentationState {
   return {
     eventId: item.eventId as string,
-    speakers: (item.speakers as PresentationState['speakers']) ?? [],
-    slideSource: item.slideSource as PresentationState['slideSource'],
+    speakers: (item.speakers as PresentationState["speakers"]) ?? [],
+    slideSource: item.slideSource as PresentationState["slideSource"],
     slidePage: item.slidePage as number | undefined,
   };
 }

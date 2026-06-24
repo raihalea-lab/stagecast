@@ -8,14 +8,23 @@
   "scripts": {
     "build": "tsc -b",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run",
+    "test": "vp test",
     "clean": "rm -rf dist *.tsbuildinfo"
   },
   "dependencies": {
+    "@aws-sdk/client-cloudformation": "^3.1068.0",
+    "@aws-sdk/client-dynamodb": "^3.1068.0",
+    "@aws-sdk/client-ec2": "^3.1068.0",
+    "@aws-sdk/client-ecs": "^3.1068.0",
+    "@aws-sdk/client-lambda": "^3.1068.0",
+    "@aws-sdk/lib-dynamodb": "^3.1068.0",
+    "@stagecast/infra": "workspace:*",
     "@stagecast/shared": "workspace:*"
   },
   "devDependencies": {
-    "typescript": "^5.7.2",
-    "vitest": "^2.1.8"
+    "@types/aws-lambda": "^8.10.162",
+    "@types/node": "^25.9.2",
+    "typescript": "^6.0.3",
+    "vitest": "^4.1.0"
   }
 }

@@ -11,6 +11,7 @@ coverage/
 # CDK
 infra/cdk.out/
 cdk.context.json
+cdk-outputs.json
 
 # Env / secrets
 .env
@@ -27,3 +28,7 @@ pnpm-debug.log*
 .idea/
 .vscode/
 *.swp
+
+# devenv / direnv (キャッシュのみ。devenv.nix / devenv.lock / .envrc は追跡対象)
+.devenv/
+.direnv/

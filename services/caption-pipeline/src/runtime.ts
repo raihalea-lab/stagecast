@@ -6,22 +6,25 @@
  * として注入するため、本番は実 AWS 実装、テストはフェイクを渡せる。
  */
 import type {
+  CaptionBus,
   CaptionEngine,
   CaptionEngineKind,
   CaptionSink,
   LanguageCode,
-} from '@stagecast/shared';
-import { InProcessCaptionBus } from './bus.js';
-import { CaptionPipeline } from './pipeline.js';
-import { TranscribeStreamingEngine } from './engines/transcribe-engine.js';
-import { LLMEngine } from './engines/llm-engine.js';
-import { SelfHostedAsrEngine } from './engines/self-hosted.js';
-import type { AsrAdapter, LlmAdapter, Translator } from './engines/types.js';
-import { YouTubeCaptionSink, type YouTubeCaptionPublisher } from './sinks/youtube-sink.js';
-import { CustomCaptionApiSink, type CaptionBroadcaster } from './sinks/custom-api-sink.js';
-import { CaptionStore, type ObjectStorage } from './store/caption-store.js';
-import { CaptionConnectionHub, HubCaptionBroadcaster } from './sinks/caption-hub.js';
-import type { AudioChunk } from '@stagecast/shared';
+} from "@stagecast/shared";
+import { InProcessCaptionBus } from "./bus.js";
+import { ValkeyStreamsCaptionBus, type CaptionStreamClient } from "./valkey-bus.js";
+import { CaptionPipeline } from "./pipeline.js";
+import { TranscribeStreamingEngine } from "./engines/transcribe-engine.js";
+import { LLMEngine } from "./engines/llm-engine.js";
+import { SelfHostedAsrEngine } from "./engines/self-hosted.js";
+import type { AsrAdapter, LlmAdapter, Translator } from "./engines/types.js";
+import { YouTubeCaptionSink, type YouTubeCaptionPublisher } from "./sinks/youtube-sink.js";
+import { CustomCaptionApiSink, type CaptionBroadcaster } from "./sinks/custom-api-sink.js";
+import { CaptionStore, type ObjectStorage } from "./store/caption-store.js";
+import { CaptionConnectionHub, HubCaptionBroadcaster } from "./sinks/caption-hub.js";
+import type { CaptionMetricsCollector } from "./metrics.js";
+import type { AudioChunk } from "@stagecast/shared";
 
 export interface CaptionRuntimeConfig {
   eventId: string;
@@ -44,6 +47,12 @@ export interface CaptionRuntimeProviders {
   broadcaster?: CaptionBroadcaster;
   storage?: ObjectStorage;
   selfHostedEndpoint?: string;
+  /** 字幕バスの実装 (省略時は InProcessCaptionBus)。Valkey 切替で `ValkeyStreamsCaptionBus` を渡す (T3)。 */
+  bus?: CaptionBus;
+  /** Valkey クライアント (省略可、bus 未指定で valkeyStreamClient を渡せばここから組み立てる)。 */
+  valkeyStreamClient?: CaptionStreamClient;
+  /** CloudWatch メトリクス収集 (T9, ADR 0003)。省略時は計測なし (本番は bootstrap で注入)。 */
+  metrics?: CaptionMetricsCollector;
 }
 
 /** 設定とプロバイダからエンジンを選択する (F-8, 6.2)。 */
@@ -51,24 +60,29 @@ export function selectEngine(
   config: CaptionRuntimeConfig,
   providers: CaptionRuntimeProviders,
 ): CaptionEngine {
+  const metrics = providers.metrics;
   const common = {
     sourceLanguage: config.sourceLanguage,
     targetLanguages: config.languages,
     eventId: config.eventId,
+    // 翻訳の取りこぼしをメトリクス化する (N-2 品質劣化検知)。self-hosted は翻訳を持たず無視する。
+    onTranslateError: metrics
+      ? (target: LanguageCode) => metrics.observeTranslateError(target)
+      : undefined,
   };
   switch (config.engine) {
-    case 'transcribe':
+    case "transcribe":
       if (!providers.asr || !providers.translator) {
-        throw new Error('transcribe engine requires asr + translator providers');
+        throw new Error("transcribe engine requires asr + translator providers");
       }
       return new TranscribeStreamingEngine(providers.asr, providers.translator, common);
-    case 'llm':
-      if (!providers.llm) throw new Error('llm engine requires an llm provider');
-      return new LLMEngine(providers.llm, { ...common, mode: 'asr+translate' });
-    case 'self-hosted-asr':
+    case "llm":
+      if (!providers.llm) throw new Error("llm engine requires an llm provider");
+      return new LLMEngine(providers.llm, { ...common, mode: "asr+translate" });
+    case "self-hosted-asr":
       return new SelfHostedAsrEngine({
         ...common,
-        modelEndpoint: providers.selfHostedEndpoint ?? '',
+        modelEndpoint: providers.selfHostedEndpoint ?? "",
       });
   }
 }
@@ -103,7 +117,16 @@ export function assembleCaptionPipeline(
   const store = providers.storage
     ? new CaptionStore(providers.storage, { eventId: config.eventId })
     : undefined;
-  return new CaptionPipeline({ bus: new InProcessCaptionBus(), engine, sinks, store });
+  // バス選択順: 明示注入 > valkeyStreamClient から組み立て > InProcess (既定)。
+  const bus: CaptionBus =
+    providers.bus ??
+    (providers.valkeyStreamClient
+      ? new ValkeyStreamsCaptionBus({
+          eventId: config.eventId,
+          client: providers.valkeyStreamClient,
+        })
+      : new InProcessCaptionBus());
+  return new CaptionPipeline({ bus, engine, sinks, store, metrics: providers.metrics });
 }
 
 /**

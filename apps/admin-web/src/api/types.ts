@@ -9,11 +9,15 @@ import type {
   EventDefinition,
   EventStatus,
   InvitedRole,
+  LiveKitCredentials,
+  LiveKitSettingsStatus,
   PresentationState,
   SlideSource,
   SpeakerVisibility,
-} from '@stagecast/shared';
-import type { CreateEventInput } from '@stagecast/control-api';
+  YouTubeCredentials,
+  YouTubeSettingsStatus,
+} from "@stagecast/shared";
+import type { CreateEventInput } from "@stagecast/control-api";
 
 export interface IssuedInvite {
   jti: string;
@@ -23,6 +27,36 @@ export interface IssuedInvite {
   eventId: string;
   expiresAtSec: number;
   version: number;
+}
+
+/** Egress 起動結果 (R12)。 */
+export interface EgressStartResult {
+  egressId: string;
+  /** ストリームキーを含む完全な RTMP URL (機密情報を含むので UI には表示しない)。 */
+  rtmpUrl: string;
+}
+
+/** Admin LiveKit Token 発行結果 (R16, ADR 0012 D-4)。 */
+export interface AdminTokenResult {
+  livekitUrl: string;
+  livekitToken: string;
+  identity: string;
+  room: string;
+}
+
+/** Preview LiveKit Token 発行結果 (R17, ADR 0012 D-6, viewer role)。 */
+export interface PreviewTokenResult {
+  livekitUrl: string;
+  livekitToken: string;
+  identity: string;
+  room: string;
+}
+
+/** Admin が stage-web に入るための token (ADR 0014 D-4)。 */
+export interface StageTokenResult {
+  token: string;
+  livekitUrl: string;
+  expiresAt: number;
 }
 
 export interface ControlApiClient {
@@ -35,6 +69,18 @@ export interface ControlApiClient {
 
   issueInvite(eventId: string, role: InvitedRole, ttlSec: number): Promise<IssuedInvite>;
 
+  /** Egress (RTMP 送出) を起動する (R12, ADR 0006 D-4)。 */
+  startEgress(eventId: string): Promise<EgressStartResult>;
+
+  /** Admin LiveKit token を発行する (R16, ADR 0012 D-4: admin-web が layout 切替を broadcast 用)。 */
+  issueAdminToken(eventId: string): Promise<AdminTokenResult>;
+
+  /** Admin が stage-web に入るための token を発行する (ADR 0014 D-4)。 */
+  issueStageToken(eventId: string): Promise<StageTokenResult>;
+
+  /** Preview LiveKit token を発行する (R17, ADR 0012 D-6: composer-template の iframe 埋め込み用)。 */
+  issuePreviewToken(eventId: string): Promise<PreviewTokenResult>;
+
   getPresentation(eventId: string): Promise<PresentationState>;
   setSpeakerVisibility(
     eventId: string,
@@ -46,6 +92,14 @@ export interface ControlApiClient {
     source: SlideSource | undefined,
     page?: number,
   ): Promise<PresentationState>;
+
+  /** LiveKit / YouTube の運用設定 (ADR D-10, ADR 0008 D-7)。値の取得は configured フラグのみ。 */
+  getLiveKitSettings(): Promise<LiveKitSettingsStatus>;
+  putLiveKitSettings(creds: LiveKitCredentials): Promise<LiveKitSettingsStatus>;
+  /** LiveKit の API キー/シークレットをサーバ側で再生成する。 */
+  regenerateLiveKitKeys(): Promise<LiveKitSettingsStatus>;
+  getYouTubeSettings(): Promise<YouTubeSettingsStatus>;
+  putYouTubeSettings(creds: YouTubeCredentials): Promise<YouTubeSettingsStatus>;
 }
 
 /**
@@ -57,4 +111,21 @@ export interface AssetService {
     eventId: string,
     file: { name: string; contentType: string; bytes: Uint8Array },
   ): Promise<AssetRef>;
+}
+
+/** 配信成果物 (録画 / 確定字幕) のダウンロード情報 (N1, DESIGN.md 6.4 / N-4)。 */
+export interface Artifact {
+  kind: "recording" | "caption";
+  key: string;
+  name: string;
+  downloadUrl: string;
+  size?: number;
+}
+
+/**
+ * 配信後の成果物ダウンロード (DESIGN.md 6.4)。
+ * 本番は control-api 経由で S3 署名付き GET URL を取得。ローカルはインメモリ。
+ */
+export interface ArtifactService {
+  list(eventId: string): Promise<Artifact[]>;
 }

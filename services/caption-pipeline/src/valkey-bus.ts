@@ -9,7 +9,7 @@
  * Valkey クライアントには直接依存せず、最小操作を CaptionStreamClient として抽象化する
  * (テストでは fake を注入)。実運用では redis/ioredis の薄いラッパを渡す。
  */
-import { isValidCaptionEvent, type CaptionBus, type CaptionEvent } from '@stagecast/shared';
+import { isValidCaptionEvent, type CaptionBus, type CaptionEvent } from "@stagecast/shared";
 
 /** Valkey Streams の最小操作。実装は XADD / XREAD を薄くラップする。 */
 export interface CaptionStreamClient {
@@ -66,7 +66,7 @@ export class ValkeyStreamsCaptionBus implements CaptionBus {
     signal: { aborted: boolean },
   ): Promise<void> {
     // '$' = 接続以降の新着のみ。再接続で追いつきが要る場合は呼び出し側が ID を管理する。
-    for await (const msg of this.client.read(this.stream, '$', signal)) {
+    for await (const msg of this.client.read(this.stream, "$", signal)) {
       if (signal.aborted) break;
       let parsed: unknown;
       try {

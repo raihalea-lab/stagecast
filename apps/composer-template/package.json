@@ -1,0 +1,28 @@
+{
+  "name": "@stagecast/composer-template",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vp dev",
+    "build": "vp build",
+    "typecheck": "tsc --noEmit",
+    "test": "vp test",
+    "preview": "vp preview",
+    "clean": "rm -rf dist"
+  },
+  "dependencies": {
+    "@stagecast/shared": "workspace:*",
+    "livekit-client": "^2.19.2",
+    "react": "^19.2.7",
+    "react-dom": "^19.2.7"
+  },
+  "devDependencies": {
+    "@types/react": "^19.2.17",
+    "@types/react-dom": "^19.2.3",
+    "@vitejs/plugin-react": "^6.0.0",
+    "typescript": "^6.0.3",
+    "vite": "^8.0.16",
+    "vitest": "^4.1.0"
+  }
+}

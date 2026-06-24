@@ -5,7 +5,8 @@
  * 組み合わせは自由で後からの追加も容易。実装は services/caption-pipeline に置く
  * (フェーズ 5)。ここでは全層が共有する契約のみを定義する。
  */
-import type { CaptionEvent, LanguageCode } from './caption.js';
+import type { CaptionEvent, LanguageCode } from "./caption.js";
+import type { CaptionSinkKind } from "./event.js";
 
 /** エンジンへ入力する音声チャンク (PCM などの生データ + タイムライン基準時刻)。 */
 export interface AudioChunk {
@@ -43,13 +44,24 @@ export interface CaptionEngine {
 }
 
 /**
+ * 字幕 Sink 種別の識別名 (DESIGN.md 6.3)。
+ *
+ * caption-pipeline の各 Sink (`sink.kind`) と、infra のメトリクスアラーム/ダッシュボードの
+ * `Sink` ディメンションで共有し、文字列の重複定義によるドリフトを防ぐ。
+ */
+export const CAPTION_SINK_KINDS = {
+  youtube: "youtube",
+  customApi: "custom-api",
+} as const satisfies Record<string, CaptionSinkKind>;
+
+/**
  * 字幕出力先 (Sink) の共通インターフェース (DESIGN.md 6.3, F-8)。
  *
  * 字幕バスを購読し、特定の宛先へ字幕を送る。YouTubeCaptionSink (1言語・確定) と
  * CustomCaptionApiSink (多言語・任意起動) がこれを実装する。
  */
 export interface CaptionSink {
-  /** Sink 種別の識別名 (例: "youtube", "custom-api")。 */
+  /** Sink 種別の識別名 (`CAPTION_SINK_KINDS`)。 */
   readonly kind: string;
   /** Sink を開始する。 */
   start(): Promise<void>;

@@ -10,18 +10,33 @@
  *  - 'translate-only': 別の ASR が出した確定テキストを高品質翻訳する用途
  *    (pushText で投入)。
  */
-import type { AudioChunk, CaptionEngine, CaptionEvent, LanguageCode } from '@stagecast/shared';
-import type { LlmAdapter } from './types.js';
+import type { AudioChunk, CaptionEngine, CaptionEvent, LanguageCode } from "@stagecast/shared";
+import { createLogger, withRetry, withTimeout, type RetryOptions } from "@stagecast/shared";
+import type { LlmAdapter } from "./types.js";
+
+const log = createLogger({ component: "llm-engine" });
+
+/** 翻訳 1 回のタイムアウト既定値 (ms)。品質重視の LLM 経路は遅めなので余裕をとる (N-2)。 */
+const DEFAULT_TRANSLATE_TIMEOUT_MS = 20_000;
 
 export interface LlmEngineConfig {
   sourceLanguage: LanguageCode;
   targetLanguages: LanguageCode[];
-  mode: 'asr+translate' | 'translate-only';
+  mode: "asr+translate" | "translate-only";
   eventId?: string;
+  /**
+   * 翻訳呼び出しの一過性失敗に対するリトライ設定 (省略時は既定の指数バックオフ)。
+   * 全リトライ失敗時はその言語をスキップし、ソース字幕と他言語は流す (翻訳は best-effort, N-2)。
+   */
+  translateRetry?: RetryOptions;
+  /** 翻訳 1 回のタイムアウト (ms, 既定 20000)。応答しない翻訳が pushAudio を止めるのを防ぐ。0 以下で無効。 */
+  translateTimeoutMs?: number;
+  /** 翻訳が全リトライ失敗しその言語を諦めたときの通知 (メトリクス計測用)。 */
+  onTranslateError?: (target: LanguageCode, err: unknown) => void;
 }
 
 export class LLMEngine implements CaptionEngine {
-  readonly kind = 'llm';
+  readonly kind = "llm";
   readonly sourceLanguage: LanguageCode;
   readonly targetLanguages: LanguageCode[];
   private readonly handlers: ((c: CaptionEvent) => void)[] = [];
@@ -52,20 +67,37 @@ export class LLMEngine implements CaptionEngine {
     const base = {
       startMs,
       endMs,
-      status: (isFinal ? 'final' : 'interim') as CaptionEvent['status'],
+      status: (isFinal ? "final" : "interim") as CaptionEvent["status"],
       speakerId,
       eventId: this.config.eventId,
     };
     this.emit({ ...base, language: this.sourceLanguage, text });
+    // 翻訳は一過性失敗をバックオフ再試行し、全滅したらその言語だけ諦める (best-effort, N-2)。
     for (const target of this.targetLanguages) {
       if (target === this.sourceLanguage) continue;
-      const translated = await this.llm.translate(text, this.sourceLanguage, target);
-      this.emit({ ...base, language: target, text: translated });
+      try {
+        const translated = await withRetry(
+          () =>
+            withTimeout(() => this.llm.translate(text, this.sourceLanguage, target), {
+              timeoutMs: this.config.translateTimeoutMs ?? DEFAULT_TRANSLATE_TIMEOUT_MS,
+              message: `llm translate to ${target} timed out`,
+            }),
+          this.config.translateRetry,
+        );
+        this.emit({ ...base, language: target, text: translated });
+      } catch (err) {
+        log.error("llm translate failed after retries", {
+          target,
+          ...(this.config.eventId ? { eventId: this.config.eventId } : {}),
+          err,
+        });
+        this.config.onTranslateError?.(target, err);
+      }
     }
   }
 
   async pushAudio(chunk: AudioChunk): Promise<void> {
-    if (this.config.mode !== 'asr+translate' || !this.llm.transcribe) return;
+    if (this.config.mode !== "asr+translate" || !this.llm.transcribe) return;
     const segment = await this.llm.transcribe(chunk, this.sourceLanguage);
     if (!segment) return;
     await this.fanOut(
