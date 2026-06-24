@@ -13,10 +13,18 @@ export type Role = (typeof ROLES)[number];
 export const INVITED_ROLES = ["moderator", "speaker"] as const;
 export type InvitedRole = (typeof INVITED_ROLES)[number];
 
+/** stage-web に入室できるロール (admin は Cognito 経由, ADR 0014 D-3)。 */
+export const STAGE_ROLES = ["admin", "moderator", "speaker"] as const;
+export type StageRole = (typeof STAGE_ROLES)[number];
+
 export function isRole(value: string): value is Role {
   return (ROLES as readonly string[]).includes(value);
 }
 
 export function isInvitedRole(value: string): value is InvitedRole {
   return (INVITED_ROLES as readonly string[]).includes(value);
+}
+
+export function isStageRole(value: string): value is StageRole {
+  return (STAGE_ROLES as readonly string[]).includes(value);
 }

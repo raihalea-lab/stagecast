@@ -6,7 +6,7 @@
  *
  * D8: moderator/admin 用に layout 変更・ミュート要請・参加者追跡を追加。
  */
-import { encodeStageMessage, type LayoutKind, type InvitedRole } from "@stagecast/shared";
+import { encodeStageMessage, type LayoutKind, type StageRole } from "@stagecast/shared";
 import type { JoinOptions, JoinResponse, StageClient } from "./api/stage-client.js";
 import type { PreferredDevices } from "./lib/devices.js";
 import type { ParticipantSnapshot, RoomConnector } from "./lib/room.js";
@@ -14,7 +14,7 @@ import { goToPage, nextPage, prevPage, type SlideDeckState } from "./lib/slides.
 
 export interface StageSession {
   eventId: string;
-  role: InvitedRole;
+  role: StageRole;
   room: string;
   canPublish: boolean;
 }
@@ -79,8 +79,7 @@ export class StageController {
         eventId: res.eventId,
         role: res.role,
         room: res.room,
-        // speaker と moderator はメディア publish 可 (LiveKit 側は両方 canPublish: true)。
-        canPublish: res.role === "speaker" || res.role === "moderator",
+        canPublish: true,
       };
       this.lastJoin = res;
       return res;
@@ -90,6 +89,17 @@ export class StageController {
     } finally {
       this.joinInFlight = undefined;
     }
+  }
+
+  /** Admin 直接接続: /join を経由せず LiveKit に直接接続する (ADR 0014 D-4)。 */
+  async connectAdmin(livekitUrl: string, livekitToken: string, eventId: string): Promise<void> {
+    await this.room.connect(livekitUrl, livekitToken);
+    this.session = {
+      eventId,
+      role: "admin",
+      room: eventId,
+      canPublish: true,
+    };
   }
 
   private requirePublish(): void {
