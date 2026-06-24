@@ -1,6 +1,7 @@
-# 次セッション開始ガイド (2026-06-22 R17 admin-web 完了直後)
+# 次セッション開始ガイド (2026-06-24 ADR 0012 完全達成直後)
 
-> このドキュメントは前セッション (R12 残 + R15/R16/R17 admin-web 完了、 計 15 PR マージ) の引継ぎ。
+> このドキュメントは前セッション (R12 残 + R15/R16/R17 完全達成、 計 18 PR マージ) の引継ぎ。
+> **ユーザー要件 1-3 (プレビュー / レイアウト操作 / 待機画面) は全達成**。
 > 次の Claude Code セッション開始時に **冒頭のプロンプト (§3) をそのまま貼り付け** て自走させる想定。
 
 ---
@@ -24,6 +25,11 @@
   - `/events/{id}/preview-token` (viewer role) 追加
   - LivePreview iframe で composer-template を埋め込み
   - 要件 1 の admin-web 部分達成
+- **R17-Phase3 stage-web プレビュー** ✅ (PR #134/#135, 2026-06-24)
+  - `POST /preview-token` (招待トークン認証) 追加
+  - stage-web の登壇者ビュー右下に小窓 (240px × 16:9) で composer-template iframe 埋め込み
+  - API Gateway 公開ルート (NONE 認証) リストに明示登録が必要だった (followup-1)
+  - **ADR 0012 D-1〜D-6 全達成 + 要件 1-3 完全達成** 🎉
 
 ### 動作中の構成
 
@@ -42,11 +48,11 @@
 | YouTube Secret | `stagecast/youtube-CSMIPL` |
 | DynamoDB Table | `StagecastControlPlane-MetadataTable30E05F1F-L3CN4XJPLUE1` |
 
-### ユーザー要件の進捗 (ADR 0012)
+### ユーザー要件の進捗 (ADR 0012) — **全達成 🎉**
 
 | 要件 | 状況 |
 |---|---|
-| 1. 登壇者・管理者・スピーカーが現在の画面を確認できる | admin-web ✅ / stage-web は R17-Phase3 残 |
+| 1. 登壇者・管理者・スピーカーが現在の画面を確認できる | ✅ R17 admin-web + stage-web |
 | 2. 管理者がレイアウトを調整できる | ✅ R16 |
 | 3. 誰も投影してなくても何かしらの配信が続いている | ✅ R15 (イベント中 fallback)、 365日24h は R18 別 ADR |
 
@@ -54,23 +60,7 @@
 
 ## 2. 次にやるべきタスク (優先度順)
 
-### 2-1. 最優先: R17-Phase3 (stage-web 登壇者ビュー右下小窓プレビュー)
-
-ADR 0012 D-6 の残り。 要件 1 を完全達成する。
-
-**実装方針候補** (ADR 0012 末尾に記載):
-- (A) `POST /preview-token` (body: { inviteToken }) を新規追加 → invite-service.verify で event.id 解決 → preview-token-service.issue
-- (B) `/join` の結果に previewToken を含めて返す (1 API call で完結、 ただし JoinResult が肥大化)
-
-(A) が責務分離的に望ましい。 (B) はリクエスト数最小化したい場合。
-
-**実装範囲**:
-- control-api: `POST /preview-token` 新規 endpoint + invite token 認証
-- stage-web: `App.tsx` の session 表示部分に PiP 風の小窓 (右下、 16:9、 toggleable)
-- preview-token の API call、 iframe で composer-template 表示
-- 既存の `apps/admin-web/src/components/LivePreview.tsx` を参考にできる
-
-### 2-2. R14: Egress fileOutputs (S3 録画)
+### 2-1. 最優先: R14 (Egress fileOutputs / S3 録画)
 
 P-01 完了条件の最後の 1 ピース。
 
@@ -79,7 +69,7 @@ P-01 完了条件の最後の 1 ピース。
 - SFU TaskRole は既に S3 PutObject 権限を持つ (ADR 0010 D-5)
 - 完了基準: 配信終了で `recordings/{eventId}/{egressId}.mp4` が S3 に保存 + admin-web の「成果物」一覧に表示
 
-### 2-3. P-02: DESIGN.md に KVS WebRTC TURN 運用反映
+### 2-2. P-02: DESIGN.md に KVS WebRTC TURN 運用反映
 
 ADR 0011 案 E + ADR 0010 D-7 + ADR 0012 の内容を DESIGN.md に本文化。
 
@@ -90,16 +80,16 @@ ADR 0011 案 E + ADR 0010 D-7 + ADR 0012 の内容を DESIGN.md に本文化。
 - 5.2 章 (stage-web): rtcConfig.iceServers 直接設定の流れ
 - ADR 0011 / ADR 0012 への参照リンクを本文化
 
-### 2-4. P-04: R7 統合テスト CI workflow
+### 2-3. P-04: R7 統合テスト CI workflow
 
 GH Actions で「event 作成 → stage-web 自動入室 → Egress 起動 → YouTube 受信確認」を自動化。 SLO 観測込み。 大規模 PR (1 日以上)。
 
-### 2-5. R18: 365 日 24h 配信 (将来)
+### 2-4. R18: 365 日 24h 配信 (将来)
 
 DESIGN.md N-1 (常時稼働リソースなし) と矛盾するため別 ADR で議論。
 候補: 常時 ffmpeg loop + S3 mp4 / LiveKit Standby Room / EventBridge Schedule。
 
-### 2-6. Dependabot PR 整理 (P1 / P2)
+### 2-5. Dependabot PR 整理 (P1 / P2)
 
 - **PR #8**: vite 5.4.21 → 8.0.16
 - **PR #7**: @types/node 24.13.2 → 25.9.3
