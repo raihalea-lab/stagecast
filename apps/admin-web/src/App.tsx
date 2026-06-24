@@ -3,6 +3,14 @@ import { Navigate, Route, Routes, useNavigate, useParams, useLocation } from "re
 import type { EventDefinition, EventStatus } from "@stagecast/shared";
 import type { CreateEventInput } from "@stagecast/control-api";
 import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
   AppShell,
   Button,
   Card,
@@ -25,7 +33,7 @@ import {
   TooltipProvider,
   type ThemeMode,
 } from "@stagecast/ui";
-import { ArrowDownUp, LogOut, Plus, Settings, Users } from "@stagecast/ui/icons";
+import { ArrowDownUp, Check, LogOut, Plus, Settings, Trash2, Users, X } from "@stagecast/ui/icons";
 import { HttpControlApiClient } from "./api/http-client.js";
 import { HttpAssetService } from "./api/http-asset-service.js";
 import { HttpArtifactService } from "./api/http-artifact-service.js";
@@ -110,6 +118,9 @@ export function App(props: {
   const [theme, setTheme] = useState<ThemeMode>(readInitialTheme);
   const [statusFilter, setStatusFilter] = useState<EventStatus | "all">("all");
   const [sortNewestFirst, setSortNewestFirst] = useState(true);
+  const [selectMode, setSelectMode] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [bulkDeleteOpen, setBulkDeleteOpen] = useState(false);
 
   useEffect(() => {
     applyTheme(theme);
@@ -189,6 +200,45 @@ export function App(props: {
     run(async () => {
       await client.deleteEvent(id);
       await refresh();
+      navigate("/events");
+    });
+
+  const toggleSelect = (id: string) =>
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+
+  const selectableIds = useMemo(
+    () => new Set(filteredEvents.filter((e) => e.status !== "live").map((e) => e.id)),
+    [filteredEvents],
+  );
+
+  const toggleSelectAll = () => {
+    const allSelected = [...selectableIds].every((id) => selectedIds.has(id));
+    if (allSelected) {
+      setSelectedIds(new Set());
+    } else {
+      setSelectedIds(new Set(selectableIds));
+    }
+  };
+
+  const exitSelectMode = () => {
+    setSelectMode(false);
+    setSelectedIds(new Set());
+  };
+
+  const bulkDelete = () =>
+    run(async () => {
+      const ids = [...selectedIds];
+      for (const id of ids) {
+        await client.deleteEvent(id);
+      }
+      await refresh();
+      exitSelectMode();
+      setBulkDeleteOpen(false);
       navigate("/events");
     });
 
@@ -288,16 +338,52 @@ export function App(props: {
       </div>
       <nav className="flex min-h-0 flex-1 flex-col overflow-hidden py-2">
         <div className="flex items-center justify-between px-3 pb-1">
-          <span className="text-[10px] uppercase tracking-wider text-text-tertiary">イベント</span>
-          <Button
-            variant="ghost"
-            size="icon-sm"
-            aria-label={sortNewestFirst ? "古い順にする" : "新しい順にする"}
-            onClick={() => setSortNewestFirst((v) => !v)}
-            title={sortNewestFirst ? "新しい順" : "古い順"}
-          >
-            <ArrowDownUp className="size-3.5" />
-          </Button>
+          {selectMode ? (
+            <>
+              <button
+                type="button"
+                onClick={toggleSelectAll}
+                className="text-[10px] font-medium text-text-secondary hover:text-text-primary"
+              >
+                {[...selectableIds].every((id) => selectedIds.has(id)) ? "全解除" : "全選択"}
+              </button>
+              <Button
+                variant="ghost"
+                size="icon-sm"
+                aria-label="選択モードを終了"
+                onClick={exitSelectMode}
+              >
+                <X className="size-3.5" />
+              </Button>
+            </>
+          ) : (
+            <>
+              <span className="text-[10px] uppercase tracking-wider text-text-tertiary">
+                イベント
+              </span>
+              <div className="flex items-center gap-0.5">
+                <Button
+                  variant="ghost"
+                  size="icon-sm"
+                  aria-label="選択モード"
+                  onClick={() => setSelectMode(true)}
+                  title="複数選択"
+                  disabled={!eventsLoaded || events.length === 0}
+                >
+                  <Check className="size-3.5" />
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="icon-sm"
+                  aria-label={sortNewestFirst ? "古い順にする" : "新しい順にする"}
+                  onClick={() => setSortNewestFirst((v) => !v)}
+                  title={sortNewestFirst ? "新しい順" : "古い順"}
+                >
+                  <ArrowDownUp className="size-3.5" />
+                </Button>
+              </div>
+            </>
+          )}
         </div>
         <div className="flex gap-1 px-3 pb-2">
           {(["all", "draft", "live", "ended"] as const).map((s) => (
@@ -343,12 +429,53 @@ export function App(props: {
                   title={e.title}
                   startsAt={e.startsAt}
                   status={e.status}
-                  active={e.id === selectedId}
-                  onClick={() => navigate(`/events/${e.id}`)}
+                  active={!selectMode && e.id === selectedId}
+                  selectable={selectMode}
+                  selected={selectedIds.has(e.id)}
+                  onClick={
+                    selectMode
+                      ? () => e.status !== "live" && toggleSelect(e.id)
+                      : () => navigate(`/events/${e.id}`)
+                  }
+                  disabled={selectMode && e.status === "live"}
                 />
               </li>
             ))}
           </ul>
+        )}
+        {selectMode && selectedIds.size > 0 && (
+          <AlertDialog open={bulkDeleteOpen} onOpenChange={setBulkDeleteOpen}>
+            <div className="flex items-center gap-2 border-t border-line-1 px-3 py-2">
+              <span className="flex-1 text-xs text-text-secondary">{selectedIds.size}件選択中</span>
+              <Button
+                variant="destructive"
+                size="sm"
+                className="gap-1.5"
+                onClick={() => setBulkDeleteOpen(true)}
+                disabled={busy}
+              >
+                <Trash2 className="size-3.5" />
+                削除
+              </Button>
+            </div>
+            <AlertDialogContent>
+              <AlertDialogHeader>
+                <AlertDialogTitle>{selectedIds.size}件のイベントを削除しますか？</AlertDialogTitle>
+                <AlertDialogDescription>
+                  選択されたイベントと関連するアセット・録画・字幕ファイルがすべて削除されます。この操作は取り消せません。
+                </AlertDialogDescription>
+              </AlertDialogHeader>
+              <AlertDialogFooter>
+                <AlertDialogCancel>キャンセル</AlertDialogCancel>
+                <AlertDialogAction
+                  className="bg-error text-error-foreground hover:bg-error/90"
+                  onClick={bulkDelete}
+                >
+                  {selectedIds.size}件を削除する
+                </AlertDialogAction>
+              </AlertDialogFooter>
+            </AlertDialogContent>
+          </AlertDialog>
         )}
       </nav>
       <div className="mt-auto flex flex-col gap-2 border-t border-line-1 p-3">

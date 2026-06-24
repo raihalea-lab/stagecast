@@ -9,6 +9,8 @@ export interface EventListItemProps extends React.ButtonHTMLAttributes<HTMLButto
   startsAt: string;
   status: EventStatus;
   active?: boolean;
+  selectable?: boolean;
+  selected?: boolean;
 }
 
 function formatStartsAt(iso: string): string {
@@ -30,7 +32,7 @@ function formatStartsAt(iso: string): string {
  * live 中の event は右端に Tally on-air dot。
  */
 export const EventListItem = React.forwardRef<HTMLButtonElement, EventListItemProps>(
-  ({ title, startsAt, status, active, className, ...props }, ref) => (
+  ({ title, startsAt, status, active, selectable, selected, className, ...props }, ref) => (
     <button
       ref={ref}
       type="button"
@@ -39,11 +41,35 @@ export const EventListItem = React.forwardRef<HTMLButtonElement, EventListItemPr
         "group relative flex w-full items-center gap-3 px-3 py-2 text-left transition-colors duration-fast",
         "hover:bg-surface-2",
         active && "bg-surface-2",
+        selected && "bg-tally-700/20",
         className,
       )}
       {...props}
     >
-      {active && <span aria-hidden className="absolute inset-y-0 left-0 w-[2px] bg-tally-500" />}
+      {active && !selectable && (
+        <span aria-hidden className="absolute inset-y-0 left-0 w-[2px] bg-tally-500" />
+      )}
+      {selectable && (
+        <span
+          aria-hidden
+          className={cn(
+            "flex size-4 shrink-0 items-center justify-center rounded border transition-colors",
+            selected ? "border-tally-500 bg-tally-500 text-white" : "border-line-2 bg-surface-2",
+          )}
+        >
+          {selected && (
+            <svg
+              viewBox="0 0 16 16"
+              className="size-3"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2.5"
+            >
+              <path d="M3.5 8.5 6.5 11.5 12.5 5" />
+            </svg>
+          )}
+        </span>
+      )}
       <span className="flex min-w-0 flex-1 flex-col gap-0.5">
         <span className="truncate text-sm text-text-primary">{title}</span>
         <MonoNumber
