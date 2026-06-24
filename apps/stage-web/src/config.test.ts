@@ -17,4 +17,26 @@ describe("resolveRuntimeConfig (stage-web ランタイム設定)", () => {
   it("どちらも無ければ空文字 (相対パス扱い)", () => {
     expect(resolveRuntimeConfig(undefined, undefined)).toEqual({ controlApiUrl: "" });
   });
+
+  it("R17-Phase3: composerTemplateUrl は config.json から取れる", () => {
+    expect(
+      resolveRuntimeConfig(
+        { controlApiUrl: "https://api", composerTemplateUrl: "https://composer" },
+        undefined,
+      ),
+    ).toEqual({ controlApiUrl: "https://api", composerTemplateUrl: "https://composer" });
+  });
+
+  it("R17-Phase3: composerTemplateUrl は env fallback も効く", () => {
+    expect(resolveRuntimeConfig(undefined, "https://api", "https://composer-env")).toEqual({
+      controlApiUrl: "https://api",
+      composerTemplateUrl: "https://composer-env",
+    });
+  });
+
+  it("R17-Phase3: composerTemplateUrl は無くても他フィールドだけで動く (後方互換)", () => {
+    expect(resolveRuntimeConfig(undefined, "https://api")).toEqual({
+      controlApiUrl: "https://api",
+    });
+  });
 });

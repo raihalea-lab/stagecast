@@ -8,6 +8,14 @@ class FakeStageClient implements StageClient {
   async join(): Promise<JoinResponse> {
     return this.response;
   }
+  async issuePreviewToken() {
+    return {
+      livekitUrl: "wss://sfu.test",
+      livekitToken: "preview.token.fake",
+      identity: "preview-fake",
+      room: "evt-1",
+    };
+  }
 }
 
 const speakerJoin: JoinResponse = {

@@ -109,6 +109,19 @@ export function createApp(deps: AppDeps) {
       return json(result.ok ? 200 : 401, result);
     }
 
+    // 公開: stage-web の登壇者ビュー右下小窓プレビュー用 (R17-Phase3, ADR 0012 D-6)。
+    // 招待トークン (HMAC 署名) を検証 → eventId 解決 → viewer role の preview token を発行。
+    // admin-web は `/events/{id}/preview-token` (requireAdmin) を使うが、 stage-web は
+    // Cognito JWT を持たないため別経路。
+    if (req.method === "POST" && req.path === "/preview-token") {
+      if (!previewToken) throw new ServiceUnavailableError("preview token service not configured");
+      const inviteToken = String(body.inviteToken ?? "");
+      const verified = await invites.verify(inviteToken);
+      if (!verified.valid) return json(401, { ok: false, reason: verified.reason });
+      const result = await previewToken.issue(verified.eventId);
+      return json(201, result);
+    }
+
     // 以降は管理者専用 (Cognito)
     await requireAdmin(req);
 
