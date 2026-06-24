@@ -155,6 +155,10 @@ function resolveEgressStarter(
 ): EgressStarter | undefined {
   const livekitSecretArn = env.LIVEKIT_SECRET_ARN;
   if (!livekitSecretArn) return undefined;
+  // P-14 / R14: 配信終了時に Egress が録画 mp4 を S3 アップロードする bucket。
+  // 未設定なら stream 出力のみ (録画なし)。
+  const recordingsBucketName = env.RECORDINGS_BUCKET_NAME;
+  const recordingsRegion = env.AWS_REGION ?? "ap-northeast-1";
   return {
     async startRtmpEgress({ livekitUrl, roomName, streamUrl }) {
       const data = await secrets.getSecretJson(livekitSecretArn);
@@ -171,20 +175,34 @@ function resolveEgressStarter(
         httpUrl,
         roomName,
         streamUrl: streamUrl.replace(/\/[^/]+$/, "/***"), // streamKey 部分は伏字
+        recordingsBucket: recordingsBucketName ?? "(not configured)",
       }));
       const sdk = await import("livekit-server-sdk");
       const client = new sdk.EgressClient(httpUrl, apiKey, apiSecret);
       try {
-        const info = await client.startRoomCompositeEgress(
-          roomName,
-          {
-            stream: new sdk.StreamOutput({
-              protocol: sdk.StreamProtocol.RTMP,
-              urls: [streamUrl],
-            }),
-          },
-          { layout: "grid" },
-        );
+        // P-14 / R14: stream (RTMP → YouTube) と file (S3 録画) を併用する。
+        // file output は recordingsBucketName が設定されている場合のみ。
+        // filepath の `{egress_id}` は LiveKit Egress が実行時にハンドラ ID で置換する。
+        // SFU TaskRole は ADR 0010 D-5 で `recordings/*` プレフィックスへの S3 PutObject 権限を持つ。
+        const output: Record<string, unknown> = {
+          stream: new sdk.StreamOutput({
+            protocol: sdk.StreamProtocol.RTMP,
+            urls: [streamUrl],
+          }),
+        };
+        if (recordingsBucketName) {
+          output.file = new sdk.EncodedFileOutput({
+            filepath: `recordings/${roomName}/{egress_id}.mp4`,
+            output: {
+              case: "s3",
+              value: new sdk.S3Upload({
+                bucket: recordingsBucketName,
+                region: recordingsRegion,
+              }),
+            },
+          });
+        }
+        const info = await client.startRoomCompositeEgress(roomName, output, { layout: "grid" });
         console.log(JSON.stringify({ msg: "egress.started", egressId: info.egressId }));
         return { egressId: info.egressId };
       } catch (err) {
