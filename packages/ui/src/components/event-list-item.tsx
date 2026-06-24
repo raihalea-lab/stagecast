@@ -27,6 +27,20 @@ function formatStartsAt(iso: string): string {
   }
 }
 
+const STATUS_LABEL: Record<EventStatus, string> = {
+  draft: "下書き",
+  scheduled: "予定",
+  live: "配信中",
+  ended: "終了",
+};
+
+const STATUS_CLASS: Record<EventStatus, string> = {
+  draft: "text-text-tertiary",
+  scheduled: "text-preview-500",
+  live: "text-tally-400",
+  ended: "text-text-tertiary",
+};
+
 /**
  * admin-web Sidebar の 1 行。 active 行は左端 2px tally バー (背景塗らない節制)。
  * live 中の event は右端に Tally on-air dot。
@@ -72,15 +86,19 @@ export const EventListItem = React.forwardRef<HTMLButtonElement, EventListItemPr
       )}
       <span className="flex min-w-0 flex-1 flex-col gap-0.5">
         <span className="truncate text-sm text-text-primary">{title}</span>
-        <MonoNumber
-          value={formatStartsAt(startsAt)}
-          tone="tertiary"
-          align="left"
-          className="text-xs"
-        />
+        <span className="flex items-center gap-1.5">
+          <MonoNumber
+            value={formatStartsAt(startsAt)}
+            tone="tertiary"
+            align="left"
+            className="text-xs"
+          />
+          <span className={cn("text-[10px] font-medium", STATUS_CLASS[status])}>
+            {STATUS_LABEL[status]}
+          </span>
+        </span>
       </span>
-      {status === "live" && <TallyIndicator state="on-air" size="sm" label="配信中" />}
-      {status === "ended" && <TallyIndicator state="idle" size="sm" label="終了" />}
+      {status === "live" && <TallyIndicator state="on-air" size="sm" />}
     </button>
   ),
 );

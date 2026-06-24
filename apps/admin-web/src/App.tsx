@@ -116,7 +116,7 @@ export function App(props: {
   const [busy, setBusy] = useState(false);
   const [sheetOpen, setSheetOpen] = useState(false);
   const [theme, setTheme] = useState<ThemeMode>(readInitialTheme);
-  const [statusFilter, setStatusFilter] = useState<EventStatus | "all">("all");
+  const [statusFilter, setStatusFilter] = useState<EventStatus | "all">("draft");
   const [sortNewestFirst, setSortNewestFirst] = useState(true);
   const [selectMode, setSelectMode] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
