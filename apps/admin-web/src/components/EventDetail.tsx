@@ -123,11 +123,7 @@ export function EventDetail(props: {
       {/* R17 / ADR 0012 D-6: live + media 確定後はライブプレビューを toggle 可能に表示。
           composer-template を iframe で開いて Egress と同じ合成画面を sub-second で確認できる。 */}
       {event.status === "live" && event.media?.livekitUrl && (
-        <LivePreview
-          eventId={event.id}
-          client={client}
-          composerTemplateUrl={composerTemplateUrl}
-        />
+        <LivePreview eventId={event.id} client={client} composerTemplateUrl={composerTemplateUrl} />
       )}
 
       <h3>素材</h3>

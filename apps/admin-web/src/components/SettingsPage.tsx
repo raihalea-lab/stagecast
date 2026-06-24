@@ -45,8 +45,8 @@ export function SettingsPage(props: Props) {
     <section className="settings">
       <h2>運用設定</h2>
       <p className="settings-note">
-        LiveKit / YouTube 連携の認証情報を登録します。値はサーバーに送信した時点で Secrets
-        Manager に保存され、画面に読み戻すことはありません (流出防止)。
+        LiveKit / YouTube 連携の認証情報を登録します。値はサーバーに送信した時点で Secrets Manager
+        に保存され、画面に読み戻すことはありません (流出防止)。
       </p>
       {loadError && (
         <p className="error" role="alert">
@@ -170,8 +170,7 @@ function YouTubeForm(props: {
         YouTube <StatusBadge configured={props.status?.configured} />
       </h3>
       <p className="hint">
-        ストリームキー:{" "}
-        {props.status?.streamKeyConfigured ? "✅ 設定済み" : "未設定"}
+        ストリームキー: {props.status?.streamKeyConfigured ? "✅ 設定済み" : "未設定"}
       </p>
       <label>
         Data API Key
