@@ -1,20 +1,21 @@
 /**
  * 登壇者・モデレーター用ステージ画面 (DESIGN.md 4.1, 5.2, F-1, F-3)。
- * 招待 URL のトークンで入室し、登壇者は映像音声・画面共有・スライド送りを操作する。
  *
  * D7: StageShell + ControlBar ベースの Speaker サブビュー。
+ * D8: Moderator サブビュー (2 カラム: PreviewWindow + ParticipantList + LayoutPicker)。
  */
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { HttpStageClient, type StageClient } from "./api/stage-client.js";
 import { LiveKitRoomConnector } from "./lib/livekit-room.js";
 import { BrowserMediaDevicesProvider } from "./lib/browser-devices.js";
 import type { MediaDevicesProvider, PreferredDevices } from "./lib/devices.js";
-import type { RoomConnector } from "./lib/room.js";
+import type { ParticipantSnapshot, RoomConnector } from "./lib/room.js";
 import { StageController, type StageSession } from "./stage-controller.js";
 import { parseInviteToken } from "./lib/token.js";
 import { DeviceCheck } from "./components/DeviceCheck.js";
 import { PreviewWindow } from "./components/PreviewWindow.js";
 import type { RuntimeConfig } from "./config.js";
+import { decodeStageMessage, type LayoutKind } from "@stagecast/shared";
 import {
   Button,
   Card,
@@ -24,9 +25,12 @@ import {
   ControlBar,
   Input,
   Label,
+  LayoutPicker,
+  ParticipantList,
   ReconnectingBanner,
   StageShell,
   StatusPill,
+  type ParticipantInfo,
   type TensionState,
 } from "@stagecast/ui";
 import {
@@ -41,8 +45,18 @@ import {
   MonitorOff,
 } from "@stagecast/ui/icons";
 
+function toParticipantInfo(s: ParticipantSnapshot): ParticipantInfo {
+  const role = s.identity.startsWith("speaker-")
+    ? ("speaker" as const)
+    : s.identity.startsWith("moderator-")
+      ? ("moderator" as const)
+      : s.identity.startsWith("admin-")
+        ? ("admin" as const)
+        : undefined;
+  return { ...s, role };
+}
+
 export function App(props: {
-  /** ランタイム設定 (main.tsx が config.json から解決して渡す)。未指定はテスト/ローカル。 */
   config?: RuntimeConfig;
   client?: StageClient;
   room?: RoomConnector;
@@ -77,6 +91,10 @@ export function App(props: {
   const [retryInfo, setRetryInfo] = useState<
     { attempt: number; nextWaitSec: number; elapsedSec: number } | undefined
   >();
+  const [participants, setParticipants] = useState<ParticipantSnapshot[]>([]);
+  const [layout, setLayout] = useState<LayoutKind>("grid");
+  const [focusIdentity, setFocusIdentity] = useState<string | undefined>();
+  const [muteNotice, setMuteNotice] = useState<string | undefined>();
 
   useEffect(() => {
     controller.onDisconnected(() => {
@@ -86,6 +104,15 @@ export function App(props: {
     });
     controller.onReconnecting(() => setReconnecting(true));
     controller.onReconnected(() => setReconnecting(false));
+    controller.onParticipantsChanged(setParticipants);
+    controller.onDataReceived((payload) => {
+      const msg = decodeStageMessage(payload);
+      if (!msg) return;
+      if (msg.type === "mute-request") {
+        setMuteNotice("モデレーターからミュート要請がありました");
+        setTimeout(() => setMuteNotice(undefined), 5000);
+      }
+    });
   }, [controller]);
 
   const join = async () => {
@@ -113,16 +140,19 @@ export function App(props: {
     }
   };
 
-  const wrap = (fn: () => Promise<unknown>) => async () => {
-    setBusy(true);
-    try {
-      await fn();
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
-    } finally {
-      setBusy(false);
-    }
-  };
+  const wrap = useCallback(
+    (fn: () => Promise<unknown>) => async () => {
+      setBusy(true);
+      try {
+        await fn();
+      } catch (e) {
+        setError(e instanceof Error ? e.message : String(e));
+      } finally {
+        setBusy(false);
+      }
+    },
+    [],
+  );
 
   const tension: TensionState = !session ? "offline" : reconnecting ? "reconnecting" : "live";
 
@@ -201,125 +231,128 @@ export function App(props: {
   }
 
   const roleLabel = session.role === "speaker" ? "登壇者" : "モデレーター";
+  const isModerator = session.role === "moderator";
 
-  return (
-    <StageShell
-      tension={tension}
-      header={
-        <div className="flex w-full items-center justify-between">
-          <div className="flex items-center gap-3">
-            <h1 className="text-sm font-semibold text-text-primary">{session.eventId}</h1>
-            <StatusPill variant={reconnecting ? "warn" : "live"} className="text-xs">
-              {reconnecting ? "再接続中" : "LIVE"}
-            </StatusPill>
-          </div>
-          <div className="flex items-center gap-2">
-            <StatusPill variant="muted" showDot={false} className="text-xs">
-              {roleLabel}
-            </StatusPill>
-          </div>
-        </div>
-      }
-      controlBar={
-        session.canPublish ? (
-          <ControlBar>
-            <Button
-              variant={mic ? "default" : "outline"}
-              size="sm"
-              disabled={busy}
-              onClick={wrap(async () => {
-                await controller.toggleMic(!mic);
-                setMic(!mic);
-              })}
-              aria-label={mic ? "マイクをオフ" : "マイクをオン"}
-            >
-              {mic ? <Mic className="size-4" /> : <MicOff className="size-4" />}
-              <span className="ml-1.5 hidden sm:inline">{mic ? "ON" : "OFF"}</span>
-            </Button>
-            <Button
-              variant={camera ? "default" : "outline"}
-              size="sm"
-              disabled={busy}
-              onClick={wrap(async () => {
-                await controller.toggleCamera(!camera);
-                setCamera(!camera);
-              })}
-              aria-label={camera ? "カメラをオフ" : "カメラをオン"}
-            >
-              {camera ? <Camera className="size-4" /> : <CameraOff className="size-4" />}
-              <span className="ml-1.5 hidden sm:inline">{camera ? "ON" : "OFF"}</span>
-            </Button>
-            <Button
-              variant={screen ? "default" : "outline"}
-              size="sm"
-              disabled={busy}
-              onClick={wrap(async () => {
-                await controller.toggleScreenShare(!screen);
-                setScreen(!screen);
-              })}
-              aria-label={screen ? "画面共有を停止" : "画面共有を開始"}
-            >
-              {screen ? <Monitor className="size-4" /> : <MonitorOff className="size-4" />}
-              <span className="ml-1.5 hidden sm:inline">画面</span>
-            </Button>
+  const mediaControls = (
+    <>
+      <Button
+        variant={mic ? "default" : "outline"}
+        size="sm"
+        disabled={busy}
+        onClick={wrap(async () => {
+          await controller.toggleMic(!mic);
+          setMic(!mic);
+        })}
+        aria-label={mic ? "マイクをオフ" : "マイクをオン"}
+      >
+        {mic ? <Mic className="size-4" /> : <MicOff className="size-4" />}
+        <span className="ml-1.5 hidden sm:inline">{mic ? "ON" : "OFF"}</span>
+      </Button>
+      <Button
+        variant={camera ? "default" : "outline"}
+        size="sm"
+        disabled={busy}
+        onClick={wrap(async () => {
+          await controller.toggleCamera(!camera);
+          setCamera(!camera);
+        })}
+        aria-label={camera ? "カメラをオフ" : "カメラをオン"}
+      >
+        {camera ? <Camera className="size-4" /> : <CameraOff className="size-4" />}
+        <span className="ml-1.5 hidden sm:inline">{camera ? "ON" : "OFF"}</span>
+      </Button>
+      <Button
+        variant={screen ? "default" : "outline"}
+        size="sm"
+        disabled={busy}
+        onClick={wrap(async () => {
+          await controller.toggleScreenShare(!screen);
+          setScreen(!screen);
+        })}
+        aria-label={screen ? "画面共有を停止" : "画面共有を開始"}
+      >
+        {screen ? <Monitor className="size-4" /> : <MonitorOff className="size-4" />}
+        <span className="ml-1.5 hidden sm:inline">画面</span>
+      </Button>
+    </>
+  );
 
-            <div className="mx-1 h-6 w-px bg-line-1" aria-hidden />
+  const slideControls = (
+    <>
+      <div className="mx-1 h-6 w-px bg-line-1" aria-hidden />
+      <div className="flex items-center gap-1">
+        <Button
+          variant="ghost"
+          size="icon-sm"
+          disabled={busy}
+          onClick={wrap(async () => setPage(await controller.slidePrev()))}
+          aria-label="前のスライド"
+        >
+          <ChevronLeft className="size-4" />
+        </Button>
+        <span className="min-w-[3ch] text-center font-mono text-xs tabular-nums text-text-secondary">
+          {page}
+        </span>
+        <Button
+          variant="ghost"
+          size="icon-sm"
+          disabled={busy}
+          onClick={wrap(async () => setPage(await controller.slideNext()))}
+          aria-label="次のスライド"
+        >
+          <ChevronRight className="size-4" />
+        </Button>
+      </div>
+    </>
+  );
 
-            <div className="flex items-center gap-1">
-              <Button
-                variant="ghost"
-                size="icon-sm"
-                disabled={busy}
-                onClick={wrap(async () => setPage(await controller.slidePrev()))}
-                aria-label="前のスライド"
-              >
-                <ChevronLeft className="size-4" />
-              </Button>
-              <span className="min-w-[3ch] text-center font-mono text-xs tabular-nums text-text-secondary">
-                {page}
-              </span>
-              <Button
-                variant="ghost"
-                size="icon-sm"
-                disabled={busy}
-                onClick={wrap(async () => setPage(await controller.slideNext()))}
-                aria-label="次のスライド"
-              >
-                <ChevronRight className="size-4" />
-              </Button>
-            </div>
-
-            <div className="flex-1" />
-
-            <Button
-              variant="destructive"
-              size="sm"
-              disabled={busy}
-              onClick={wrap(() => controller.leave().then(() => setSession(undefined)))}
-            >
-              <LogOut className="size-4" />
-              <span className="ml-1.5">退室</span>
-            </Button>
-          </ControlBar>
-        ) : (
-          <ControlBar>
-            <p className="text-xs text-text-secondary">モデレーターとして進行を補助しています</p>
-            <div className="flex-1" />
-            <Button
-              variant="destructive"
-              size="sm"
-              disabled={busy}
-              onClick={wrap(() => controller.leave().then(() => setSession(undefined)))}
-            >
-              <LogOut className="size-4" />
-              <span className="ml-1.5">退室</span>
-            </Button>
-          </ControlBar>
-        )
-      }
+  const leaveButton = (
+    <Button
+      variant="destructive"
+      size="sm"
+      disabled={busy}
+      onClick={wrap(() => controller.leave().then(() => setSession(undefined)))}
     >
-      {reconnecting && <ReconnectingBanner kind="reconnecting" className="mb-4" />}
+      <LogOut className="size-4" />
+      <span className="ml-1.5">退室</span>
+    </Button>
+  );
 
+  const headerContent = (
+    <div className="flex w-full items-center justify-between">
+      <div className="flex items-center gap-3">
+        <h1 className="text-sm font-semibold text-text-primary">{session.eventId}</h1>
+        <StatusPill variant={reconnecting ? "warn" : "live"} className="text-xs">
+          {reconnecting ? "再接続中" : "LIVE"}
+        </StatusPill>
+      </div>
+      <div className="flex items-center gap-2">
+        <StatusPill variant="muted" showDot={false} className="text-xs">
+          {roleLabel}
+        </StatusPill>
+      </div>
+    </div>
+  );
+
+  const statusBanners = (
+    <>
+      {reconnecting && <ReconnectingBanner kind="reconnecting" className="mb-4" />}
+      {muteNotice && (
+        <div
+          role="alert"
+          className="mb-4 flex items-start gap-3 rounded-md border border-warning/40 bg-warning/10 px-4 py-3 text-sm text-warning"
+        >
+          <span className="flex-1">{muteNotice}</span>
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            aria-label="閉じる"
+            onClick={() => setMuteNotice(undefined)}
+          >
+            ×
+          </Button>
+        </div>
+      )}
       {error && (
         <div
           role="alert"
@@ -336,7 +369,81 @@ export function App(props: {
           </Button>
         </div>
       )}
+    </>
+  );
 
+  if (isModerator) {
+    return (
+      <StageShell
+        tension={tension}
+        header={headerContent}
+        controlBar={
+          <ControlBar>
+            {mediaControls}
+            {slideControls}
+            <div className="flex-1" />
+            {leaveButton}
+          </ControlBar>
+        }
+      >
+        {statusBanners}
+        <div className="flex gap-4">
+          <div className="min-w-0 flex-1 space-y-4">
+            <PreviewWindow
+              client={client}
+              inviteToken={token}
+              composerTemplateUrl={props.config?.composerTemplateUrl}
+            />
+          </div>
+          <aside className="w-80 shrink-0 space-y-4">
+            <Card>
+              <CardHeader className="pb-3">
+                <CardTitle className="text-sm">レイアウト</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <LayoutPicker
+                  value={layout}
+                  onChange={(next) => {
+                    setLayout(next);
+                    void controller.changeLayout(next, focusIdentity);
+                  }}
+                  disabled={busy}
+                />
+              </CardContent>
+            </Card>
+            <ParticipantList
+              participants={participants.map(toParticipantInfo)}
+              focusIdentity={focusIdentity}
+              onFocus={(identity) => {
+                const next = identity === focusIdentity ? undefined : identity;
+                setFocusIdentity(next);
+                void controller.changeLayout(layout, next);
+              }}
+              onRequestMute={(identity) => {
+                void controller.requestMute(identity);
+              }}
+            />
+          </aside>
+        </div>
+      </StageShell>
+    );
+  }
+
+  // Speaker サブビュー
+  return (
+    <StageShell
+      tension={tension}
+      header={headerContent}
+      controlBar={
+        <ControlBar>
+          {mediaControls}
+          {slideControls}
+          <div className="flex-1" />
+          {leaveButton}
+        </ControlBar>
+      }
+    >
+      {statusBanners}
       <PreviewWindow
         client={client}
         inviteToken={token}

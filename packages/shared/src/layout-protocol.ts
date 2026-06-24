@@ -1,27 +1,19 @@
 /**
- * Layout 切替プロトコル (ADR 0012 D-4, R16)。
+ * Layout 切替 + stage 間メッセージプロトコル (ADR 0012 D-4, R16, D8)。
  *
- * admin-web から composer-template に layout 切替を broadcast するための JSON 仕様。
- * LiveKit room の data channel (`room.localParticipant.publishData`) を経由する。
+ * LiveKit room の data channel (`room.localParticipant.publishData`) を経由するメッセージ仕様。
  *
- * メッセージ format:
- *   { type: "layout-change", layout: "spotlight", focusIdentity?: "speaker-XXX" }
+ * メッセージ種別:
+ *   - layout-change: レイアウト切替 (admin/moderator → composer-template)
+ *   - mute-request:  ミュート要請 (moderator/admin → speaker)
  *
  * composer-template 側は `RoomEvent.DataReceived` で受信し、 React state を更新する。
- * focusIdentity は spotlight / pip / screen-share-main で「メイン表示する participant」を
- * 指定する。 未指定なら自動選択 (最初の publisher / 画面共有 publisher)。
- *
- * admin-web と composer-template の両方が import するため、 共有パッケージに集約する。
+ * stage-web 側は mute-request を受信して通知を表示し、speaker が任意でミュートする。
  */
 
 export type LayoutKind = "grid" | "spotlight" | "pip" | "screen-share-main";
 
-export const ALL_LAYOUTS: readonly LayoutKind[] = [
-  "grid",
-  "spotlight",
-  "pip",
-  "screen-share-main",
-];
+export const ALL_LAYOUTS: readonly LayoutKind[] = ["grid", "spotlight", "pip", "screen-share-main"];
 
 /** Layout の表示用ラベル (admin-web の切替ボタンで使う)。 */
 export const LAYOUT_LABELS: Record<LayoutKind, string> = {
@@ -39,8 +31,23 @@ export interface LayoutChangeMessage {
   focusIdentity?: string;
 }
 
+/** ミュート要請メッセージ (moderator/admin → speaker, D8)。 */
+export interface MuteRequestMessage {
+  type: "mute-request";
+  /** ミュート要請先の participant identity。 */
+  targetIdentity: string;
+}
+
+/** DataChannel メッセージ共用型。 */
+export type StageMessage = LayoutChangeMessage | MuteRequestMessage;
+
 /** メッセージを Uint8Array にエンコードする (LiveKit publishData の引数型に合わせる)。 */
 export function encodeLayoutMessage(msg: LayoutChangeMessage): Uint8Array {
+  return new TextEncoder().encode(JSON.stringify(msg));
+}
+
+/** 任意の StageMessage を Uint8Array にエンコードする。 */
+export function encodeStageMessage(msg: StageMessage): Uint8Array {
   return new TextEncoder().encode(JSON.stringify(msg));
 }
 
@@ -59,6 +66,26 @@ export function decodeLayoutMessage(payload: Uint8Array): LayoutChangeMessage | 
       ALL_LAYOUTS.includes((obj as { layout?: LayoutKind }).layout as LayoutKind)
     ) {
       return obj as LayoutChangeMessage;
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+/** 受信した Uint8Array を StageMessage に decode する。 */
+export function decodeStageMessage(payload: Uint8Array): StageMessage | null {
+  try {
+    const text = new TextDecoder().decode(payload);
+    const obj = JSON.parse(text) as unknown;
+    if (typeof obj !== "object" || obj === null) return null;
+    const type = (obj as { type?: unknown }).type;
+    if (type === "layout-change") return decodeLayoutMessage(payload);
+    if (
+      type === "mute-request" &&
+      typeof (obj as { targetIdentity?: unknown }).targetIdentity === "string"
+    ) {
+      return obj as MuteRequestMessage;
     }
     return null;
   } catch {

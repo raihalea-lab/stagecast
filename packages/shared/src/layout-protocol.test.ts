@@ -2,8 +2,11 @@ import { describe, expect, it } from "vitest";
 import {
   ALL_LAYOUTS,
   decodeLayoutMessage,
+  decodeStageMessage,
   encodeLayoutMessage,
+  encodeStageMessage,
   type LayoutChangeMessage,
+  type MuteRequestMessage,
 } from "./layout-protocol.js";
 
 describe("layout-protocol (R16, ADR 0012 D-4)", () => {
@@ -41,5 +44,27 @@ describe("layout-protocol (R16, ADR 0012 D-4)", () => {
       JSON.stringify({ type: "layout-change", layout: "unknown-layout" }),
     );
     expect(decodeLayoutMessage(bytes)).toBeNull();
+  });
+});
+
+describe("mute-request (D8)", () => {
+  it("encodeStageMessage → decodeStageMessage で mute-request が往復する", () => {
+    const msg: MuteRequestMessage = { type: "mute-request", targetIdentity: "speaker-xyz" };
+    const bytes = encodeStageMessage(msg);
+    expect(decodeStageMessage(bytes)).toEqual(msg);
+  });
+
+  it("decodeStageMessage は layout-change も decode できる", () => {
+    const msg: LayoutChangeMessage = { type: "layout-change", layout: "grid" };
+    expect(decodeStageMessage(encodeLayoutMessage(msg))).toEqual(msg);
+  });
+
+  it("decodeStageMessage は不正な JSON は null", () => {
+    expect(decodeStageMessage(new TextEncoder().encode("garbage"))).toBeNull();
+  });
+
+  it("decodeStageMessage は targetIdentity が無い mute-request は null", () => {
+    const bytes = new TextEncoder().encode(JSON.stringify({ type: "mute-request" }));
+    expect(decodeStageMessage(bytes)).toBeNull();
   });
 });
