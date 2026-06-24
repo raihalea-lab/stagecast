@@ -1,17 +1,20 @@
 /**
- * PreviewWindow - 登壇者ビュー右下に「現在の配信」を picture-in-picture 風小窓で表示
- * (R17-Phase3, ADR 0012 D-6 受け入れ基準 6)。
+ * PreviewWindow - 配信中の合成画面 (composer-template) を main 領域に大きく表示
+ * (R17-Phase3 / P-13-followup-2, ADR 0012 D-6)。
+ *
+ * 当初は右下 picture-in-picture 風小窓 (240px) だったが、 ユーザー要望で
+ * **登壇者ビューのメイン領域に配置** + **見切れなし** に変更 (P-13-followup-2)。
+ *
+ * 配置: コントロールバーや header の下に inline で挿入される。 16:9 aspect-ratio
+ * で max-width 制限 (CSS 側) を持ち、 iframe の中身が常に完全表示される。
  *
  * 流れ:
- *  1. mount 時に control-api `/preview-token` を **招待トークン** で叩いて viewer-role token を取得
+ *  1. mount + open のタイミングで `/preview-token` を **招待トークン** で叩いて viewer-role token を取得
  *  2. composer-template URL に token / url を query param で渡して iframe で開く
  *  3. composer-template は subscriber-only で room.connect → 合成画面を描画
  *
- * admin-web 側の LivePreview (R17-Phase2, `apps/admin-web/src/components/LivePreview.tsx`)
- * と機能は同じだが、 stage-web 専用に **右下小窓 (PiP 風)** UI + **招待トークン認証** を使う。
- *
- * 帯域コスト: iframe 表示中は LiveKit から subscriber として受信 (~1 Mbps)。 デフォルトは
- * 開いた状態で表示するが、 ✕ ボタンで非表示にできる (再表示は「プレビュー」ボタン)。
+ * 帯域コスト: iframe 表示中は LiveKit から subscriber として受信 (~1 Mbps)。
+ * 「閉じる」ボタンで非表示にして帯域節約できる (再表示用ボタンが残る)。
  */
 import { useEffect, useState } from "react";
 import type { PreviewTokenResponse, StageClient } from "../api/stage-client.js";
@@ -51,49 +54,37 @@ export function PreviewWindow(props: Props) {
     return null;
   }
 
-  // 折りたたみ時の小さな「プレビュー」ボタン (再表示用)。
-  if (!open) {
-    return (
-      <button
-        type="button"
-        className="preview-window-reopen"
-        onClick={() => setOpen(true)}
-        aria-label="プレビューを開く"
-      >
-        プレビュー
-      </button>
-    );
-  }
-
-  const iframeSrc = token
-    ? `${composerTemplateUrl}?layout=grid&token=${encodeURIComponent(token.livekitToken)}&url=${encodeURIComponent(token.livekitUrl)}`
-    : undefined;
+  const iframeSrc =
+    open && token
+      ? `${composerTemplateUrl}?layout=grid&token=${encodeURIComponent(token.livekitToken)}&url=${encodeURIComponent(token.livekitUrl)}`
+      : undefined;
 
   return (
-    <aside className="preview-window" aria-label="配信プレビュー">
-      <header className="preview-window-header">
-        <span>配信プレビュー</span>
-        <button
-          type="button"
-          onClick={() => setOpen(false)}
-          aria-label="プレビューを閉じる"
-          className="preview-window-close"
-        >
-          ×
+    <section className="preview-section" aria-label="配信プレビュー">
+      <div className="preview-section-header">
+        <h2>配信プレビュー (配信中の合成画面)</h2>
+        <button type="button" onClick={() => setOpen((p) => !p)} className="preview-section-toggle">
+          {open ? "閉じる" : "開く"}
         </button>
-      </header>
-      {error ? (
-        <p className="preview-window-error">エラー: {error}</p>
-      ) : iframeSrc ? (
-        <iframe
-          title="配信プレビュー (composer-template)"
-          src={iframeSrc}
-          className="preview-window-iframe"
-          allow="autoplay"
-        />
-      ) : (
-        <p className="preview-window-loading">接続中…</p>
+      </div>
+      {open && (
+        <div className="preview-section-body">
+          {error && <p className="preview-section-error">エラー: {error}</p>}
+          {!error && !iframeSrc && <p className="preview-section-loading">接続中…</p>}
+          {iframeSrc && (
+            <iframe
+              title="配信プレビュー (composer-template)"
+              src={iframeSrc}
+              className="preview-section-iframe"
+              allow="autoplay"
+            />
+          )}
+          <p className="preview-section-hint">
+            ※ Egress と同じ composer-template を viewer role で表示しています。
+            帯域消費を抑えるため不要時は「閉じる」を押してください。
+          </p>
+        </div>
       )}
-    </aside>
+    </section>
   );
 }
