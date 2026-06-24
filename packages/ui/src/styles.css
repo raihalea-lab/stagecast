@@ -1,0 +1,61 @@
+/*
+ * @stagecast/ui のエントリ CSS
+ *
+ * 各 app は `import "@stagecast/ui/styles.css"` の 1 行だけで
+ * (1) Inter / JetBrains Mono の self-host
+ * (2) デザイントークン (tokens.css)
+ * (3) Tailwind base / components / utilities
+ * (4) グローバル既定の font-feature-settings
+ * を一括で得る。
+ *
+ * composer-template だけは Egress Chrome の cold-start 軽量化のため
+ * このファイルは import せず、 専用の最小 styles.css を持つ (ADR 0013 D-3 補)。
+ */
+
+@import "@fontsource-variable/inter/index.css";
+@import "@fontsource-variable/jetbrains-mono/index.css";
+
+@import "./tokens.css";
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html {
+    font-family:
+      "InterVariable",
+      system-ui,
+      -apple-system,
+      "Segoe UI",
+      sans-serif;
+    font-feature-settings: "ss01", "cv11", "tnum";
+    color-scheme: dark;
+    background: var(--surface-0);
+    color: var(--text-primary);
+  }
+
+  html[data-theme="light"] {
+    color-scheme: light;
+  }
+
+  body {
+    margin: 0;
+    min-height: 100vh;
+  }
+
+  .font-mono {
+    font-family: "JetBrains MonoVariable", ui-monospace, "SF Mono", Menlo, monospace;
+    font-variant-numeric: tabular-nums slashed-zero;
+  }
+
+  /* focus-visible: Tally と同色の ring。 "本番に近い注意" の一貫性 */
+  :focus-visible {
+    outline: 2px solid transparent;
+    outline-offset: 2px;
+    box-shadow:
+      0 0 0 2px var(--tally-500),
+      0 0 0 4px var(--surface-0);
+    border-radius: var(--radius-sm);
+  }
+}

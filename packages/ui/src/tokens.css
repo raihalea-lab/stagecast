@@ -1,0 +1,131 @@
+/*
+ * stagecast デザイントークン (DESIGN system v1 / ADR 0013)
+ *
+ * 単一の正としての CSS Custom Properties。 Tailwind preset (tailwind-preset.ts) は
+ * このファイルの var(--*) を参照するだけ。 Tailwind の theme.extend に直値を書かない。
+ *
+ * カラー戦略: 赤一色節制。 アクセントは Tally Red (#DC2626) と Preview Green (#16A34A) のみ。
+ * 階調は無彩色 + hairline + 微妙な surface 差で表現する。
+ */
+
+:root,
+[data-theme="dark"] {
+  /* surface: 後ろにいくほど前面 */
+  --surface-0: #0a0a0b;
+  --surface-1: #111114;
+  --surface-2: #17171c;
+  --surface-3: #1f1f25;
+  --surface-4: #2a2a33;
+
+  /* hairline (極細ボーダーで層を作る) */
+  --line-1: rgba(255, 255, 255, 0.06);
+  --line-2: rgba(255, 255, 255, 0.1);
+  --line-3: rgba(255, 255, 255, 0.16);
+
+  /* text 階層 */
+  --text-primary: rgba(255, 255, 255, 0.94);
+  --text-secondary: rgba(255, 255, 255, 0.66);
+  --text-tertiary: rgba(255, 255, 255, 0.42);
+  --text-disabled: rgba(255, 255, 255, 0.24);
+
+  /* tally — シナバー赤、4 段階 */
+  --tally-50: #fef2f2;
+  --tally-500: #dc2626;
+  --tally-600: #b91c1c;
+  --tally-700: #991b1b;
+  --tally-glow:
+    0 0 0 1px rgba(220, 38, 38, 0.45), 0 0 12px 0 rgba(220, 38, 38, 0.35),
+    inset 0 0 0 1px rgba(220, 38, 38, 0.65);
+
+  /* preview tally (緑) — preview インジケータ専用、静的 (pulse なし) */
+  --preview-500: #16a34a;
+  --preview-glow: 0 0 0 1px rgba(22, 163, 74, 0.45), 0 0 10px 0 rgba(22, 163, 74, 0.3);
+
+  /* 機能色 (alert / log 系のみ、 通常 UI には極力使わない) */
+  --success: #10b981;
+  --warning: #f59e0b;
+  --error: #ef4444;
+  --info: #38bdf8;
+
+  /* radius */
+  --radius-sm: 4px;
+  --radius-md: 6px;
+  --radius-lg: 10px;
+  --radius-xl: 14px;
+  --radius-full: 9999px;
+
+  /* shadow (極力使わない、 これだけ) */
+  --shadow-overlay: 0 12px 32px -8px rgba(0, 0, 0, 0.6), 0 0 0 1px var(--line-2);
+
+  /* motion */
+  --ease-standard: cubic-bezier(0.2, 0, 0, 1);
+  --ease-decel: cubic-bezier(0, 0, 0, 1);
+  --ease-accel: cubic-bezier(0.4, 0, 1, 1);
+  --duration-fast: 120ms;
+  --duration-base: 200ms;
+  --duration-slow: 320ms;
+  --duration-pulse: 1600ms;
+}
+
+[data-theme="light"] {
+  --surface-0: #fafafa;
+  --surface-1: #ffffff;
+  --surface-2: #f5f5f7;
+  --surface-3: #ececef;
+  --surface-4: #dedee3;
+
+  --line-1: rgba(0, 0, 0, 0.06);
+  --line-2: rgba(0, 0, 0, 0.1);
+  --line-3: rgba(0, 0, 0, 0.16);
+
+  --text-primary: rgba(17, 17, 20, 0.94);
+  --text-secondary: rgba(17, 17, 20, 0.66);
+  --text-tertiary: rgba(17, 17, 20, 0.42);
+  --text-disabled: rgba(17, 17, 20, 0.24);
+
+  --shadow-overlay: 0 12px 32px -8px rgba(0, 0, 0, 0.18), 0 0 0 1px var(--line-2);
+  /* tally / preview / functional / radius / motion はダークと共通 */
+}
+
+/* prefers-reduced-motion: pulse / 流れる effect を停止、 色は維持して識別可 */
+@media (prefers-reduced-motion: reduce) {
+  :root,
+  [data-theme="dark"],
+  [data-theme="light"] {
+    --duration-fast: 0.01ms;
+    --duration-base: 0.01ms;
+    --duration-slow: 0.01ms;
+    --duration-pulse: 0.01ms;
+  }
+}
+
+/* Tally Glow utility classes */
+.tally--on {
+  border: 1px solid var(--tally-500);
+  box-shadow: var(--tally-glow);
+  animation: tally-pulse var(--duration-pulse) ease-in-out infinite;
+}
+
+.tally--preview {
+  border: 1px solid var(--preview-500);
+  box-shadow: var(--preview-glow);
+}
+
+@keyframes tally-pulse {
+  0%,
+  100% {
+    box-shadow: var(--tally-glow);
+  }
+  50% {
+    box-shadow:
+      0 0 0 1px rgba(220, 38, 38, 0.55),
+      0 0 18px 2px rgba(220, 38, 38, 0.45),
+      inset 0 0 0 1px rgba(220, 38, 38, 0.75);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tally--on {
+    animation: none;
+  }
+}
