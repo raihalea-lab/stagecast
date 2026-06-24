@@ -136,14 +136,6 @@ export function App(props: {
 
   return (
     <main className="stage">
-      {/* R17-Phase3 / ADR 0012 D-6: 登壇者ビュー右下小窓に「現在の配信」をプレビュー。
-          composer-template を viewer-role の subscriber-only token で iframe 埋め込み。
-          ✕ で閉じれば帯域消費を抑えられる (再表示用ボタンを表示)。 */}
-      <PreviewWindow
-        client={client}
-        inviteToken={token}
-        composerTemplateUrl={props.config?.composerTemplateUrl}
-      />
       <h1>
         {session.role === "speaker" ? "登壇者" : "モデレーター"} / イベント {session.eventId}
       </h1>
@@ -153,6 +145,15 @@ export function App(props: {
         </p>
       )}
       {error && <p className="error">{error}</p>}
+
+      {/* P-13-followup-2 / ADR 0012 D-6: 配信プレビューを main 領域に大きく配置。
+          composer-template を viewer-role の subscriber-only token で iframe 埋め込み。
+          16:9 aspect-ratio + max-width 制限で見切れなし。 */}
+      <PreviewWindow
+        client={client}
+        inviteToken={token}
+        composerTemplateUrl={props.config?.composerTemplateUrl}
+      />
 
       {session.canPublish ? (
         <section className="controls">

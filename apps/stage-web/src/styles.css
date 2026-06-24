@@ -110,66 +110,65 @@ button:disabled {
   object-fit: cover;
 }
 
-/* R17-Phase3: 登壇者ビュー右下小窓プレビュー (ADR 0012 D-6) */
-.preview-window {
-  position: fixed;
-  right: 16px;
-  bottom: 16px;
-  width: 240px;
-  background: #111;
-  color: #fff;
-  border: 1px solid #444;
+/* P-13-followup-2: 配信プレビューを main 領域に大きく配置する (ADR 0012 D-6 / R17-Phase3)。
+   旧仕様 (右下 240px 小窓 position:fixed) はユーザー要望でメイン領域配置に変更。 */
+.preview-section {
+  margin: 16px 0;
+  padding: 12px 16px;
+  border: 1px solid #ddd;
   border-radius: 8px;
-  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.5);
-  z-index: 50;
-  overflow: hidden;
-  font-family: sans-serif;
-}
-.preview-window-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 4px 8px;
-  background: #222;
-  font-size: 12px;
-}
-.preview-window-close {
-  background: transparent;
-  color: #fff;
-  border: none;
-  font-size: 16px;
-  cursor: pointer;
-  line-height: 1;
-  padding: 0 4px;
-}
-.preview-window-iframe {
+  background: #f8f9fa;
+  /* 親 (.stage main) の幅一杯。 ただし極端なワイドスクリーンでは max-width で抑える。 */
+  max-width: 960px;
   width: 100%;
+  box-sizing: border-box;
+}
+.preview-section-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+  gap: 12px;
+}
+.preview-section-header h2 {
+  margin: 0;
+  font-size: 1em;
+  font-weight: 600;
+}
+.preview-section-toggle {
+  padding: 4px 12px;
+  font-size: 0.85em;
+  border: 1px solid #bbb;
+  border-radius: 4px;
+  background: #fff;
+  cursor: pointer;
+}
+.preview-section-body {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.preview-section-iframe {
+  width: 100%;
+  /* 16:9 で aspect-ratio 維持 → 親幅の変化に応じて高さも追従。 見切れなし。 */
   aspect-ratio: 16 / 9;
-  border: none;
+  border: 1px solid #ccc;
+  border-radius: 4px;
   background: #000;
   display: block;
 }
-.preview-window-loading,
-.preview-window-error {
+.preview-section-loading,
+.preview-section-error {
   margin: 0;
-  padding: 12px;
-  font-size: 12px;
+  padding: 16px;
   text-align: center;
+  font-size: 0.9em;
 }
-.preview-window-error {
-  color: #ff8888;
+.preview-section-error {
+  color: #cc2222;
 }
-.preview-window-reopen {
-  position: fixed;
-  right: 16px;
-  bottom: 16px;
-  padding: 6px 12px;
-  background: #1f3a93;
-  color: #fff;
-  border: none;
-  border-radius: 4px;
-  cursor: pointer;
-  font-size: 12px;
-  z-index: 50;
-  box-shadow: 0 4px 10px rgba(0, 0, 0, 0.3);
+.preview-section-hint {
+  font-size: 0.8em;
+  color: #666;
+  margin: 0;
 }
