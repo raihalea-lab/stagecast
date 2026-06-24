@@ -6,7 +6,7 @@
  * 単体テストが容易になる。
  */
 import type { InvitedRole, SlideSource, SpeakerVisibility } from "@stagecast/shared";
-import type { AdminAuthVerifier } from "../auth/admin-auth.js";
+import type { AdminAuthVerifier, AdminPrincipal } from "../auth/admin-auth.js";
 import { UnauthorizedError } from "../auth/admin-auth.js";
 import {
   NotFoundError,
@@ -81,8 +81,8 @@ export function createApp(deps: AppDeps) {
     previewToken,
   } = deps;
 
-  async function requireAdmin(req: HttpRequest): Promise<void> {
-    await auth.verify(req.headers["authorization"] ?? req.headers["Authorization"]);
+  async function requireAdmin(req: HttpRequest): Promise<AdminPrincipal> {
+    return auth.verify(req.headers["authorization"] ?? req.headers["Authorization"]);
   }
 
   async function route(req: HttpRequest): Promise<HttpResponse> {
@@ -123,7 +123,7 @@ export function createApp(deps: AppDeps) {
     }
 
     // 以降は管理者専用 (Cognito)
-    await requireAdmin(req);
+    const principal = await requireAdmin(req);
 
     // /events
     if (segments[0] === "events") {
@@ -211,10 +211,17 @@ export function createApp(deps: AppDeps) {
         segments.length === 3 &&
         req.method === "POST"
       ) {
-        // R16 / ADR 0012 D-4: 管理者用 LiveKit token を払い出す (admin-web が layout 切替を
-        // data channel で broadcast するための room 接続トークン)。 認証は requireAdmin で完了済。
         if (!adminToken) throw new ServiceUnavailableError("admin token service not configured");
         return json(201, await adminToken.issue(eventId));
+      } else if (
+        segments[2] === "stage-token" &&
+        segments.length === 3 &&
+        req.method === "POST"
+      ) {
+        // ADR 0014 D-4: admin が stage-web に入るための LiveKit token 発行。
+        // identity は Cognito userId を使用 (admin-{userId})。
+        if (!adminToken) throw new ServiceUnavailableError("admin token service not configured");
+        return json(201, await adminToken.issueStageToken(eventId, principal.userId));
       } else if (
         segments[2] === "preview-token" &&
         segments.length === 3 &&

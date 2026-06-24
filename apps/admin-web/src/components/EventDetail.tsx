@@ -84,10 +84,7 @@ export function EventDetail(props: {
         </div>
         <OpenStageButton
           eventId={event.id}
-          fetcher={async (eventId) => {
-            const r = await client.issueAdminToken(eventId);
-            return { token: r.livekitToken, livekitUrl: r.livekitUrl, expiresAt: Date.now() + 3600_000 };
-          }}
+          fetcher={(eventId) => client.issueStageToken(eventId)}
           className="gap-2"
         />
       </div>

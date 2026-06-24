@@ -76,6 +76,26 @@ describe("AdminTokenService.issue (R16, ADR 0012 D-4)", () => {
     await expect(svc.issue(created.id)).rejects.toBeInstanceOf(ServiceUnavailableError);
   });
 
+  it("issueStageToken は Cognito userId を identity に使い { token, livekitUrl, expiresAt } を返す", async () => {
+    const events = buildEvents();
+    const created = await events.create({
+      title: "test",
+      startsAt: "2026-06-19T00:00:00.000Z",
+      caption: { languages: ["ja"], youtubeLanguage: "ja", engine: "transcribe", customApiEnabled: false },
+    });
+    await events.setStatus(created.id, "live");
+    await events.update(created.id, { media: { livekitUrl: "wss://event-X.example.com" } } as never);
+    const minter = fakeMinter();
+    const svc = createAdminTokenService({ events, liveKitMinter: minter });
+
+    const result = await svc.issueStageToken(created.id, "cognito-user-abc");
+
+    expect(result.token).toBe("fake-token-admin-cognito-user-abc");
+    expect(result.livekitUrl).toBe("wss://event-X.example.com");
+    expect(result.expiresAt).toBeGreaterThan(Date.now());
+    expect(minter.calls[0]?.identity).toBe("admin-cognito-user-abc");
+  });
+
   it("複数回 issue すると毎回新しい identity が払い出される (複数 admin 同時接続対応)", async () => {
     const events = buildEvents();
     const created = await events.create({
