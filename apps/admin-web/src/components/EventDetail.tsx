@@ -1,36 +1,44 @@
 /**
- * イベント詳細: 素材アップロード・招待URL発行・配信開始/終了 (DESIGN.md 8 章, 7.1, 4.1)。
+ * イベント詳細: Setup / Artifacts の 2 タブ構成 (ADR 0014 D-1)。
+ *
+ * 配信操作 (Layout / Egress / Lifecycle) は stage-web に移管 (ADR 0014 D-2)。
+ * admin-web は OpenStageButton で stage-web を開くだけ。
  */
 import { useState } from "react";
 import type { EventDefinition, InvitedRole } from "@stagecast/shared";
-import type {
-  Artifact,
-  ArtifactService,
-  AssetService,
-  ControlApiClient,
-  IssuedInvite,
-} from "../api/types.js";
+import type { Artifact, ArtifactService, AssetService, ControlApiClient, IssuedInvite } from "../api/types.js";
 import { toErrorMessage } from "../lib/errors.js";
-import { LayoutControl } from "./LayoutControl.js";
-import { LivePreview } from "./LivePreview.js";
+import {
+  Button,
+  Card,
+  CardContent,
+  CardHeader,
+  CardTitle,
+  EmptyState,
+  Input,
+  Label,
+  OpenStageButton,
+  StatusPill,
+  Tabs,
+  TabsContent,
+  TabsList,
+  TabsTrigger,
+} from "@stagecast/ui";
+import { Download, ExternalLink, Upload } from "@stagecast/ui/icons";
 
 export function EventDetail(props: {
   event: EventDefinition;
   client: ControlApiClient;
   assets: AssetService;
   artifacts: ArtifactService;
-  /** R17: composer-template の URL (LivePreview iframe で使う、 runtime config 由来)。 */
-  composerTemplateUrl?: string;
   onChanged: () => void;
 }) {
-  const { event, client, assets, artifacts, composerTemplateUrl, onChanged } = props;
+  const { event, client, assets, artifacts, onChanged } = props;
   const [invites, setInvites] = useState<IssuedInvite[]>([]);
   const [artifactList, setArtifactList] = useState<Artifact[] | undefined>();
   const [error, setError] = useState<string | undefined>();
   const [busy, setBusy] = useState(false);
-  const [egressInfo, setEgressInfo] = useState<{ egressId: string } | undefined>();
 
-  // 操作を共通ラップ: 失敗をエラーバナーに出し、実行中は busy で連打を防ぐ (admin-web 全体と統一)。
   const guard = (fn: () => Promise<void>) => async () => {
     setError(undefined);
     setBusy(true);
@@ -65,114 +73,152 @@ export function EventDetail(props: {
       setInvites((prev) => [...prev, invite]);
     })();
 
-  const changeStatus = (status: EventDefinition["status"]) =>
-    guard(async () => {
-      await client.setStatus(event.id, status);
-      onChanged();
-    })();
-
-  // R12: Egress (RTMP 送出) を起動して YouTube Live への配信を開始する。
-  const startEgress = guard(async () => {
-    const result = await client.startEgress(event.id);
-    setEgressInfo({ egressId: result.egressId });
-  });
-
   return (
-    <section className="event-detail">
-      <h2>
-        {event.title} <span className={`status status-${event.status}`}>{event.status}</span>
-      </h2>
-      {error && (
-        <p className="error" role="alert">
-          {error} <button onClick={() => setError(undefined)}>×</button>
-        </p>
-      )}
-
-      <div className="lifecycle">
-        {event.status === "draft" && (
-          <button onClick={() => changeStatus("live")} disabled={busy}>
-            配信開始 (live)
-          </button>
-        )}
-        {event.status === "live" && (
-          <>
-            <button onClick={() => changeStatus("ended")} disabled={busy}>
-              配信終了 (ended)
-            </button>
-            {/* R12: live + media.livekitUrl + youtube.rtmpUrl/streamKeyRef が揃ったら RTMP 送出可能。 */}
-            {event.media?.livekitUrl && event.youtube?.rtmpUrl && event.youtube.streamKeyRef && (
-              <button onClick={startEgress} disabled={busy}>
-                YouTube に配信開始 (Egress)
-              </button>
-            )}
-          </>
-        )}
-        {egressInfo && (
-          <p className="info">
-            Egress 起動済み: <code>{egressInfo.egressId}</code>
-          </p>
-        )}
+    <section className="space-y-6">
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-3">
+          <h2 className="text-lg font-semibold text-text-primary">{event.title}</h2>
+          <StatusPill
+            variant={event.status === "live" ? "live" : event.status === "ended" ? "ended" : "draft"}
+          />
+        </div>
+        <OpenStageButton
+          eventId={event.id}
+          fetcher={async (eventId) => {
+            const r = await client.issueAdminToken(eventId);
+            return { token: r.livekitToken, livekitUrl: r.livekitUrl, expiresAt: Date.now() + 3600_000 };
+          }}
+          className="gap-2"
+        />
       </div>
 
-      {/* R16 / ADR 0012 D-4: live イベント + media 確定後は layout 切替 UI を表示する。
-          composer-template (Egress) に data channel で broadcast → sub-second で反映される。 */}
-      {event.status === "live" && event.media?.livekitUrl && (
-        <LayoutControl eventId={event.id} client={client} />
+      {error && (
+        <div
+          role="alert"
+          className="flex items-start gap-3 rounded-md border border-error/40 bg-error/10 px-4 py-3 text-sm text-error"
+        >
+          <span className="flex-1">{error}</span>
+          <Button variant="ghost" size="icon-sm" aria-label="閉じる" onClick={() => setError(undefined)}>
+            ×
+          </Button>
+        </div>
       )}
 
-      {/* R17 / ADR 0012 D-6: live + media 確定後はライブプレビューを toggle 可能に表示。
-          composer-template を iframe で開いて Egress と同じ合成画面を sub-second で確認できる。 */}
-      {event.status === "live" && event.media?.livekitUrl && (
-        <LivePreview eventId={event.id} client={client} composerTemplateUrl={composerTemplateUrl} />
-      )}
+      <Tabs defaultValue="setup">
+        <TabsList>
+          <TabsTrigger value="setup">Setup</TabsTrigger>
+          <TabsTrigger value="artifacts">Artifacts</TabsTrigger>
+        </TabsList>
 
-      <h3>素材</h3>
-      <label>
-        QR コード画像
-        <input
-          type="file"
-          accept="image/*"
-          disabled={busy}
-          onChange={(e) => e.target.files?.[0] && uploadQr(e.target.files[0])}
-        />
-      </label>
-      {event.qrAsset && <p>登録済み QR: {event.qrAsset.key}</p>}
+        <TabsContent value="setup" className="space-y-6 pt-4">
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2 text-base">
+                <Upload className="size-4" />
+                素材
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="grid gap-2">
+                <Label htmlFor="qr-upload">QR コード画像</Label>
+                <Input
+                  id="qr-upload"
+                  type="file"
+                  accept="image/*"
+                  disabled={busy}
+                  onChange={(e) => e.target.files?.[0] && uploadQr(e.target.files[0])}
+                />
+              </div>
+              {event.qrAsset && (
+                <p className="text-sm text-text-secondary">登録済み QR: {event.qrAsset.key}</p>
+              )}
+            </CardContent>
+          </Card>
 
-      <h3>招待 URL</h3>
-      <button onClick={() => issue("moderator")} disabled={busy}>
-        モデレーター招待を発行
-      </button>
-      <button onClick={() => issue("speaker")} disabled={busy}>
-        登壇者招待を発行
-      </button>
-      <ul>
-        {invites.map((inv) => (
-          <li key={inv.jti}>
-            <strong>{inv.role}</strong>: <code>{inv.url}</code>
-          </li>
-        ))}
-      </ul>
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2 text-base">
+                <ExternalLink className="size-4" />
+                招待 URL
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="flex gap-2">
+                <Button variant="outline" onClick={() => issue("moderator")} disabled={busy}>
+                  モデレーター招待を発行
+                </Button>
+                <Button variant="outline" onClick={() => issue("speaker")} disabled={busy}>
+                  登壇者招待を発行
+                </Button>
+              </div>
+              {invites.length > 0 && (
+                <ul className="space-y-2">
+                  {invites.map((inv) => (
+                    <li key={inv.jti} className="rounded-md border border-line-1 px-3 py-2 text-sm">
+                      <span className="font-medium text-text-primary">{inv.role}</span>
+                      <code className="mt-1 block break-all text-xs text-text-secondary">{inv.url}</code>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </CardContent>
+          </Card>
 
-      <h3>成果物 (録画 / 字幕)</h3>
-      <button onClick={loadArtifacts} disabled={busy}>
-        一覧を更新
-      </button>
-      {artifactList && (
-        <ul className="artifacts">
-          {artifactList.map((a) => (
-            <li key={a.key}>
-              <span className={`artifact-kind artifact-${a.kind}`}>
-                {a.kind === "recording" ? "録画" : "字幕"}
-              </span>
-              :{" "}
-              <a href={a.downloadUrl} download={a.name} rel="noreferrer">
-                {a.name}
-              </a>
-            </li>
-          ))}
-          {artifactList.length === 0 && <li>(成果物なし / 配信終了後に表示されます)</li>}
-        </ul>
-      )}
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base">イベント情報</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-2 text-sm text-text-secondary">
+              <p>ID: <code className="text-xs">{event.id}</code></p>
+              {event.startsAt && <p>開催日時: {event.startsAt}</p>}
+              {event.caption && <p>字幕エンジン: {event.caption.engine}</p>}
+              {event.media?.livekitUrl && <p>LiveKit URL: <code className="text-xs">{event.media.livekitUrl}</code></p>}
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        <TabsContent value="artifacts" className="space-y-6 pt-4">
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2 text-base">
+                <Download className="size-4" />
+                成果物 (録画 / 字幕)
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <Button variant="outline" onClick={loadArtifacts} disabled={busy}>
+                一覧を更新
+              </Button>
+              {artifactList === undefined ? (
+                <EmptyState
+                  title="成果物を読み込む"
+                  description="上のボタンで一覧を取得してください"
+                  icon={<Download />}
+                />
+              ) : artifactList.length === 0 ? (
+                <EmptyState
+                  title="成果物なし"
+                  description="配信終了後に表示されます"
+                  icon={<Download />}
+                />
+              ) : (
+                <ul className="space-y-2">
+                  {artifactList.map((a) => (
+                    <li key={a.key} className="flex items-center gap-3 rounded-md border border-line-1 px-3 py-2 text-sm">
+                      <StatusPill variant={a.kind === "recording" ? "ok" : "muted"} showDot={false}>
+                        {a.kind === "recording" ? "録画" : "字幕"}
+                      </StatusPill>
+                      <a href={a.downloadUrl} download={a.name} rel="noreferrer" className="text-text-primary underline underline-offset-2 hover:text-tally-500">
+                        {a.name}
+                      </a>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </CardContent>
+          </Card>
+        </TabsContent>
+      </Tabs>
     </section>
   );
 }
