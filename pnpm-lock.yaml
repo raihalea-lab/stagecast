@@ -40,6 +40,9 @@ importers:
       '@stagecast/shared':
         specifier: workspace:*
         version: link:../../packages/shared
+      '@stagecast/ui':
+        specifier: workspace:*
+        version: link:../../packages/ui
       livekit-client:
         specifier: ^2.19.2
         version: 2.19.2(@types/dom-mediacapture-record@1.0.22)
@@ -59,6 +62,15 @@ importers:
       '@vitejs/plugin-react':
         specifier: ^6.0.0
         version: 6.0.2(@voidzero-dev/vite-plus-core@0.2.1(@types/node@25.9.2)(esbuild@0.28.1)(jiti@1.21.7)(tsx@4.22.4)(typescript@6.0.3))
+      autoprefixer:
+        specifier: ^10.4.20
+        version: 10.5.0(postcss@8.5.15)
+      postcss:
+        specifier: ^8.5.0
+        version: 8.5.15
+      tailwindcss:
+        specifier: ^3.4.17
+        version: 3.4.19(tsx@4.22.4)
       typescript:
         specifier: ^6.0.3
         version: 6.0.3

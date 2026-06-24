@@ -4,10 +4,31 @@
  * Cognito Hosted UI (Authorization Code + PKCE) でログインしてから制御 API を呼ぶ。
  * VITE_COGNITO_* が未設定なら認証スキップ (ローカル開発で sessionStorage に直接トークンを
  * 入れて使える)。
+ *
+ * UI は @stagecast/ui の AppShell + デザイントークン上に乗る (ADR 0013)。
  */
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { EventDefinition } from "@stagecast/shared";
 import type { CreateEventInput } from "@stagecast/control-api";
+import {
+  AppShell,
+  Button,
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+  EmptyState,
+  EventListItem,
+  Skeleton,
+  StatusPill,
+  TallyIndicator,
+  ThemeToggle,
+  Toaster,
+  TooltipProvider,
+  type ThemeMode,
+} from "@stagecast/ui";
+import { LogOut, Settings, Users } from "@stagecast/ui/icons";
 import { HttpControlApiClient } from "./api/http-client.js";
 import { HttpAssetService } from "./api/http-asset-service.js";
 import { HttpArtifactService } from "./api/http-artifact-service.js";
@@ -24,6 +45,32 @@ interface AuthState {
   error?: string;
 }
 
+function readInitialTheme(): ThemeMode {
+  try {
+    const t = localStorage.getItem("stagecast.theme");
+    if (t === "light" || t === "dark" || t === "system") return t;
+  } catch {
+    // localStorage unavailable
+  }
+  return "dark";
+}
+
+function applyTheme(mode: ThemeMode) {
+  const root = document.documentElement;
+  const resolved =
+    mode === "system"
+      ? window.matchMedia("(prefers-color-scheme: light)").matches
+        ? "light"
+        : "dark"
+      : mode;
+  root.dataset.theme = resolved;
+  try {
+    localStorage.setItem("stagecast.theme", mode);
+  } catch {
+    // localStorage unavailable
+  }
+}
+
 export function App(props: {
   /** ランタイム設定 (main.tsx が config.json から解決して渡す)。未指定はテスト/認証なし。 */
   config?: RuntimeConfig;
@@ -32,7 +79,6 @@ export function App(props: {
   artifacts?: ArtifactService;
 }) {
   const apiBaseUrl = props.config?.controlApiUrl ?? "";
-  // Cognito 設定があれば認証クライアントを構築 (未設定なら認証スキップ＝ローカル/テスト)。
   const cognito = props.config?.cognito;
   const authClient = useMemo(
     () => (cognito ? new CognitoAuthClient(cognitoConfig(cognito)) : undefined),
@@ -63,10 +109,13 @@ export function App(props: {
   const [selectedId, setSelectedId] = useState<string | undefined>();
   const [apiError, setApiError] = useState<string | undefined>();
   const [busy, setBusy] = useState(false);
-  /** 画面切り替え: イベント管理 / 運用設定 (LiveKit / YouTube 認証情報)。 */
   const [view, setView] = useState<"events" | "settings">("events");
+  const [theme, setTheme] = useState<ThemeMode>(readInitialTheme);
 
-  // API 操作を共通ラップ: 実行中は busy、失敗はエラーバナーに出す (従来は握り潰し)。
+  useEffect(() => {
+    applyTheme(theme);
+  }, [theme]);
+
   const run = useCallback(async (fn: () => Promise<void>) => {
     setApiError(undefined);
     setBusy(true);
@@ -79,28 +128,23 @@ export function App(props: {
     }
   }, []);
 
-  // OAuth callback 処理 → 既存トークンの再利用 → ログイン判定。
   useEffect(() => {
     let cancelled = false;
     void (async () => {
       try {
-        // 認証無効モード (テスト等) は素通し。
         if (!authClient) {
           if (!cancelled) setAuth({ status: "authenticated" });
           return;
         }
-        // /auth/callback?code=...&state=... の処理。
         const url = new URL(window.location.href);
         const code = url.searchParams.get("code");
         const state = url.searchParams.get("state");
         if (code && state) {
           await authClient.exchangeCode(code, state);
-          // クエリを消して "/" に戻す。
           window.history.replaceState({}, "", "/");
           if (!cancelled) setAuth({ status: "authenticated" });
           return;
         }
-        // セッション内に有効トークンがあればそれを使う。
         if (authClient.getTokens()) {
           if (!cancelled) setAuth({ status: "authenticated" });
           return;
@@ -144,98 +188,198 @@ export function App(props: {
 
   if (auth.status === "loading") {
     return (
-      <main className="app">
-        <p>読み込み中...</p>
-      </main>
+      <div className="grid min-h-dvh place-items-center bg-surface-0 p-6">
+        <Card className="w-80">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <TallyIndicator state="idle" />
+              Stagecast
+            </CardTitle>
+            <CardDescription>読み込み中…</CardDescription>
+          </CardHeader>
+          <CardContent className="flex flex-col gap-2">
+            <Skeleton className="h-3 w-2/3" />
+            <Skeleton className="h-3 w-full" />
+            <Skeleton className="h-3 w-1/2" />
+          </CardContent>
+        </Card>
+      </div>
     );
   }
 
   if (auth.status === "anonymous") {
     return (
-      <main className="app">
-        <header>
-          <h1>Stagecast 管理コンソール</h1>
-        </header>
-        <p>ログインが必要です。</p>
-        {auth.error && <pre className="error">{auth.error}</pre>}
-        <button onClick={login}>Cognito でログイン</button>
-      </main>
+      <div className="grid min-h-dvh place-items-center bg-surface-0 p-6">
+        <Card className="w-96">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2 font-mono text-sm tracking-wider">
+              <TallyIndicator state="on-air" />
+              STAGECAST
+            </CardTitle>
+            <CardDescription>管理コンソール</CardDescription>
+          </CardHeader>
+          <CardContent className="flex flex-col gap-4">
+            <p className="text-sm text-text-secondary">
+              ログインが必要です。 Cognito でサインインしてください。
+            </p>
+            {auth.error && (
+              <p
+                role="alert"
+                className="rounded-md border border-error/40 bg-error/10 px-3 py-2 text-xs text-error"
+              >
+                {auth.error}
+              </p>
+            )}
+            <Button onClick={login}>Cognito でログイン</Button>
+          </CardContent>
+        </Card>
+      </div>
     );
   }
 
   const selected = events.find((e) => e.id === selectedId);
 
-  return (
-    <main className="app">
-      <header>
-        <h1>Stagecast 管理コンソール</h1>
-        <nav className="view-nav">
-          <button onClick={() => setView("events")} className={view === "events" ? "active" : ""}>
-            イベント
-          </button>
-          <button
-            onClick={() => setView("settings")}
-            className={view === "settings" ? "active" : ""}
-          >
-            運用設定
-          </button>
-        </nav>
-        {busy && <span className="busy">処理中…</span>}
-        {authClient && <button onClick={logout}>ログアウト</button>}
-      </header>
-      {apiError && (
-        <p className="error" role="alert">
-          {apiError} <button onClick={() => setApiError(undefined)}>×</button>
-        </p>
-      )}
-      {view === "settings" ? (
-        <SettingsPage client={client} />
-      ) : (
-        <div className="layout">
-          <aside>
-            <EventForm onCreate={create} busy={busy} />
-            <h2>イベント一覧</h2>
-            {!eventsLoaded ? (
-              <ul className="event-list" aria-busy="true" aria-label="読み込み中">
-                {[0, 1, 2].map((i) => (
-                  <li key={i}>
-                    <div className="skeleton skeleton-row" />
-                  </li>
-                ))}
-              </ul>
-            ) : events.length === 0 ? (
-              <p className="empty">イベントはまだありません。</p>
-            ) : (
-              <ul className="event-list">
-                {events.map((e) => (
-                  <li key={e.id}>
-                    <button
-                      onClick={() => setSelectedId(e.id)}
-                      className={e.id === selectedId ? "active" : ""}
-                    >
-                      {e.title} ({e.status})
-                    </button>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </aside>
-          <article>
-            {selected ? (
-              <EventDetail
-                event={selected}
-                client={client}
-                assets={assets}
-                artifacts={artifacts}
-                composerTemplateUrl={props.config?.composerTemplateUrl}
-                onChanged={() => void run(refresh)}
-              />
-            ) : (
-              <p>イベントを選択してください。</p>
-            )}
-          </article>
+  const sidebar = (
+    <div className="flex h-full flex-col">
+      <div className="flex h-12 items-center gap-2 border-b border-line-1 px-4">
+        <TallyIndicator state="on-air" />
+        <span className="font-mono text-sm font-semibold tracking-wide text-text-primary">
+          STAGECAST
+        </span>
+      </div>
+      <div className="border-b border-line-1 px-3 py-3">
+        <EventForm onCreate={create} busy={busy} />
+      </div>
+      <nav className="flex flex-col gap-px overflow-auto py-2">
+        <span className="px-3 pb-1 text-[10px] uppercase tracking-wider text-text-tertiary">
+          イベント
+        </span>
+        {!eventsLoaded ? (
+          <ul aria-busy="true" aria-label="読み込み中" className="space-y-1 px-3">
+            {[0, 1, 2].map((i) => (
+              <li key={i}>
+                <Skeleton className="h-9 w-full" />
+              </li>
+            ))}
+          </ul>
+        ) : events.length === 0 ? (
+          <div className="px-3">
+            <EmptyState
+              title="まだイベントがありません"
+              description="上のフォームから作成"
+              icon={<Users />}
+            />
+          </div>
+        ) : (
+          <ul>
+            {events.map((e) => (
+              <li key={e.id}>
+                <EventListItem
+                  title={e.title}
+                  startsAt={e.startsAt}
+                  status={e.status}
+                  active={e.id === selectedId}
+                  onClick={() => {
+                    setSelectedId(e.id);
+                    setView("events");
+                  }}
+                />
+              </li>
+            ))}
+          </ul>
+        )}
+      </nav>
+      <div className="mt-auto flex flex-col gap-2 border-t border-line-1 p-3">
+        <Button
+          variant={view === "settings" ? "secondary" : "ghost"}
+          size="sm"
+          onClick={() => setView("settings")}
+          className="justify-start gap-2"
+        >
+          <Settings className="size-4" />
+          運用設定
+        </Button>
+        <div className="flex items-center justify-between">
+          <ThemeToggle value={theme} onChange={setTheme} />
+          {authClient && (
+            <Button variant="ghost" size="icon-sm" aria-label="ログアウト" onClick={logout}>
+              <LogOut />
+            </Button>
+          )}
         </div>
-      )}
-    </main>
+      </div>
+    </div>
+  );
+
+  const topBar = (
+    <div className="flex h-12 items-center justify-between px-5">
+      <div className="flex items-center gap-2 text-xs text-text-secondary">
+        <span>{view === "settings" ? "運用設定" : "イベント"}</span>
+        {view === "events" && selected && (
+          <>
+            <span className="text-text-tertiary">/</span>
+            <span className="text-text-primary">{selected.title}</span>
+          </>
+        )}
+      </div>
+      <div className="flex items-center gap-3">
+        {view === "events" && selected && (
+          <StatusPill
+            variant={
+              selected.status === "live" ? "live" : selected.status === "ended" ? "ended" : "draft"
+            }
+          />
+        )}
+        {busy && (
+          <span className="text-xs text-text-tertiary" aria-live="polite">
+            処理中…
+          </span>
+        )}
+      </div>
+    </div>
+  );
+
+  return (
+    <TooltipProvider delayDuration={200}>
+      <AppShell sidebar={sidebar} topBar={topBar}>
+        <div className="mx-auto max-w-5xl px-6 py-6">
+          {apiError && (
+            <div
+              role="alert"
+              className="mb-4 flex items-start gap-3 rounded-md border border-error/40 bg-error/10 px-4 py-3 text-sm text-error"
+            >
+              <span className="flex-1">{apiError}</span>
+              <Button
+                variant="ghost"
+                size="icon-sm"
+                aria-label="エラーを閉じる"
+                onClick={() => setApiError(undefined)}
+              >
+                ×
+              </Button>
+            </div>
+          )}
+          {view === "settings" ? (
+            <SettingsPage client={client} />
+          ) : selected ? (
+            <EventDetail
+              event={selected}
+              client={client}
+              assets={assets}
+              artifacts={artifacts}
+              composerTemplateUrl={props.config?.composerTemplateUrl}
+              onChanged={() => void run(refresh)}
+            />
+          ) : (
+            <EmptyState
+              title="イベントを選択してください"
+              description="左のサイドバーから選ぶか、 新規作成"
+              icon={<Users />}
+            />
+          )}
+        </div>
+      </AppShell>
+      <Toaster />
+    </TooltipProvider>
   );
 }
