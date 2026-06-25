@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import FullCalendar from "@fullcalendar/react";
 import dayGridPlugin from "@fullcalendar/daygrid";
 import timeGridPlugin from "@fullcalendar/timegrid";
@@ -131,19 +131,6 @@ function CalendarDisplay(props: {
   const [popover, setPopover] = useState<EventPopover | null>(
     null,
   );
-  const containerRef = useRef<HTMLDivElement>(null);
-  const [calHeight, setCalHeight] = useState(600);
-
-  useEffect(() => {
-    const el = containerRef.current;
-    if (!el) return;
-    const ro = new ResizeObserver((entries) => {
-      const h = entries[0]?.contentRect.height;
-      if (h && h > 0) setCalHeight(Math.floor(h));
-    });
-    ro.observe(el);
-    return () => ro.disconnect();
-  }, []);
 
   const events = useMemo(() => {
     const items = props.publicEvents.map((e) => ({
@@ -251,10 +238,7 @@ function CalendarDisplay(props: {
   );
 
   return (
-    <div
-      ref={containerRef}
-      className="relative min-h-0 w-full flex-1"
-    >
+    <div className="relative min-h-0 w-full flex-1 [&_.fc-timegrid-slots]:!absolute [&_.fc-timegrid-slots]:!inset-0 [&_.fc-timegrid-slots_table]:!h-full">
       <FullCalendar
         plugins={[
           dayGridPlugin,
@@ -281,7 +265,7 @@ function CalendarDisplay(props: {
           minute: "2-digit",
           hour12: false,
         }}
-        height={calHeight}
+        height="100%"
         selectable
         selectMirror
         unselectAuto={false}
