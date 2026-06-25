@@ -8,6 +8,7 @@ import type { DateClickArg } from "@fullcalendar/interaction";
 import type { EventDefinition, EventRequest } from "@stagecast/shared";
 
 const TWO_HOURS_MS = 2 * 60 * 60 * 1000;
+const VIEW_STORAGE_KEY = "stagecast-admin-cal-view";
 
 function toDatetimeLocal(
   d: Date,
@@ -179,7 +180,8 @@ export function CalendarView(props: {
             timeGridPlugin,
             interactionPlugin,
           ]}
-          initialView="dayGridMonth"
+          initialView={localStorage.getItem(VIEW_STORAGE_KEY) || "dayGridMonth"}
+          datesSet={(arg) => localStorage.setItem(VIEW_STORAGE_KEY, arg.view.type)}
           firstDay={1}
           headerToolbar={{
             left: "prev,next today",

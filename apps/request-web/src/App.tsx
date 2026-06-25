@@ -22,6 +22,7 @@ import {
 
 const TWO_HOURS_MS = 2 * 60 * 60 * 1000;
 const SELECTION_ID = "_selection_";
+const VIEW_STORAGE_KEY = "stagecast-request-cal-view";
 
 function toDatetimeLocal(
   d: Date,
@@ -83,10 +84,18 @@ const SELECTION_COLORS = {
   textColor: "#78350f",
 };
 
+const REQUEST_COLORS = {
+  backgroundColor: "#ffedd5",
+  borderColor: "#f97316",
+  textColor: "#7c2d12",
+};
+
 const LEGEND_ITEMS = [
+  { label: "下書き", color: "#9ca3af" },
   { label: "予定", color: "#3b82f6" },
   { label: "配信中", color: "#ef4444" },
   { label: "終了", color: "#d1d5db" },
+  { label: "リクエスト中", color: "#f97316" },
   { label: "選択中", color: "#f59e0b" },
 ];
 
@@ -114,6 +123,7 @@ interface EventPopover {
 
 function CalendarDisplay(props: {
   publicEvents: PublicEvent[];
+  localRequests: LocalRequest[];
   startsAt: string;
   endsAt: string;
   onTimeRangeSelect: (start: string, end: string) => void;
@@ -149,6 +159,17 @@ function CalendarDisplay(props: {
       ...(STATUS_COLORS[e.status] ?? STATUS_COLORS.scheduled),
     }));
 
+    props.localRequests.forEach((r, i) => {
+      items.push({
+        id: `local-req-${i}`,
+        title: `[リクエスト中] ${r.title}`,
+        start: r.startsAt,
+        end: r.endsAt,
+        editable: false,
+        ...REQUEST_COLORS,
+      });
+    });
+
     if (props.startsAt && props.endsAt) {
       items.push({
         id: SELECTION_ID,
@@ -161,7 +182,7 @@ function CalendarDisplay(props: {
     }
 
     return items;
-  }, [props.publicEvents, props.startsAt, props.endsAt]);
+  }, [props.publicEvents, props.localRequests, props.startsAt, props.endsAt]);
 
   const handleSelect = useCallback(
     (info: DateSelectArg) => {
@@ -240,7 +261,10 @@ function CalendarDisplay(props: {
           timeGridPlugin,
           interactionPlugin,
         ]}
-        initialView="dayGridMonth"
+        initialView={
+          localStorage.getItem(VIEW_STORAGE_KEY) ||
+          "dayGridMonth"
+        }
         firstDay={1}
         headerToolbar={{
           left: "prev,next today",
@@ -266,6 +290,9 @@ function CalendarDisplay(props: {
         eventDrop={handleEventChange}
         eventResize={handleEventChange}
         eventClick={handleEventClick}
+        datesSet={(info) =>
+          localStorage.setItem(VIEW_STORAGE_KEY, info.view.type)
+        }
       />
       {popover && (
         <>
@@ -449,6 +476,7 @@ export function App(props: { controlApiUrl: string }) {
           ) : (
             <CalendarDisplay
               publicEvents={publicEvents}
+              localRequests={localRequests}
               startsAt={startsAt}
               endsAt={endsAt}
               onTimeRangeSelect={setTimeRange}

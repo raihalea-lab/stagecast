@@ -764,7 +764,7 @@ describe("event requests", () => {
     expect(res.status).toBe(400);
   });
 
-  it("GET /events/public は draft を除外し機密フィールドを含まない", async () => {
+  it("GET /events/public は全ステータスを返し機密フィールドを含まない", async () => {
     // draft イベントを作成
     await app.handle(
       req({
@@ -796,9 +796,9 @@ describe("event requests", () => {
     const res = await app.handle(req({ method: "GET", path: "/events/public" }));
     expect(res.status).toBe(200);
     const body = res.body as { id: string; title: string; status: string }[];
-    expect(body.length).toBe(1);
-    expect(body[0].title).toBe("Scheduled");
-    expect(JSON.stringify(body[0])).not.toContain("caption");
-    expect(JSON.stringify(body[0])).not.toContain("youtube");
+    expect(body.length).toBe(2);
+    expect(body.map((e) => e.title).sort()).toEqual(["Draft", "Scheduled"]);
+    expect(JSON.stringify(body)).not.toContain("caption");
+    expect(JSON.stringify(body)).not.toContain("youtube");
   });
 });
