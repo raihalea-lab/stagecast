@@ -484,8 +484,15 @@ export function App(props: { controlApiUrl: string }) {
                         {error}
                       </p>
                     )}
+                    <p className="rounded-md border border-blue-200 bg-blue-50 px-3 py-2 text-xs text-blue-700">
+                      <span className="inline-block rounded bg-blue-100 px-1.5 py-0.5 text-[10px] font-semibold text-blue-700">カレンダーに公開</span> の項目はカレンダー上に表示されます。
+                      <span className="inline-block rounded bg-gray-100 px-1.5 py-0.5 text-[10px] font-semibold text-gray-600">管理者のみ</span> の項目は管理者だけが確認できます。
+                    </p>
                     <div className="grid gap-1.5">
-                      <Label htmlFor="rw-name">お名前 *</Label>
+                      <Label htmlFor="rw-name" className="flex items-center gap-2">
+                        お名前 *
+                        <span className="rounded bg-gray-100 px-1.5 py-0.5 text-[10px] font-semibold text-gray-600">管理者のみ</span>
+                      </Label>
                       <Input
                         id="rw-name"
                         value={requesterName}
@@ -496,8 +503,9 @@ export function App(props: { controlApiUrl: string }) {
                       />
                     </div>
                     <div className="grid gap-1.5">
-                      <Label htmlFor="rw-contact">
+                      <Label htmlFor="rw-contact" className="flex items-center gap-2">
                         連絡先（メール / Slack / X など）
+                        <span className="rounded bg-gray-100 px-1.5 py-0.5 text-[10px] font-semibold text-gray-600">管理者のみ</span>
                       </Label>
                       <Input
                         id="rw-contact"
@@ -509,8 +517,9 @@ export function App(props: { controlApiUrl: string }) {
                       />
                     </div>
                     <div className="grid gap-1.5">
-                      <Label htmlFor="rw-title">
+                      <Label htmlFor="rw-title" className="flex items-center gap-2">
                         イベントタイトル *
+                        <span className="rounded bg-blue-100 px-1.5 py-0.5 text-[10px] font-semibold text-blue-700">カレンダーに公開</span>
                       </Label>
                       <Input
                         id="rw-title"
@@ -521,8 +530,9 @@ export function App(props: { controlApiUrl: string }) {
                       />
                     </div>
                     <div className="grid gap-1.5">
-                      <Label htmlFor="rw-starts">
+                      <Label htmlFor="rw-starts" className="flex items-center gap-2">
                         開始日時
+                        <span className="rounded bg-blue-100 px-1.5 py-0.5 text-[10px] font-semibold text-blue-700">カレンダーに公開</span>
                       </Label>
                       <Input
                         id="rw-starts"
@@ -539,7 +549,10 @@ export function App(props: { controlApiUrl: string }) {
                       />
                     </div>
                     <div className="grid gap-1.5">
-                      <Label htmlFor="rw-ends">終了日時</Label>
+                      <Label htmlFor="rw-ends" className="flex items-center gap-2">
+                        終了日時
+                        <span className="rounded bg-blue-100 px-1.5 py-0.5 text-[10px] font-semibold text-blue-700">カレンダーに公開</span>
+                      </Label>
                       <Input
                         id="rw-ends"
                         type="datetime-local"
@@ -550,7 +563,10 @@ export function App(props: { controlApiUrl: string }) {
                       />
                     </div>
                     <div className="grid gap-1.5">
-                      <Label htmlFor="rw-desc">説明</Label>
+                      <Label htmlFor="rw-desc" className="flex items-center gap-2">
+                        説明
+                        <span className="rounded bg-gray-100 px-1.5 py-0.5 text-[10px] font-semibold text-gray-600">管理者のみ</span>
+                      </Label>
                       <textarea
                         id="rw-desc"
                         value={description}
