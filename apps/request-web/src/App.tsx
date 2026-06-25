@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ScheduleXCalendar, useCalendarApp } from "@schedule-x/react";
 import { createViewWeek, createViewMonthGrid } from "@schedule-x/calendar";
 import "@schedule-x/theme-default/dist/index.css";
@@ -73,16 +73,17 @@ interface PublicEvent {
 
 export function App(props: { controlApiUrl: string }) {
   const [publicEvents, setPublicEvents] = useState<PublicEvent[]>([]);
-  const [formOpen, setFormOpen] = useState(false);
+  const [formOpen, setFormOpen] = useState(true);
   const [startsAt, setStartsAt] = useState("");
   const [endsAt, setEndsAt] = useState("");
   const [title, setTitle] = useState("");
   const [requesterName, setRequesterName] = useState("");
-  const [requesterEmail, setRequesterEmail] = useState("");
+  const [contactInfo, setContactInfo] = useState("");
   const [description, setDescription] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [submitted, setSubmitted] = useState(false);
   const [error, setError] = useState<string>();
+  const dragStartRef = useRef<string | null>(null);
 
   const fetchPublicEvents = useCallback(async () => {
     try {
@@ -113,9 +114,9 @@ export function App(props: { controlApiUrl: string }) {
     [publicEvents],
   );
 
-  const openForm = (dt: string) => {
-    setStartsAt(dt);
-    setEndsAt(computeDefaultEndsAt(dt));
+  const setTimeRange = (start: string, end: string) => {
+    setStartsAt(start);
+    setEndsAt(end);
     setFormOpen(true);
     setSubmitted(false);
     setError(undefined);
@@ -130,11 +131,26 @@ export function App(props: { controlApiUrl: string }) {
     events: calendarEvents,
     calendars: CALENDAR_DEFS,
     callbacks: {
+      onMouseDownDateTime(dateTime) {
+        dragStartRef.current = toDatetimeLocalFromZdt(dateTime);
+      },
       onClickDateTime(dateTime) {
-        openForm(toDatetimeLocalFromZdt(dateTime));
+        const clickedDt = toDatetimeLocalFromZdt(dateTime);
+        const dragStart = dragStartRef.current;
+        dragStartRef.current = null;
+
+        if (dragStart && dragStart !== clickedDt) {
+          const [start, end] =
+            dragStart < clickedDt ? [dragStart, clickedDt] : [clickedDt, dragStart];
+          setTimeRange(start, end);
+        } else {
+          setTimeRange(clickedDt, computeDefaultEndsAt(clickedDt));
+        }
       },
       onClickDate(date) {
-        openForm(toDatetimeLocalFromDate(date));
+        dragStartRef.current = null;
+        const dt = toDatetimeLocalFromDate(date);
+        setTimeRange(dt, computeDefaultEndsAt(dt));
       },
     },
   });
@@ -153,7 +169,7 @@ export function App(props: { controlApiUrl: string }) {
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
           requesterName: requesterName.trim(),
-          requesterEmail: requesterEmail.trim() || undefined,
+          contactInfo: contactInfo.trim() || undefined,
           title: title.trim(),
           startsAt,
           endsAt,
@@ -179,7 +195,7 @@ export function App(props: { controlApiUrl: string }) {
       <header className="border-b border-line-1 px-6 py-4">
         <h1 className="text-lg font-semibold text-text-primary">Stagecast イベントリクエスト</h1>
         <p className="text-sm text-text-secondary">
-          カレンダーの空き時間をクリックして、イベントをリクエストできます
+          カレンダーの空き時間をクリックまたは週表示でドラッグして、イベントをリクエストできます
         </p>
       </header>
       <div className="flex flex-col gap-6 p-6 lg:flex-row">
@@ -232,12 +248,12 @@ export function App(props: { controlApiUrl: string }) {
                       />
                     </div>
                     <div className="grid gap-1.5">
-                      <Label htmlFor="rw-email">メールアドレス</Label>
+                      <Label htmlFor="rw-contact">連絡先（メール / Slack / X など）</Label>
                       <Input
-                        id="rw-email"
-                        type="email"
-                        value={requesterEmail}
-                        onChange={(e) => setRequesterEmail(e.target.value)}
+                        id="rw-contact"
+                        value={contactInfo}
+                        onChange={(e) => setContactInfo(e.target.value)}
+                        placeholder="例: user@example.com, @slack_id"
                       />
                     </div>
                     <div className="grid gap-1.5">

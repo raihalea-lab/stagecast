@@ -426,6 +426,7 @@ export class ControlPlaneStack extends Stack {
         allowOrigins: [
           `https://${adminWebDistribution.domainName}`,
           `https://${stageWebDistribution.domainName}`,
+          `https://${requestWebDistribution.domainName}`,
           "http://localhost:5173",
           "http://localhost:5174",
         ],
