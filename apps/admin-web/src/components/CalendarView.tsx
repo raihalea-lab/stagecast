@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import FullCalendar from "@fullcalendar/react";
 import dayGridPlugin from "@fullcalendar/daygrid";
 import timeGridPlugin from "@fullcalendar/timegrid";
@@ -88,19 +88,6 @@ export function CalendarView(props: {
   const [popover, setPopover] = useState<EventPopover | null>(
     null,
   );
-  const containerRef = useRef<HTMLDivElement>(null);
-  const [calHeight, setCalHeight] = useState(500);
-
-  useEffect(() => {
-    const el = containerRef.current;
-    if (!el) return;
-    const ro = new ResizeObserver((entries) => {
-      const h = entries[0]?.contentRect.height;
-      if (h && h > 0) setCalHeight(Math.floor(h));
-    });
-    ro.observe(el);
-    return () => ro.disconnect();
-  }, []);
 
   const calendarEvents = useMemo(() => {
     const eventItems = props.events.map((e) => ({
@@ -152,7 +139,7 @@ export function CalendarView(props: {
   );
 
   return (
-    <div className="flex w-full flex-col">
+    <div className="flex h-[calc(100dvh-6rem)] w-full flex-col">
       <div className="flex shrink-0 flex-wrap items-center gap-3 pb-2 text-xs text-text-secondary">
         {LEGEND_ITEMS.map((item) => (
           <span
@@ -170,10 +157,7 @@ export function CalendarView(props: {
           JST (UTC+9)
         </span>
       </div>
-      <div
-        ref={containerRef}
-        className="relative min-h-0 flex-1"
-      >
+      <div className="relative min-h-0 flex-1 [&_.fc-timegrid-slots]:!absolute [&_.fc-timegrid-slots]:!inset-0 [&_.fc-timegrid-slots_table]:!h-full">
         <FullCalendar
           plugins={[
             dayGridPlugin,
@@ -189,6 +173,7 @@ export function CalendarView(props: {
             right: "dayGridMonth,timeGridWeek",
           }}
           allDaySlot={false}
+          slotDuration="01:00:00"
           slotMinTime="07:00:00"
           slotMaxTime="23:00:00"
           slotLabelFormat={{
@@ -196,7 +181,7 @@ export function CalendarView(props: {
             minute: "2-digit",
             hour12: false,
           }}
-          height={calHeight}
+          height="100%"
           events={calendarEvents}
           eventClick={handleEventClick}
           dateClick={(info: DateClickArg) => {
