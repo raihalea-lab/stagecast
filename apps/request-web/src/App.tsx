@@ -35,6 +35,12 @@ function toTemporalZdt(iso: string): Temporal.ZonedDateTime {
   );
 }
 
+function snapTo10Min(zdt: Temporal.ZonedDateTime): Temporal.ZonedDateTime {
+  const rounded = Math.round(zdt.minute / 10) * 10;
+  return zdt.with({ minute: rounded % 60, second: 0, millisecond: 0, microsecond: 0, nanosecond: 0 })
+    .add({ minutes: rounded >= 60 ? 10 : 0 });
+}
+
 function toDatetimeLocalFromZdt(zdt: Temporal.ZonedDateTime): string {
   const pad = (n: number) => String(n).padStart(2, "0");
   return `${zdt.year}-${pad(zdt.month)}-${pad(zdt.day)}T${pad(zdt.hour)}:${pad(zdt.minute)}`;
@@ -134,15 +140,15 @@ function CalendarDisplay(props: {
     views: [createViewWeek(), createViewMonthGrid()],
     defaultView: "month-grid",
     dayBoundaries: { start: "07:00", end: "23:00" },
-    weekOptions: { gridStep: 15 },
+    weekOptions: { gridStep: 60 },
     events: props.events,
     calendars: LEGEND_DEFS,
     callbacks: {
       onMouseDownDateTime(dateTime) {
-        dragStartRef.current = toDatetimeLocalFromZdt(dateTime);
+        dragStartRef.current = toDatetimeLocalFromZdt(snapTo10Min(dateTime));
       },
       onClickDateTime(dateTime) {
-        const clickedDt = toDatetimeLocalFromZdt(dateTime);
+        const clickedDt = toDatetimeLocalFromZdt(snapTo10Min(dateTime));
         const dragStart = dragStartRef.current;
         dragStartRef.current = null;
 
