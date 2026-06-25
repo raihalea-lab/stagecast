@@ -115,10 +115,8 @@ function CalendarDisplay(props: {
   const addSelectionBlock = (startDt: string, endDt: string) => {
     const cal = calRef.current;
     if (!cal) return;
-    try {
+    if (cal.events.get(SELECTION_EVENT_ID)) {
       cal.events.remove(SELECTION_EVENT_ID);
-    } catch {
-      // no previous selection
     }
     cal.events.add({
       id: SELECTION_EVENT_ID,
