@@ -263,10 +263,14 @@ describe("ControlPlaneStack", () => {
     }
   });
 
-  it("常時稼働スタックにメディア層リソース (ECS/ElastiCache) を含めない (N-1, 7.2)", () => {
+  it("常時稼働スタックにメディア層の有料リソース (ECS Service/ElastiCache) を含めない (N-1, 7.2)", () => {
     template.resourceCountIs("AWS::ECS::Service", 0);
-    template.resourceCountIs("AWS::ECS::Cluster", 0);
     template.resourceCountIs("AWS::ElastiCache::ServerlessCache", 0);
+  });
+
+  it("ADR 0015 Phase 3: 共有 ECS Cluster + IAM Roles を事前作成する (タスクなし = 無料)", () => {
+    template.resourceCountIs("AWS::ECS::Cluster", 1);
+    template.hasResourceProperties("AWS::ECS::Cluster", { ClusterName: "stagecast-media" });
   });
 
   it("字幕ワーカー用 ECR リポジトリを持つ (R4, ADR 0005 D-3)", () => {

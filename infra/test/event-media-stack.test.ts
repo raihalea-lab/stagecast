@@ -8,7 +8,6 @@ import {
   eventMediaStackName,
   isEcrImage,
   liveKitServerConfig,
-  serverlessCacheName,
 } from "../lib/event-media-stack";
 
 function synth(customApi = false): Template {
@@ -45,15 +44,19 @@ describe("EventMediaStack (DESIGN.md 7.1/7.3, N-5)", () => {
     expect(eventMediaStackName("evt-a")).toBe("StagecastEventMedia-evt-a");
   });
 
-  it("provisions ElastiCache for Valkey Serverless (DESIGN.md 3.2, ADR D-7)", () => {
-    // ADR 0010 D-6: Valkey は ServerlessCache から ReplicationGroup (cluster mode disabled) に切替。
-    template.resourceCountIs("AWS::ElastiCache::ReplicationGroup", 1);
-    template.hasResourceProperties("AWS::ElastiCache::ReplicationGroup", { Engine: "valkey" });
+  it("ADR 0015: Valkey を Fargate コンテナで起動する (ElastiCache 廃止)", () => {
+    template.resourceCountIs("AWS::ElastiCache::ReplicationGroup", 0);
+    // Valkey + SFU + CaptionWorker = 3 サービス
+    template.resourceCountIs("AWS::ECS::Service", 3);
   });
 
-  it("runs SFU(+Egress sidecar)/caption-worker as Fargate services (ADR 0010 D-1)", () => {
-    // ADR 0010 で Egress は SFU の sidecar として同一 Task に同居するため、独立 Service は 2 つ。
-    template.resourceCountIs("AWS::ECS::Service", 2);
+  it("ADR 0015: CloudMap PrivateDnsNamespace でサービスディスカバリする", () => {
+    template.resourceCountIs("AWS::ServiceDiscovery::PrivateDnsNamespace", 1);
+    template.resourceCountIs("AWS::ServiceDiscovery::Service", 1);
+  });
+
+  it("runs SFU(+Egress sidecar)/caption-worker/Valkey as Fargate services", () => {
+    template.resourceCountIs("AWS::ECS::Service", 3);
     template.resourceCountIs("AWS::ECS::Cluster", 1);
   });
 
@@ -120,15 +123,15 @@ describe("EventMediaStack (DESIGN.md 7.1/7.3, N-5)", () => {
     });
   });
 
-  it("SFU に LiveKit config.yaml を注入し Valkey を redis アダプタにする (R1, ADR 0006 D-3)", () => {
+  it("SFU に LiveKit config.yaml を注入し Valkey (Fargate) を redis アダプタにする (R1, ADR 0015)", () => {
     const taskDefs = template.findResources("AWS::ECS::TaskDefinition");
     const withConfig = Object.values(taskDefs).filter((d) =>
       JSON.stringify(d).includes('"Name":"LIVEKIT_CONFIG"'),
     );
     expect(withConfig.length).toBe(1);
     const json = JSON.stringify(withConfig[0]);
-    // redis(=Valkey) を TLS で参照し、port は NLB リスナと一致する。
-    expect(json).toContain("use_tls: true");
+    // ADR 0015: VPC 内部通信のため TLS 不要。
+    expect(json).toContain("use_tls: false");
     expect(json).toContain("port: 7880");
   });
 
@@ -206,33 +209,6 @@ describe("EventMediaStack (DESIGN.md 7.1/7.3, N-5)", () => {
   });
 });
 
-describe("serverlessCacheName (D5: short hash で衝突回避)", () => {
-  it("40 文字以内かつ stagecast- 始まりの命名規約に従う", () => {
-    const name = serverlessCacheName("evt-a");
-    expect(name.length).toBeLessThanOrEqual(40);
-    expect(name.startsWith("stagecast-")).toBe(true);
-    // 英小文字・数字・ハイフンのみ (ElastiCache 命名制約)。
-    expect(name).toMatch(/^[a-z0-9-]+$/);
-    expect(name.endsWith("-")).toBe(false);
-  });
-
-  it("極端に長い eventId でも 40 文字に収まる", () => {
-    const name = serverlessCacheName("e".repeat(200));
-    expect(name.length).toBeLessThanOrEqual(40);
-  });
-
-  it("先頭が同じで 40 文字クリップ後に衝突しうる eventId を区別する", () => {
-    const a = serverlessCacheName(`${"long-event-prefix-".repeat(3)}-a`);
-    const b = serverlessCacheName(`${"long-event-prefix-".repeat(3)}-b`);
-    // 素朴な slice(0,40) では同一になるが、short hash により区別される。
-    expect(a).not.toBe(b);
-  });
-
-  it("同じ eventId には決定的に同じ名前を返す", () => {
-    expect(serverlessCacheName("evt-a")).toBe(serverlessCacheName("evt-a"));
-  });
-});
-
 describe("ECR イメージ判定/ARN 導出 (R4)", () => {
   const uri = "111111111111.dkr.ecr.ap-northeast-1.amazonaws.com/stagecast/caption-worker:latest";
 
@@ -282,26 +258,24 @@ describe("EventMediaStack ECR pull 権限 (R4)", () => {
 });
 
 describe("liveKitServerConfig (R1)", () => {
-  it("Valkey を TLS つき redis アダプタとして参照する", () => {
-    const yaml = liveKitServerConfig("my-valkey.cache.amazonaws.com");
-    // ADR 0010 D-6: Valkey は cluster-mode-disabled 単一ノードなので address を使う
-    // (livekit/protocol redis/redis.go の redis.NewClient 経路)。
-    expect(yaml).toContain("address: my-valkey.cache.amazonaws.com:6379");
-    expect(yaml).toContain("use_tls: true");
-    // signaling/RTC ポートが NLB リスナと一致する。
+  it("ADR 0015: Valkey (Fargate) を TLS なし redis アダプタとして参照する", () => {
+    const yaml = liveKitServerConfig("valkey.stagecast-evt.local");
+    expect(yaml).toContain("address: valkey.stagecast-evt.local:6379");
+    // ADR 0015: VPC 内部通信なので TLS 不要。
+    expect(yaml).toContain("use_tls: false");
     expect(yaml).toContain("port: 7880");
     expect(yaml).toContain("udp_port: 7882");
   });
 
   it("ADR 0009 D-1: dev_mode は無効 (TLS 終端は NLB が担う)", () => {
-    const yaml = liveKitServerConfig("my-valkey.cache.amazonaws.com");
+    const yaml = liveKitServerConfig("valkey.stagecast-evt.local");
     expect(yaml).not.toContain("dev_mode");
   });
 
   it("R12-followup-5: Fargate で panic するため use_external_ip は無効", () => {
     // Fargate に EC2 instance metadata 無し → rand.Intn(0) で panic するため削除した。
     // ICE candidate の external IP は LiveKit のデフォルト (STUN) で解決される。
-    const yaml = liveKitServerConfig("my-valkey.cache.amazonaws.com");
+    const yaml = liveKitServerConfig("valkey.stagecast-evt.local");
     expect(yaml).not.toContain("use_external_ip: true");
   });
 
@@ -309,7 +283,7 @@ describe("liveKitServerConfig (R1)", () => {
     // port_range_start/end と udp_port を同時指定すると LiveKit のログは
     // `rtc.portUDP: {Start: 7882, End: 0}` のまま ICE pair が `failed` になった。
     // 公式に推奨される mux mode 単独 (1 ポートで多重化) に統一する。
-    const yaml = liveKitServerConfig("my-valkey.cache.amazonaws.com");
+    const yaml = liveKitServerConfig("valkey.stagecast-evt.local");
     expect(yaml).not.toContain("port_range_start");
     expect(yaml).not.toContain("port_range_end");
   });
@@ -318,7 +292,7 @@ describe("liveKitServerConfig (R1)", () => {
     // Fargate + NLB は同 Task からの loopback を許さないため、起動時の external_ip 検証が
     // タイムアウトして `--node-ip` のフォールバックも遅延 → ICE 失敗の遠因。
     // v1.13 で公式 config-sample に「NAT 環境で必要」と明記された設定。
-    const yaml = liveKitServerConfig("my-valkey.cache.amazonaws.com");
+    const yaml = liveKitServerConfig("valkey.stagecast-evt.local");
     expect(yaml).toContain("skip_external_ip_validation: true");
   });
 
@@ -326,7 +300,7 @@ describe("liveKitServerConfig (R1)", () => {
     // Fargate awsvpc コンテナには eth0 (Task Metadata veth, 169.254.x.x) と
     // eth1 (Task ENI, VPC Private IP) の 2 NIC が見える。Pion は全 NIC の全 IP を
     // host candidate にしてしまうので、リンクローカルを除外する。
-    const yaml = liveKitServerConfig("my-valkey.cache.amazonaws.com");
+    const yaml = liveKitServerConfig("valkey.stagecast-evt.local");
     expect(yaml).toContain("ips:");
     expect(yaml).toContain("excludes:");
     expect(yaml).toContain("- 169.254.0.0/16");
@@ -336,7 +310,7 @@ describe("liveKitServerConfig (R1)", () => {
     // R12-followup-9 で「Private IP はブラウザから到達不可」として VPC CIDR を excludes に追加したが、
     // `--node-ip` の NAT1To1 は host candidate の IP を書き換える仕様なので、 host candidate が 0 個だと
     // candidate gather が空になり trickle ICE が機能しない。 VPC Private IP を host candidate に残す。
-    const yaml = liveKitServerConfig("my-valkey.cache.amazonaws.com");
+    const yaml = liveKitServerConfig("valkey.stagecast-evt.local");
     // link-local だけ除外
     expect(yaml).toContain("- 169.254.0.0/16");
     // VPC CIDR は出ない (excludes に追加しない)
@@ -347,7 +321,7 @@ describe("liveKitServerConfig (R1)", () => {
     // R12-followup-10〜18 (内蔵 TURN / coturn sidecar) を撤回。 TURN は AWS KVS WebRTC が提供し、
     // stage-web が rtcConfig.iceServers として直接受け取る (server response を bypass)。
     // → liveKitServerConfig は turn / turn_servers セクションを含まない。
-    const yaml = liveKitServerConfig("my-valkey.cache.amazonaws.com");
+    const yaml = liveKitServerConfig("valkey.stagecast-evt.local");
     expect(yaml).not.toContain("turn:");
     expect(yaml).not.toContain("turn_servers:");
     expect(yaml).not.toContain("__TURN_CREDENTIAL__");
@@ -405,24 +379,24 @@ describe("EventMediaStack with TLS props (ADR 0009)", () => {
 
 describe("liveKitEgressConfig (R12, ADR 0010 D-7, ADR 0012 D-3)", () => {
   it("R12-followup-23: insecure: true を出力する (Chrome LNA 回避)", () => {
-    const yaml = liveKitEgressConfig("my-valkey.cache.amazonaws.com");
+    const yaml = liveKitEgressConfig("valkey.stagecast-evt.local");
     expect(yaml).toContain("insecure: true");
   });
 
-  it("ADR 0010 D-6: redis は単一ノード address を使う", () => {
-    const yaml = liveKitEgressConfig("my-valkey.cache.amazonaws.com");
-    expect(yaml).toContain("address: my-valkey.cache.amazonaws.com:6379");
-    expect(yaml).toContain("use_tls: true");
+  it("ADR 0015: redis は Fargate Valkey の CloudMap DNS を使う (TLS なし)", () => {
+    const yaml = liveKitEgressConfig("valkey.stagecast-evt.local");
+    expect(yaml).toContain("address: valkey.stagecast-evt.local:6379");
+    expect(yaml).toContain("use_tls: false");
   });
 
   it("ADR 0012 D-3: composerTemplateUrl 未指定なら template_base 行を出さない (デフォルトテンプレ fallback)", () => {
-    const yaml = liveKitEgressConfig("my-valkey.cache.amazonaws.com");
+    const yaml = liveKitEgressConfig("valkey.stagecast-evt.local");
     expect(yaml).not.toContain("template_base");
   });
 
   it("ADR 0012 D-3: composerTemplateUrl 指定時は template_base 行を出力する", () => {
     const yaml = liveKitEgressConfig(
-      "my-valkey.cache.amazonaws.com",
+      "valkey.stagecast-evt.local",
       "https://d123abc.cloudfront.net",
     );
     expect(yaml).toContain("template_base: https://d123abc.cloudfront.net");

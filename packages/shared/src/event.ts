@@ -6,8 +6,11 @@
  */
 import type { LanguageCode } from "./caption.js";
 
-/** イベントのライフサイクル状態 (DESIGN.md 7.1)。 */
-export type EventStatus = "draft" | "scheduled" | "live" | "ended";
+/**
+ * イベントのライフサイクル状態 (DESIGN.md 7.1, ADR 0016)。
+ * `warmup` は ADR 0015 Phase 4 で追加: 開始前にインフラを事前起動する状態。
+ */
+export type EventStatus = "draft" | "scheduled" | "warmup" | "live" | "ended";
 
 /** 字幕エンジンの経路種別 (DESIGN.md 6.2)。 */
 export type CaptionEngineKind = "transcribe" | "llm" | "self-hosted-asr";

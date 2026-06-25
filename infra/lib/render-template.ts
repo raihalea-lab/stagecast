@@ -59,6 +59,10 @@ export function renderEventMediaTemplate(spec: RenderEventMediaSpec): string {
           },
         }
       : {};
+  // ADR 0015 Phase 3: 共有 ECS Cluster + IAM Roles を ControlPlaneStack から受け取る。
+  const sharedClusterName = process.env.SHARED_CLUSTER_NAME;
+  const sharedSfuTaskRoleArn = process.env.SHARED_SFU_TASK_ROLE_ARN;
+  const sharedCaptionTaskRoleArn = process.env.SHARED_CAPTION_TASK_ROLE_ARN;
   new EventMediaStack(app, stackName, {
     eventId: spec.eventId,
     captionEngine: spec.captionEngine,
@@ -70,6 +74,9 @@ export function renderEventMediaTemplate(spec: RenderEventMediaSpec): string {
     ...(spec.rtmpUrl ? { rtmpUrl: spec.rtmpUrl } : {}),
     ...(spec.streamKeyRef ? { streamKeyRef: spec.streamKeyRef } : {}),
     ...(composerTemplateUrl ? { composerTemplateUrl } : {}),
+    ...(sharedClusterName ? { sharedClusterName } : {}),
+    ...(sharedSfuTaskRoleArn ? { sharedSfuTaskRoleArn } : {}),
+    ...(sharedCaptionTaskRoleArn ? { sharedCaptionTaskRoleArn } : {}),
   });
   const assembly = app.synth();
   const template = assembly.getStackByName(stackName).template as unknown;
