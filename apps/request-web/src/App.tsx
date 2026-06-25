@@ -15,7 +15,6 @@ import {
 } from "@stagecast/ui";
 
 const TWO_HOURS_MS = 2 * 60 * 60 * 1000;
-const SELECTION_EVENT_ID = "__selection__";
 
 function toCalendarDateTime(iso: string): string {
   const d = new Date(iso);
@@ -74,15 +73,13 @@ const LEGEND_DEFS = {
   },
 } as const;
 
-const CALENDAR_DEFS = {
-  ...LEGEND_DEFS,
-  selection: {
-    colorName: "selection",
-    label: "選択中",
-    lightColors: { main: "#8b5cf6", container: "#ede9fe", onContainer: "#5b21b6" },
-    darkColors: { main: "#a78bfa", container: "#5b21b6", onContainer: "#ede9fe" },
-  },
-} as const;
+interface CalendarEvent {
+  id: string;
+  title: string;
+  start: string;
+  end: string;
+  calendarId: string;
+}
 
 interface PublicEvent {
   id: string;
@@ -99,6 +96,53 @@ interface LocalRequest {
   endsAt: string;
 }
 
+function CalendarDisplay(props: {
+  events: CalendarEvent[];
+  onTimeRangeSelect: (start: string, end: string) => void;
+}) {
+  const dragStartRef = useRef<string | null>(null);
+
+  const calendar = useCalendarApp({
+    locale: "ja-JP",
+    firstDayOfWeek: 1,
+    views: [createViewWeek(), createViewMonthGrid()],
+    defaultView: "month-grid",
+    dayBoundaries: { start: "07:00", end: "23:00" },
+    weekOptions: { gridStep: 15 },
+    events: props.events,
+    calendars: LEGEND_DEFS,
+    callbacks: {
+      onMouseDownDateTime(dateTime) {
+        dragStartRef.current = toDatetimeLocalFromZdt(dateTime);
+      },
+      onClickDateTime(dateTime) {
+        const clickedDt = toDatetimeLocalFromZdt(dateTime);
+        const dragStart = dragStartRef.current;
+        dragStartRef.current = null;
+
+        if (dragStart && dragStart !== clickedDt) {
+          const [start, end] =
+            dragStart < clickedDt ? [dragStart, clickedDt] : [clickedDt, dragStart];
+          props.onTimeRangeSelect(start, end);
+        } else {
+          props.onTimeRangeSelect(clickedDt, computeDefaultEndsAt(clickedDt));
+        }
+      },
+      onClickDate(date) {
+        dragStartRef.current = null;
+        const dt = toDatetimeLocalFromDate(date);
+        props.onTimeRangeSelect(dt, computeDefaultEndsAt(dt));
+      },
+    },
+  });
+
+  return (
+    <div className="h-[520px] w-full">
+      <ScheduleXCalendar calendarApp={calendar} />
+    </div>
+  );
+}
+
 export function App(props: { controlApiUrl: string }) {
   const [publicEvents, setPublicEvents] = useState<PublicEvent[]>([]);
   const [localRequests, setLocalRequests] = useState<LocalRequest[]>([]);
@@ -112,7 +156,6 @@ export function App(props: { controlApiUrl: string }) {
   const [submitting, setSubmitting] = useState(false);
   const [submitted, setSubmitted] = useState(false);
   const [error, setError] = useState<string>();
-  const dragStartRef = useRef<string | null>(null);
 
   const fetchPublicEvents = useCallback(async () => {
     try {
@@ -128,7 +171,7 @@ export function App(props: { controlApiUrl: string }) {
   }, [fetchPublicEvents]);
 
   const calendarEvents = useMemo(() => {
-    const events = publicEvents.map((e) => {
+    const events: CalendarEvent[] = publicEvents.map((e) => {
       const endFallback = e.endsAt ?? new Date(Date.parse(e.startsAt) + TWO_HOURS_MS).toISOString();
       return {
         id: e.id,
@@ -142,7 +185,7 @@ export function App(props: { controlApiUrl: string }) {
     for (const r of localRequests) {
       events.push({
         id: r.id,
-        title: `📋 ${r.title}`,
+        title: r.title,
         start: toCalendarDateTimeFromLocal(r.startsAt),
         end: toCalendarDateTimeFromLocal(r.endsAt),
         calendarId: "request",
@@ -152,6 +195,11 @@ export function App(props: { controlApiUrl: string }) {
     return events;
   }, [publicEvents, localRequests]);
 
+  const calendarKey = useMemo(
+    () => `${publicEvents.map((e) => e.id).join(",")}-${localRequests.length}`,
+    [publicEvents, localRequests],
+  );
+
   const setTimeRange = (start: string, end: string) => {
     setStartsAt(start);
     setEndsAt(end);
@@ -159,58 +207,6 @@ export function App(props: { controlApiUrl: string }) {
     setSubmitted(false);
     setError(undefined);
   };
-
-  const calendar = useCalendarApp({
-    locale: "ja-JP",
-    firstDayOfWeek: 1,
-    views: [createViewWeek(), createViewMonthGrid()],
-    defaultView: "month-grid",
-    dayBoundaries: { start: "07:00", end: "23:00" },
-    weekOptions: { gridStep: 15 },
-    events: calendarEvents,
-    calendars: CALENDAR_DEFS,
-    callbacks: {
-      onMouseDownDateTime(dateTime) {
-        dragStartRef.current = toDatetimeLocalFromZdt(dateTime);
-      },
-      onClickDateTime(dateTime) {
-        const clickedDt = toDatetimeLocalFromZdt(dateTime);
-        const dragStart = dragStartRef.current;
-        dragStartRef.current = null;
-
-        if (dragStart && dragStart !== clickedDt) {
-          const [start, end] =
-            dragStart < clickedDt ? [dragStart, clickedDt] : [clickedDt, dragStart];
-          setTimeRange(start, end);
-        } else {
-          setTimeRange(clickedDt, computeDefaultEndsAt(clickedDt));
-        }
-      },
-      onClickDate(date) {
-        dragStartRef.current = null;
-        const dt = toDatetimeLocalFromDate(date);
-        setTimeRange(dt, computeDefaultEndsAt(dt));
-      },
-    },
-  });
-
-  useEffect(() => {
-    if (!calendar) return;
-
-    const events = [...calendarEvents];
-
-    if (startsAt && endsAt) {
-      events.push({
-        id: SELECTION_EVENT_ID,
-        title: "🔍 選択中の時間帯",
-        start: toCalendarDateTimeFromLocal(startsAt),
-        end: toCalendarDateTimeFromLocal(endsAt),
-        calendarId: "selection",
-      });
-    }
-
-    calendar.events.set(events);
-  }, [calendar, calendarEvents, startsAt, endsAt]);
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -274,9 +270,11 @@ export function App(props: { controlApiUrl: string }) {
               </span>
             ))}
           </div>
-          <div className="h-[520px] w-full">
-            <ScheduleXCalendar calendarApp={calendar} />
-          </div>
+          <CalendarDisplay
+            key={calendarKey}
+            events={calendarEvents}
+            onTimeRangeSelect={setTimeRange}
+          />
         </div>
         {formOpen && (
           <div className="w-full lg:w-96">
