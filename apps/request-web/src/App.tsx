@@ -54,6 +54,8 @@ function computeDefaultEndsAt(startsAt: string): string {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
 
+const SELECTION_EVENT_ID = "_selection_";
+
 const LEGEND_DEFS = {
   scheduled: {
     colorName: "scheduled",
@@ -72,6 +74,12 @@ const LEGEND_DEFS = {
     label: "終了",
     lightColors: { main: "#d1d5db", container: "#f9fafb", onContainer: "#6b7280" },
     darkColors: { main: "#4b5563", container: "#1f2937", onContainer: "#d1d5db" },
+  },
+  selection: {
+    colorName: "selection",
+    label: "選択中",
+    lightColors: { main: "#f59e0b", container: "#fef3c7", onContainer: "#78350f" },
+    darkColors: { main: "#fbbf24", container: "#78350f", onContainer: "#fef3c7" },
   },
 } as const;
 
@@ -103,6 +111,26 @@ function CalendarDisplay(props: {
 }) {
   const dragStartRef = useRef<string | null>(null);
 
+  const addSelectionBlock = (
+    cal: ReturnType<typeof useCalendarApp>,
+    startDt: string,
+    endDt: string,
+  ) => {
+    if (!cal) return;
+    try {
+      cal.events.remove(SELECTION_EVENT_ID);
+    } catch {
+      // no previous selection
+    }
+    cal.events.add({
+      id: SELECTION_EVENT_ID,
+      title: "選択中",
+      start: toTemporalZdt(startDt),
+      end: toTemporalZdt(endDt),
+      calendarId: "selection",
+    });
+  };
+
   const calendar = useCalendarApp({
     locale: "ja-JP",
     firstDayOfWeek: 1,
@@ -122,18 +150,24 @@ function CalendarDisplay(props: {
         const dragStart = dragStartRef.current;
         dragStartRef.current = null;
 
+        let start: string;
+        let end: string;
         if (dragStart && dragStart !== clickedDt) {
-          const [start, end] =
+          [start, end] =
             dragStart < clickedDt ? [dragStart, clickedDt] : [clickedDt, dragStart];
-          props.onTimeRangeSelect(start, end);
         } else {
-          props.onTimeRangeSelect(clickedDt, computeDefaultEndsAt(clickedDt));
+          start = clickedDt;
+          end = computeDefaultEndsAt(clickedDt);
         }
+        addSelectionBlock(calendar, start, end);
+        props.onTimeRangeSelect(start, end);
       },
       onClickDate(date) {
         dragStartRef.current = null;
         const dt = toDatetimeLocalFromDate(date);
-        props.onTimeRangeSelect(dt, computeDefaultEndsAt(dt));
+        const endDt = computeDefaultEndsAt(dt);
+        addSelectionBlock(calendar, dt, endDt);
+        props.onTimeRangeSelect(dt, endDt);
       },
     },
   });
