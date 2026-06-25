@@ -86,7 +86,7 @@ export function EventRequestList(props: {
               <CardContent className="flex flex-col gap-2">
                 <div className="flex flex-wrap gap-4 text-xs text-text-secondary">
                   <span>申請者: {r.requesterName}</span>
-                  {r.requesterEmail && <span>{r.requesterEmail}</span>}
+                  {r.contactInfo && <span>{r.contactInfo}</span>}
                   <span>
                     {new Date(r.startsAt).toLocaleString("ja-JP")} 〜{" "}
                     {new Date(r.endsAt).toLocaleString("ja-JP")}

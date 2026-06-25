@@ -93,7 +93,7 @@ export function itemToEventRequest(item: Item): EventRequest {
   return {
     id: item.id as string,
     requesterName: item.requesterName as string,
-    requesterEmail: item.requesterEmail as string | undefined,
+    contactInfo: (item.contactInfo ?? item.requesterEmail) as string | undefined,
     title: item.title as string,
     startsAt: item.startsAt as string,
     endsAt: item.endsAt as string,

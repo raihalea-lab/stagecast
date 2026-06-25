@@ -5,7 +5,7 @@
  * admin-web は OpenStageButton で stage-web を開くだけ。
  */
 import { useState } from "react";
-import type { EventDefinition, InvitedRole } from "@stagecast/shared";
+import type { EventDefinition, EventStatus, InvitedRole } from "@stagecast/shared";
 import type {
   Artifact,
   ArtifactService,
@@ -40,6 +40,47 @@ import {
   TabsTrigger,
 } from "@stagecast/ui";
 import { Download, ExternalLink, Trash2, Upload } from "@stagecast/ui/icons";
+
+const TRANSITIONS: Record<EventStatus, { label: string; status: EventStatus; variant: "default" | "outline" | "destructive" }[]> = {
+  draft: [
+    { label: "予定にする", status: "scheduled", variant: "outline" },
+    { label: "配信開始", status: "live", variant: "default" },
+  ],
+  scheduled: [
+    { label: "下書きに戻す", status: "draft", variant: "outline" },
+    { label: "配信開始", status: "live", variant: "default" },
+  ],
+  live: [
+    { label: "配信終了", status: "ended", variant: "destructive" },
+  ],
+  ended: [],
+};
+
+function StatusTransitionBar(props: {
+  status: EventStatus;
+  busy: boolean;
+  onTransition: (next: EventStatus) => void;
+}) {
+  const actions = TRANSITIONS[props.status];
+  if (actions.length === 0) return null;
+
+  return (
+    <div className="flex items-center gap-2 rounded-lg border border-line-1 bg-surface-1 px-4 py-2.5">
+      <span className="text-xs text-text-secondary">ステータス変更:</span>
+      {actions.map((a) => (
+        <Button
+          key={a.status}
+          variant={a.variant}
+          size="sm"
+          disabled={props.busy}
+          onClick={() => props.onTransition(a.status)}
+        >
+          {a.label}
+        </Button>
+      ))}
+    </div>
+  );
+}
 
 export function EventDetail(props: {
   event: EventDefinition;
@@ -94,11 +135,7 @@ export function EventDetail(props: {
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
           <h2 className="text-lg font-semibold text-text-primary">{event.title}</h2>
-          <StatusPill
-            variant={
-              event.status === "live" ? "live" : event.status === "ended" ? "ended" : "draft"
-            }
-          />
+          <StatusPill variant={event.status === "scheduled" ? "scheduled" : event.status === "live" ? "live" : event.status === "ended" ? "ended" : "draft"} />
         </div>
         <div className="flex items-center gap-2">
           <OpenStageButton
@@ -139,6 +176,17 @@ export function EventDetail(props: {
           </AlertDialog>
         </div>
       </div>
+
+      <StatusTransitionBar
+        status={event.status}
+        busy={busy}
+        onTransition={(next) =>
+          guard(async () => {
+            await client.setStatus(event.id, next);
+            onChanged();
+          })()
+        }
+      />
 
       {error && (
         <div

@@ -117,18 +117,16 @@ export function createApp(deps: AppDeps) {
       return json(201, await deps.eventRequests.create(body as unknown as CreateEventRequestInput));
     }
 
-    // 公開: イベント公開情報 (タイトル・時間帯のみ、draft 除外)
+    // 公開: イベント公開情報 (タイトル・時間帯のみ)
     if (req.method === "GET" && req.path === "/events/public") {
       const all = await events.list();
-      const publicEvents = all
-        .filter((e) => e.status !== "draft")
-        .map((e) => ({
-          id: e.id,
-          title: e.title,
-          startsAt: e.startsAt,
-          endsAt: e.endsAt,
-          status: e.status,
-        }));
+      const publicEvents = all.map((e) => ({
+        id: e.id,
+        title: e.title,
+        startsAt: e.startsAt,
+        endsAt: e.endsAt,
+        status: e.status,
+      }));
       return json(200, publicEvents);
     }
 

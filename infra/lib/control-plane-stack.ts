@@ -426,6 +426,7 @@ export class ControlPlaneStack extends Stack {
         allowOrigins: [
           `https://${adminWebDistribution.domainName}`,
           `https://${stageWebDistribution.domainName}`,
+          `https://${requestWebDistribution.domainName}`,
           "http://localhost:5173",
           "http://localhost:5174",
         ],
@@ -514,6 +515,7 @@ export class ControlPlaneStack extends Stack {
             },
             // R17 / ADR 0012 D-6: admin-web の LivePreview iframe が開く composer-template の URL。
             composerTemplateUrl: `https://${composerWebDistribution.domainName}`,
+            requestWebUrl: `https://${requestWebDistribution.domainName}`,
           }),
         ],
       });

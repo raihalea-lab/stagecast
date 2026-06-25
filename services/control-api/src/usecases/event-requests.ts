@@ -4,7 +4,7 @@ import { ValidationError, type EventService } from "./events.js";
 
 export interface CreateEventRequestInput {
   requesterName: string;
-  requesterEmail?: string;
+  contactInfo?: string;
   title: string;
   startsAt: string;
   endsAt: string;
@@ -50,7 +50,7 @@ export function createEventRequestService(deps: {
     const request: EventRequest = {
       id: newId(),
       requesterName: input.requesterName.trim(),
-      requesterEmail: input.requesterEmail?.trim() || undefined,
+      contactInfo: input.contactInfo?.trim() || undefined,
       title: input.title.trim(),
       startsAt,
       endsAt,

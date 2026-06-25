@@ -13,6 +13,8 @@ export interface RuntimeConfig {
   cognito?: { domain: string; clientId: string };
   /** R17 / ADR 0012 D-6: composer-template の URL (iframe プレビュー埋め込み用)。 */
   composerTemplateUrl?: string;
+  /** 公開リクエストカレンダーの URL。 */
+  requestWebUrl?: string;
 }
 
 /** fetch した config.json (任意) と build-time env から最終設定を解決する (純粋関数・テスト対象)。 */
@@ -27,11 +29,13 @@ export function resolveRuntimeConfig(
       ? { domain: env.VITE_COGNITO_DOMAIN, clientId: env.VITE_COGNITO_USER_POOL_CLIENT_ID }
       : undefined);
   const composerTemplateUrl = fetched?.composerTemplateUrl ?? env.VITE_COMPOSER_TEMPLATE_URL;
+  const requestWebUrl = fetched?.requestWebUrl ?? env.VITE_REQUEST_WEB_URL;
   const base = { controlApiUrl };
   return {
     ...base,
     ...(cognito ? { cognito } : {}),
     ...(composerTemplateUrl ? { composerTemplateUrl } : {}),
+    ...(requestWebUrl ? { requestWebUrl } : {}),
   };
 }
 
