@@ -1,9 +1,8 @@
-import { useMemo } from "react";
+import { useCallback, useMemo, useState } from "react";
 import FullCalendar from "@fullcalendar/react";
 import dayGridPlugin from "@fullcalendar/daygrid";
 import timeGridPlugin from "@fullcalendar/timegrid";
 import interactionPlugin from "@fullcalendar/interaction";
-import jaLocale from "@fullcalendar/core/locales/ja";
 import type { EventClickArg } from "@fullcalendar/core";
 import type { DateClickArg } from "@fullcalendar/interaction";
 import type { EventDefinition, EventRequest } from "@stagecast/shared";
@@ -19,6 +18,16 @@ function toDatetimeLocal(
   const h = hour ?? d.getHours();
   const m = minute ?? d.getMinutes();
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(h)}:${pad(m)}`;
+}
+
+function formatEventTime(d: Date): string {
+  return d.toLocaleString("en-US", {
+    month: "short",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  });
 }
 
 const STATUS_COLORS: Record<
@@ -53,12 +62,21 @@ const STATUS_COLORS: Record<
 };
 
 const LEGEND_ITEMS = [
-  { label: "下書き", color: "#9ca3af" },
-  { label: "予定", color: "#3b82f6" },
-  { label: "配信中", color: "#ef4444" },
-  { label: "終了", color: "#d1d5db" },
-  { label: "リクエスト", color: "#f59e0b" },
+  { label: "Draft", color: "#9ca3af" },
+  { label: "Scheduled", color: "#3b82f6" },
+  { label: "Live", color: "#ef4444" },
+  { label: "Ended", color: "#d1d5db" },
+  { label: "Request", color: "#f59e0b" },
 ];
+
+interface EventPopover {
+  title: string;
+  startStr: string;
+  endStr: string;
+  top: number;
+  left: number;
+  isRequest: boolean;
+}
 
 export function CalendarView(props: {
   events: EventDefinition[];
@@ -66,6 +84,10 @@ export function CalendarView(props: {
   onEventClick: (eventId: string) => void;
   onDateTimeClick?: (dateTime: string) => void;
 }) {
+  const [popover, setPopover] = useState<EventPopover | null>(
+    null,
+  );
+
   const calendarEvents = useMemo(() => {
     const eventItems = props.events.map((e) => ({
       id: e.id,
@@ -82,7 +104,7 @@ export function CalendarView(props: {
       .filter((r) => r.status === "pending")
       .map((r) => ({
         id: `req-${r.id}`,
-        title: `[リクエスト] ${r.title}`,
+        title: `[Request] ${r.title}`,
         start: r.startsAt,
         end: r.endsAt,
         ...STATUS_COLORS.request,
@@ -90,9 +112,34 @@ export function CalendarView(props: {
     return [...eventItems, ...requestItems];
   }, [props.events, props.requests]);
 
+  const handleEventClick = useCallback(
+    (info: EventClickArg) => {
+      const id = info.event.id;
+      const isReq = id.startsWith("req-");
+      const rect = info.el.getBoundingClientRect();
+      setPopover({
+        title: info.event.title,
+        startStr: info.event.start
+          ? formatEventTime(info.event.start)
+          : "",
+        endStr: info.event.end
+          ? formatEventTime(info.event.end)
+          : "",
+        top: Math.min(
+          rect.bottom + 4,
+          window.innerHeight - 140,
+        ),
+        left: Math.min(rect.left, window.innerWidth - 280),
+        isRequest: isReq,
+      });
+      info.jsEvent.stopPropagation();
+    },
+    [],
+  );
+
   return (
-    <div className="w-full">
-      <div className="flex flex-wrap items-center gap-3 pb-2 text-xs text-text-secondary">
+    <div className="flex w-full flex-col">
+      <div className="flex shrink-0 flex-wrap items-center gap-3 pb-2 text-xs text-text-secondary">
         {LEGEND_ITEMS.map((item) => (
           <span
             key={item.label}
@@ -105,8 +152,11 @@ export function CalendarView(props: {
             {item.label}
           </span>
         ))}
+        <span className="ml-auto rounded bg-surface-2 px-1.5 py-0.5 text-[10px] font-medium text-text-tertiary">
+          JST (UTC+9)
+        </span>
       </div>
-      <div className="h-[520px]">
+      <div className="relative min-h-0 flex-1">
         <FullCalendar
           plugins={[
             dayGridPlugin,
@@ -114,23 +164,25 @@ export function CalendarView(props: {
             interactionPlugin,
           ]}
           initialView="dayGridMonth"
-          locale={jaLocale}
           firstDay={1}
           headerToolbar={{
             left: "prev,next today",
             center: "title",
             right: "dayGridMonth,timeGridWeek",
           }}
+          allDaySlot={false}
           slotMinTime="07:00:00"
           slotMaxTime="23:00:00"
+          slotLabelFormat={{
+            hour: "2-digit",
+            minute: "2-digit",
+            hour12: false,
+          }}
           height="100%"
           events={calendarEvents}
-          eventClick={(info: EventClickArg) => {
-            const id = info.event.id;
-            if (id.startsWith("req-")) return;
-            props.onEventClick(id);
-          }}
+          eventClick={handleEventClick}
           dateClick={(info: DateClickArg) => {
+            setPopover(null);
             if (info.allDay) {
               props.onDateTimeClick?.(
                 toDatetimeLocal(info.date, 9, 0),
@@ -142,6 +194,51 @@ export function CalendarView(props: {
             }
           }}
         />
+        {popover && (
+          <>
+            <div
+              className="fixed inset-0 z-40"
+              onClick={() => setPopover(null)}
+            />
+            <div
+              className="fixed z-50 w-64 rounded-lg border border-line-1 bg-surface-0 p-3 shadow-lg"
+              style={{ top: popover.top, left: popover.left }}
+            >
+              <div className="flex items-start justify-between">
+                <h3 className="text-sm font-medium text-text-primary">
+                  {popover.title}
+                </h3>
+                <button
+                  type="button"
+                  onClick={() => setPopover(null)}
+                  className="ml-2 text-text-tertiary hover:text-text-primary"
+                >
+                  &times;
+                </button>
+              </div>
+              <p className="mt-1 text-xs text-text-secondary">
+                {popover.startStr} &ndash; {popover.endStr}{" "}
+                JST
+              </p>
+              {!popover.isRequest && (
+                <button
+                  type="button"
+                  className="mt-2 text-xs font-medium text-blue-600 hover:text-blue-800"
+                  onClick={() => {
+                    const id =
+                      calendarEvents.find(
+                        (e) => e.title === popover.title,
+                      )?.id ?? "";
+                    setPopover(null);
+                    props.onEventClick(id);
+                  }}
+                >
+                  View Details &rarr;
+                </button>
+              )}
+            </div>
+          </>
+        )}
       </div>
     </div>
   );
