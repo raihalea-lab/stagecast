@@ -122,6 +122,9 @@ function CalendarDisplay(props: {
   const dragStartRef = useRef<string | null>(null);
   const calRef = useRef<ReturnType<typeof useCalendarApp>>(null);
   const isDraggingRef = useRef(false);
+  const wrapperRef = useRef<HTMLDivElement>(null);
+  const onTimeRangeSelectRef = useRef(props.onTimeRangeSelect);
+  onTimeRangeSelectRef.current = props.onTimeRangeSelect;
 
   const upsertSelectionBlock = (startDt: string, endDt: string) => {
     const cal = calRef.current;
@@ -236,8 +239,140 @@ function CalendarDisplay(props: {
   });
   calRef.current = calendar;
 
+  useEffect(() => {
+    const wrapper = wrapperRef.current;
+    if (!wrapper) return;
+
+    const EDGE_PX = 8;
+
+    const getSelEl = () =>
+      wrapper.querySelector(
+        `[data-event-id="${SELECTION_EVENT_ID}"]`,
+      ) as HTMLElement | null;
+
+    const handleMouseDown = (e: MouseEvent) => {
+      if (isDraggingRef.current) return;
+      const selEl = getSelEl();
+      if (!selEl) return;
+      const target = e.target as HTMLElement;
+      if (!selEl.contains(target) && target !== selEl) return;
+
+      e.stopPropagation();
+      e.preventDefault();
+
+      const rect = selEl.getBoundingClientRect();
+      const dayCol = selEl.closest(
+        ".sx__time-grid-day",
+      ) as HTMLElement | null;
+      if (!dayCol) return;
+
+      const cal = calRef.current;
+      if (!cal) return;
+      const existing = cal.events.get(SELECTION_EVENT_ID);
+      if (!existing) return;
+
+      const startZdt = existing.start as Temporal.ZonedDateTime;
+      const endZdt = existing.end as Temporal.ZonedDateTime;
+      const curStart = toDatetimeLocalFromZdt(startZdt);
+      const curEnd = toDatetimeLocalFromZdt(endZdt);
+      const durMin = endZdt.since(startZdt).total({ unit: "minute" });
+
+      const relY = e.clientY - rect.top;
+      const mode: "top" | "bottom" | "move" =
+        relY <= EDGE_PX
+          ? "top"
+          : relY >= rect.height - EDGE_PX
+            ? "bottom"
+            : "move";
+
+      const mouseOffsetFromTop = e.clientY - rect.top;
+      isDraggingRef.current = true;
+      document.body.style.cursor =
+        mode === "move" ? "grabbing" : "ns-resize";
+
+      const onMove = (me: MouseEvent) => {
+        if (!isDraggingRef.current) return;
+        if (mode === "top") {
+          const ns = calcTimeFromY(me.clientY, startZdt, dayCol);
+          if (ns < curEnd) upsertSelectionBlock(ns, curEnd);
+        } else if (mode === "bottom") {
+          const ne = calcTimeFromY(me.clientY, startZdt, dayCol);
+          if (ne > curStart) upsertSelectionBlock(curStart, ne);
+        } else {
+          const topY = me.clientY - mouseOffsetFromTop;
+          const ns = calcTimeFromY(topY, startZdt, dayCol);
+          const nsZdt = toTemporalZdt(ns);
+          const neZdt = nsZdt.add({ minutes: durMin });
+          upsertSelectionBlock(ns, toDatetimeLocalFromZdt(neZdt));
+        }
+      };
+
+      const onUp = () => {
+        isDraggingRef.current = false;
+        document.removeEventListener("mousemove", onMove);
+        document.removeEventListener("mouseup", onUp);
+        document.body.style.cursor = "";
+
+        const fin = calRef.current?.events.get(SELECTION_EVENT_ID);
+        if (fin) {
+          onTimeRangeSelectRef.current(
+            toDatetimeLocalFromZdt(
+              fin.start as Temporal.ZonedDateTime,
+            ),
+            toDatetimeLocalFromZdt(
+              fin.end as Temporal.ZonedDateTime,
+            ),
+          );
+        }
+      };
+
+      document.addEventListener("mousemove", onMove);
+      document.addEventListener("mouseup", onUp);
+    };
+
+    const handleHover = (e: MouseEvent) => {
+      const selEl = getSelEl();
+      if (!selEl || isDraggingRef.current) return;
+      const target = e.target as HTMLElement;
+      if (!selEl.contains(target) && target !== selEl) {
+        selEl.style.cursor = "";
+        return;
+      }
+      const rect = selEl.getBoundingClientRect();
+      const ry = e.clientY - rect.top;
+      selEl.style.cursor =
+        ry <= EDGE_PX || ry >= rect.height - EDGE_PX
+          ? "ns-resize"
+          : "grab";
+    };
+
+    wrapper.addEventListener("mousedown", handleMouseDown, true);
+    wrapper.addEventListener("mousemove", handleHover);
+    return () => {
+      wrapper.removeEventListener("mousedown", handleMouseDown, true);
+      wrapper.removeEventListener("mousemove", handleHover);
+    };
+  }, []);
+
   return (
-    <div className="h-[520px] w-full">
+    <div ref={wrapperRef} className="h-[520px] w-full">
+      <style>{`
+        [data-event-id="${SELECTION_EVENT_ID}"] {
+          position: relative;
+        }
+        [data-event-id="${SELECTION_EVENT_ID}"]::before,
+        [data-event-id="${SELECTION_EVENT_ID}"]::after {
+          content: '';
+          position: absolute;
+          left: 25%;
+          right: 25%;
+          height: 3px;
+          background: rgba(245, 158, 11, 0.7);
+          border-radius: 2px;
+        }
+        [data-event-id="${SELECTION_EVENT_ID}"]::before { top: 2px; }
+        [data-event-id="${SELECTION_EVENT_ID}"]::after { bottom: 2px; }
+      `}</style>
       <ScheduleXCalendar calendarApp={calendar} />
     </div>
   );
