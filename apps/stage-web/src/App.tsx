@@ -522,7 +522,10 @@ export function App(props: {
                     />
                   </div>
                 ) : (
-                  <div className="flex items-center justify-center rounded-lg border border-line-2 bg-surface-2 text-sm text-text-tertiary" style={{ aspectRatio: "16/9" }}>
+                  <div
+                    className="flex items-center justify-center rounded-lg border border-line-2 bg-surface-2 text-sm text-text-tertiary"
+                    style={{ aspectRatio: "16/9" }}
+                  >
                     プレビュー準備中…
                   </div>
                 )}

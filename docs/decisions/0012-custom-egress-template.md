@@ -13,12 +13,12 @@ R12 完了 (2026-06-21) で YouTube Live RTMP 送出までの E2E は動くよ�
 現状の Egress は **LiveKit 公式の内蔵テンプレート** (`http://localhost:7980/`、 Egress
 プロセス自身が hosting する組み込み React app) を使っており、 以下の制約がある:
 
-| 制約 | 現状 | 望ましい状態 |
-|---|---|---|
-| レイアウト | grid 固定 (Egress preset) | grid / speaker-spotlight / picture-in-picture / 画面共有メイン から admin が切替 |
-| 待機画面 | speaker が誰もいないと黒画面 | BGM + ロゴ + 次回開催情報 などのフォールバック表示 |
-| プレビュー | 配信中の映像を確認する手段なし (YouTube Studio の遅延 10-30 秒経由しかない) | admin-web / stage-web で低遅延 (sub-second) のプレビュー画面 |
-| カスタマイズ | テロップ・スポンサーロゴ・字幕オーバーレイなど追加不能 | 自由に React コンポーネントで合成 |
+| 制約         | 現状                                                                        | 望ましい状態                                                                     |
+| ------------ | --------------------------------------------------------------------------- | -------------------------------------------------------------------------------- |
+| レイアウト   | grid 固定 (Egress preset)                                                   | grid / speaker-spotlight / picture-in-picture / 画面共有メイン から admin が切替 |
+| 待機画面     | speaker が誰もいないと黒画面                                                | BGM + ロゴ + 次回開催情報 などのフォールバック表示                               |
+| プレビュー   | 配信中の映像を確認する手段なし (YouTube Studio の遅延 10-30 秒経由しかない) | admin-web / stage-web で低遅延 (sub-second) のプレビュー画面                     |
+| カスタマイズ | テロップ・スポンサーロゴ・字幕オーバーレイなど追加不能                      | 自由に React コンポーネントで合成                                                |
 
 ユーザー要件:
 
@@ -50,60 +50,60 @@ R12 完了 (2026-06-21) で YouTube Live RTMP 送出までの E2E は動くよ�
 
 ### スコープ
 
-| 含む | 含まない |
-|---|---|
-| Egress が描画する HTML/React の自作 | 既存の SFU / Valkey / ICE 設定の変更 |
-| layout 切替 (grid / spotlight / pip 等) | layout の細かい数値編集 (各 video の x/y/w/h ピクセル指定) |
-| 待機画面 (speaker 0 人 → fallback) | **365 日 24h の常時配信** (= イベント外も配信維持。 別 ADR で R18 で扱う) |
-| admin-web / stage-web の iframe プレビュー | プレビュー用の別 distribution / 認証 (既存 CloudFront を流用) |
-| Egress config の `template_base` 切替 | Egress 自体の cpu/memory 増強 (将来 R19) |
+| 含む                                       | 含まない                                                                  |
+| ------------------------------------------ | ------------------------------------------------------------------------- |
+| Egress が描画する HTML/React の自作        | 既存の SFU / Valkey / ICE 設定の変更                                      |
+| layout 切替 (grid / spotlight / pip 等)    | layout の細かい数値編集 (各 video の x/y/w/h ピクセル指定)                |
+| 待機画面 (speaker 0 人 → fallback)         | **365 日 24h の常時配信** (= イベント外も配信維持。 別 ADR で R18 で扱う) |
+| admin-web / stage-web の iframe プレビュー | プレビュー用の別 distribution / 認証 (既存 CloudFront を流用)             |
+| Egress config の `template_base` 切替      | Egress 自体の cpu/memory 増強 (将来 R19)                                  |
 
 ## 選択肢の検討
 
 ### カスタムテンプレートのホスティング
 
-| 案 | 内容 | 評価 |
-|---|---|---|
-| A. ControlPlane の AssetsBucket (S3) + 既存 CloudFront に path 追加 | `/composer/` path で配信。 admin-web と同じ Distribution | ✅ 採用。 新規リソースなし、 CloudFront キャッシュ流用 |
-| B. 新規 CloudFront Distribution + 新規 S3 bucket | 完全分離。 ドメインも分離可能 | コスト・運用増。 メリット少 |
-| C. Egress container 内に templates を埋め込み | LiveKit 公式同様、 Docker image をカスタム build | Docker build パイプライン要追加、 Egress 公式 image 更新時に追従が大変 |
+| 案                                                                  | 内容                                                     | 評価                                                                   |
+| ------------------------------------------------------------------- | -------------------------------------------------------- | ---------------------------------------------------------------------- |
+| A. ControlPlane の AssetsBucket (S3) + 既存 CloudFront に path 追加 | `/composer/` path で配信。 admin-web と同じ Distribution | ✅ 採用。 新規リソースなし、 CloudFront キャッシュ流用                 |
+| B. 新規 CloudFront Distribution + 新規 S3 bucket                    | 完全分離。 ドメインも分離可能                            | コスト・運用増。 メリット少                                            |
+| C. Egress container 内に templates を埋め込み                       | LiveKit 公式同様、 Docker image をカスタム build         | Docker build パイプライン要追加、 Egress 公式 image 更新時に追従が大変 |
 
 → **採用は A**。 既存の admin-web と同じ CloudFront に `/composer/` path を追加し、
-   S3 オリジンを共有。 Egress の `template_base` には CloudFront URL を設定する
-   (例: `https://dXXXXXXXX.cloudfront.net/composer/`)。
+S3 オリジンを共有。 Egress の `template_base` には CloudFront URL を設定する
+(例: `https://dXXXXXXXX.cloudfront.net/composer/`)。
 
 ### レイアウト操作の通信
 
-| 案 | 内容 | 評価 |
-|---|---|---|
-| A. LiveKit data channel (publishData / dataReceived) | admin-web が room に participant として join し、 JSON broadcast | ✅ 採用。 LiveKit ネイティブ、 低遅延 (sub-second)、 認証は LiveKit token で完結 |
-| B. WebSocket via control-api | control-api に WS endpoint を追加。 admin-web → control-api → SFU の Egress に転送 | サーバー1 つ余計、 control-api lambda は WS 不向き (代わりに API Gateway WS が必要) |
-| C. DynamoDB poll | layout を DynamoDB に保存。 テンプレートが poll | 遅延数秒、 DDB read コスト |
+| 案                                                   | 内容                                                                               | 評価                                                                                |
+| ---------------------------------------------------- | ---------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------- |
+| A. LiveKit data channel (publishData / dataReceived) | admin-web が room に participant として join し、 JSON broadcast                   | ✅ 採用。 LiveKit ネイティブ、 低遅延 (sub-second)、 認証は LiveKit token で完結    |
+| B. WebSocket via control-api                         | control-api に WS endpoint を追加。 admin-web → control-api → SFU の Egress に転送 | サーバー1 つ余計、 control-api lambda は WS 不向き (代わりに API Gateway WS が必要) |
+| C. DynamoDB poll                                     | layout を DynamoDB に保存。 テンプレートが poll                                    | 遅延数秒、 DDB read コスト                                                          |
 
 → **採用は A**。 admin-web 側に LiveKit Client SDK を組み込む (subscribe-only token で
-   broadcast 専用 participant として join、 もしくは admin 専用 token で join)。
+broadcast 専用 participant として join、 もしくは admin 専用 token で join)。
 
 ### 待機画面のトリガー
 
-| 案 | 内容 | 評価 |
-|---|---|---|
-| A. テンプレート内で `room.numParticipants` を監視 | publishing participant が Egress 1 人のみなら待機モード | ✅ 採用。 テンプレート内完結、 LiveKit Client SDK のイベントで検知 |
-| B. control-api が DDB に状態保存 → テンプレートが poll | 状態管理の中心が増える | 複雑、 遅延 |
-| C. admin-web から明示的に「待機モード」をトリガー | manual operation | 自動化したい |
+| 案                                                     | 内容                                                    | 評価                                                               |
+| ------------------------------------------------------ | ------------------------------------------------------- | ------------------------------------------------------------------ |
+| A. テンプレート内で `room.numParticipants` を監視      | publishing participant が Egress 1 人のみなら待機モード | ✅ 採用。 テンプレート内完結、 LiveKit Client SDK のイベントで検知 |
+| B. control-api が DDB に状態保存 → テンプレートが poll | 状態管理の中心が増える                                  | 複雑、 遅延                                                        |
+| C. admin-web から明示的に「待機モード」をトリガー      | manual operation                                        | 自動化したい                                                       |
 
 → **採用は A**。 テンプレートの React state で「publishing participant 数」を track。
-   speaker が 1 人もいなければ待機画面、 1 人でも publish したら通常レイアウトに切替。
+speaker が 1 人もいなければ待機画面、 1 人でも publish したら通常レイアウトに切替。
 
 ### プレビュー画面の方式
 
-| 案 | 内容 | 評価 |
-|---|---|---|
-| A. カスタムテンプレートを iframe で埋め込み | admin-web / stage-web の中に `<iframe src="/composer/?...">` | ✅ 採用。 Egress と完全同一の描画、 低遅延 |
-| B. admin-web 内で LiveKit Client を直接組み込み (合成は別実装) | admin-web 専用の player を書く | レイアウト変更時にプレビューと Egress でズレるリスク |
-| C. YouTube Live embed | iframe で YouTube 視聴 | 遅延 10-30 秒、 モニタリング不可 |
+| 案                                                             | 内容                                                         | 評価                                                 |
+| -------------------------------------------------------------- | ------------------------------------------------------------ | ---------------------------------------------------- |
+| A. カスタムテンプレートを iframe で埋め込み                    | admin-web / stage-web の中に `<iframe src="/composer/?...">` | ✅ 採用。 Egress と完全同一の描画、 低遅延           |
+| B. admin-web 内で LiveKit Client を直接組み込み (合成は別実装) | admin-web 専用の player を書く                               | レイアウト変更時にプレビューと Egress でズレるリスク |
+| C. YouTube Live embed                                          | iframe で YouTube 視聴                                       | 遅延 10-30 秒、 モニタリング不可                     |
 
 → **採用は A**。 同じテンプレートを iframe で開くだけ。 token は admin-web が
-   subscriber-only role で別途発行する (publish 権限なし)。
+subscriber-only role で別途発行する (publish 権限なし)。
 
 ## 決定
 
@@ -159,7 +159,7 @@ R12 完了 (2026-06-21) で YouTube Live RTMP 送出までの E2E は動くよ�
   {
     "type": "layout-change",
     "layout": "spotlight",
-    "speakerIdentity": "speaker-ae0c..."  // spotlight 対象
+    "speakerIdentity": "speaker-ae0c..." // spotlight 対象
   }
   ```
 - テンプレート側 `useLayoutSettings.ts` が `room.on(RoomEvent.DataReceived, ...)` で受信、 React state 更新
@@ -192,15 +192,15 @@ R12 完了 (2026-06-21) で YouTube Live RTMP 送出までの E2E は動くよ�
 
 ## 影響・トレードオフ
 
-| 観点 | 影響 |
-|---|---|
-| Cost | CloudFront 配信費 (composer-template) ~$0.01/月 (admin-web と同等)。 admin-web の iframe 視聴で LiveKit 帯域 ~+1Mbps/視聴者 (subscriber も participant としてカウント) |
-| 信頼性 | カスタムテンプレートのバグは即 Egress 黒画面 → ロールバックパスとして `template_base` を空にすればデフォルトテンプレートに戻る |
-| 観測性 | テンプレートに Sentry / console.log 仕込みで Chrome の挙動を追える (CloudWatch には自動で出ない、 ECS Exec で `/tmp/chrome.log` 確認、 ADR 0010 D-7 と同様) |
-| Security | iframe 埋め込み token は subscriber-only に限定。 admin-web の admin token は CanPublishData のみで CanPublish=false |
-| LiveKit サポート | カスタムテンプレートは LiveKit 公式 docs に sample あり、 official サポート範囲内 |
-| 起動時間 | テンプレートビルドが CI に追加 (Vite build ~30s)、 admin-web deploy に統合される |
-| メンテ | livekit-client SDK の major update 時にテンプレート側も追従要 |
+| 観点             | 影響                                                                                                                                                                   |
+| ---------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Cost             | CloudFront 配信費 (composer-template) ~$0.01/月 (admin-web と同等)。 admin-web の iframe 視聴で LiveKit 帯域 ~+1Mbps/視聴者 (subscriber も participant としてカウント) |
+| 信頼性           | カスタムテンプレートのバグは即 Egress 黒画面 → ロールバックパスとして `template_base` を空にすればデフォルトテンプレートに戻る                                         |
+| 観測性           | テンプレートに Sentry / console.log 仕込みで Chrome の挙動を追える (CloudWatch には自動で出ない、 ECS Exec で `/tmp/chrome.log` 確認、 ADR 0010 D-7 と同様)            |
+| Security         | iframe 埋め込み token は subscriber-only に限定。 admin-web の admin token は CanPublishData のみで CanPublish=false                                                   |
+| LiveKit サポート | カスタムテンプレートは LiveKit 公式 docs に sample あり、 official サポート範囲内                                                                                      |
+| 起動時間         | テンプレートビルドが CI に追加 (Vite build ~30s)、 admin-web deploy に統合される                                                                                       |
+| メンテ           | livekit-client SDK の major update 時にテンプレート側も追従要                                                                                                          |
 
 ## 受け入れ基準
 
@@ -214,12 +214,12 @@ R12 完了 (2026-06-21) で YouTube Live RTMP 送出までの E2E は動くよ�
 
 ## 段階分割 (NEXT_WORK.md R15-R18 として登録)
 
-| Stage | スコープ | PR | 完了基準 |
-|---|---|---|---|
-| **R15** ✅ | D-1, D-2, D-3, D-5: テンプレート実装 (grid のみ) + S3+CloudFront ホスティング + Egress 接続 + 待機画面 | #122 (基盤) → #123 (START_RECORDING) → #124 (mute/unmute 再 attach) → #125 (画面共有 tile 並列) | **2026-06-21 実機検証成功 ✅**: 受け入れ基準 1, 2, 4 達成 + カメラ/画面共有同時表示 |
-| **R16** ✅ | D-4: admin-web からの layout 切替 UI + spotlight / pip / screen-share-main layouts 追加 | #127 (本体) → #128 (Spotlight grid 修正) | **2026-06-21 実機検証成功 ✅**: 4 layouts 全切替 sub-second で反映 |
-| **R17** ✅ | D-6: admin-web (Phase2) + stage-web (Phase3) の iframe プレビュー埋め込み | #130 (admin-web) / #134 (stage-web) / #135 (followup-1 API GW 公開ルート) | **2026-06-21 admin-web + 2026-06-24 stage-web 実機検証成功 ✅**: 受け入れ基準 5/6 全達成 + layout 切替が両 iframe に sub-second 反映 |
-| **R18** (将来) | 365 日 24h 配信 (D-7 別 ADR で議論) | TBD | 別 ADR |
+| Stage          | スコープ                                                                                               | PR                                                                                              | 完了基準                                                                                                                             |
+| -------------- | ------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------ |
+| **R15** ✅     | D-1, D-2, D-3, D-5: テンプレート実装 (grid のみ) + S3+CloudFront ホスティング + Egress 接続 + 待機画面 | #122 (基盤) → #123 (START_RECORDING) → #124 (mute/unmute 再 attach) → #125 (画面共有 tile 並列) | **2026-06-21 実機検証成功 ✅**: 受け入れ基準 1, 2, 4 達成 + カメラ/画面共有同時表示                                                  |
+| **R16** ✅     | D-4: admin-web からの layout 切替 UI + spotlight / pip / screen-share-main layouts 追加                | #127 (本体) → #128 (Spotlight grid 修正)                                                        | **2026-06-21 実機検証成功 ✅**: 4 layouts 全切替 sub-second で反映                                                                   |
+| **R17** ✅     | D-6: admin-web (Phase2) + stage-web (Phase3) の iframe プレビュー埋め込み                              | #130 (admin-web) / #134 (stage-web) / #135 (followup-1 API GW 公開ルート)                       | **2026-06-21 admin-web + 2026-06-24 stage-web 実機検証成功 ✅**: 受け入れ基準 5/6 全達成 + layout 切替が両 iframe に sub-second 反映 |
+| **R18** (将来) | 365 日 24h 配信 (D-7 別 ADR で議論)                                                                    | TBD                                                                                             | 別 ADR                                                                                                                               |
 
 ### R15 実装中に判明した追加事項 (followup)
 
@@ -238,6 +238,7 @@ stage-web の登壇者ビュー右下に「現在の配信」を picture-in-pict
 **採用方針**: (A) `POST /preview-token` (body: { inviteToken }) を新規追加 → invite-service.verify で event.id 解決 → 既存 preview-token-service.issue を再利用 (admin-web の `/events/{id}/preview-token` と service 共有)。
 
 **実装** (PR #134):
+
 - control-api `http/app.ts`: 公開エンドポイント (requireAdmin 前) に新規追加
 - stage-web `components/PreviewWindow.tsx`: 右下小窓 (240px × 16:9)、 ✕ で閉じる + 再表示ボタン
 - runtime config に composerTemplateUrl 追加 + StageWebDeployment の config.json に注入

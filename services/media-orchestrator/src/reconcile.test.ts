@@ -153,11 +153,7 @@ describe("enforceMaxParallel (ADR 0008 D-6)", () => {
   });
 
   it("上限を超えると超過分が skipped に入る (eventId 順)", () => {
-    const r = enforceMaxParallel(
-      [desired("c"), desired("a"), desired("b"), desired("d")],
-      [],
-      2,
-    );
+    const r = enforceMaxParallel([desired("c"), desired("a"), desired("b"), desired("d")], [], 2);
     expect(r.allowed.map((d) => d.eventId)).toEqual(["a", "b"]);
     expect(r.skipped.map((d) => d.eventId)).toEqual(["c", "d"]);
   });

@@ -78,7 +78,11 @@ const BACKOFF_SCHEDULE_SEC = [1, 2, 4, 8, 16, 30, 30] as const;
 export class HttpStageClient implements StageClient {
   constructor(private readonly baseUrl: string) {}
 
-  async join(token: string, displayName?: string, options: JoinOptions = {}): Promise<JoinResponse> {
+  async join(
+    token: string,
+    displayName?: string,
+    options: JoinOptions = {},
+  ): Promise<JoinResponse> {
     const maxRetryWaitSec = options.maxRetryWaitSec ?? 60;
     const sleep = options.sleep ?? ((ms: number) => new Promise((r) => setTimeout(r, ms)));
 

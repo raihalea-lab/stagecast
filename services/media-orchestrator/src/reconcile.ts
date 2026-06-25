@@ -164,9 +164,7 @@ export function enforceMaxParallel(
     return { allowed: desired, skipped: [] };
   }
   const runningIds = new Set(
-    actual
-      .filter((a) => a.kind === "running" || a.kind === "in_progress")
-      .map((a) => a.eventId),
+    actual.filter((a) => a.kind === "running" || a.kind === "in_progress").map((a) => a.eventId),
   );
   // 既に稼働中のものを優先、それ以外は eventId 順 (決定性確保)。
   const sorted = [...desired].sort((a, b) => {

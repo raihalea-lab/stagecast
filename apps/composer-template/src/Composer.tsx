@@ -111,9 +111,7 @@ export function Composer(props: Props) {
   const view = useMemo(() => {
     if (state === "error") {
       return (
-        <div style={{ color: "#fff", padding: 24 }}>
-          Connection error: {errorMsg ?? "unknown"}
-        </div>
+        <div style={{ color: "#fff", padding: 24 }}>Connection error: {errorMsg ?? "unknown"}</div>
       );
     }
     if (tiles.length === 0) {

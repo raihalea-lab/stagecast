@@ -1,10 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { EventMediaInfo } from "@stagecast/shared";
-import {
-  createMediaPublisher,
-  type MediaResolver,
-  type MediaStore,
-} from "./media-publisher.js";
+import { createMediaPublisher, type MediaResolver, type MediaStore } from "./media-publisher.js";
 
 function fakeStore() {
   const map = new Map<string, EventMediaInfo>();
@@ -31,7 +27,7 @@ const FIXED_NOW = 1_700_000_000_000;
 describe("MediaPublisher (ADR 0008 D-1)", () => {
   it("URL が解決でき未保存なら updated を返し DynamoDB に書く", async () => {
     const { map, store } = fakeStore();
-    const resolver = fakeResolver({ "e1": "wss://1.2.3.4:7880" });
+    const resolver = fakeResolver({ e1: "wss://1.2.3.4:7880" });
     const pub = createMediaPublisher({ resolver, store, now: () => FIXED_NOW });
     const result = await pub.publish("e1");
     expect(result).toEqual({
@@ -45,7 +41,7 @@ describe("MediaPublisher (ADR 0008 D-1)", () => {
   it("URL が解決でき同じ値が既に保存済みなら unchanged (書き込み不発)", async () => {
     const { map, store } = fakeStore();
     map.set("e1", { livekitUrl: "wss://1.2.3.4:7880", readyAt: 1 });
-    const resolver = fakeResolver({ "e1": "wss://1.2.3.4:7880" });
+    const resolver = fakeResolver({ e1: "wss://1.2.3.4:7880" });
     const pub = createMediaPublisher({ resolver, store, now: () => FIXED_NOW });
     const result = await pub.publish("e1");
     expect(result.status).toBe("unchanged");
@@ -56,7 +52,7 @@ describe("MediaPublisher (ADR 0008 D-1)", () => {
   it("URL が解決でき異なる値が保存済みなら updated (上書き)", async () => {
     const { map, store } = fakeStore();
     map.set("e1", { livekitUrl: "wss://OLD:7880", readyAt: 1 });
-    const resolver = fakeResolver({ "e1": "wss://NEW:7880" });
+    const resolver = fakeResolver({ e1: "wss://NEW:7880" });
     const pub = createMediaPublisher({ resolver, store, now: () => FIXED_NOW });
     const result = await pub.publish("e1");
     expect(result.status).toBe("updated");

@@ -13,11 +13,7 @@ const HOLD_MS = 500;
 
 export const INITIAL_STATE: TalkingState = { isTalking: false, lastActiveMs: 0 };
 
-export function updateTalking(
-  prev: TalkingState,
-  audioLevel: number,
-  nowMs: number,
-): TalkingState {
+export function updateTalking(prev: TalkingState, audioLevel: number, nowMs: number): TalkingState {
   if (audioLevel > THRESHOLD) {
     return { isTalking: true, lastActiveMs: nowMs };
   }

@@ -33,28 +33,28 @@
 
 ### 動作中の構成
 
-| 項目 | 値 |
-|---|---|
-| AWS Account | `542328051110` (ap-northeast-1) |
-| ControlPlane Stack | `StagecastControlPlane` |
-| admin-web | https://dXXXXXXXX.cloudfront.net |
-| stage-web | https://dXXXXXXXX.cloudfront.net |
-| composer-web | https://dcxk8k5d51220.cloudfront.net |
-| control-api | https://68p7p25j1a.execute-api.ap-northeast-1.amazonaws.com |
-| Cognito UserPool | `ap-northeast-1_BxiekyXuK` |
-| KVS Signaling Channel | `stagecast-turn` (月 $0.03) |
-| Invite Token Secret | `stagecast/invite-token-secret-7lP2SZ` |
-| LiveKit Secret | `stagecast/livekit-9IE5eH` |
-| YouTube Secret | `stagecast/youtube-CSMIPL` |
-| DynamoDB Table | `StagecastControlPlane-MetadataTable30E05F1F-L3CN4XJPLUE1` |
+| 項目                  | 値                                                          |
+| --------------------- | ----------------------------------------------------------- |
+| AWS Account           | `542328051110` (ap-northeast-1)                             |
+| ControlPlane Stack    | `StagecastControlPlane`                                     |
+| admin-web             | https://dXXXXXXXX.cloudfront.net                       |
+| stage-web             | https://dXXXXXXXX.cloudfront.net                       |
+| composer-web          | https://dcxk8k5d51220.cloudfront.net                        |
+| control-api           | https://68p7p25j1a.execute-api.ap-northeast-1.amazonaws.com |
+| Cognito UserPool      | `ap-northeast-1_BxiekyXuK`                                  |
+| KVS Signaling Channel | `stagecast-turn` (月 $0.03)                                 |
+| Invite Token Secret   | `stagecast/invite-token-secret-7lP2SZ`                      |
+| LiveKit Secret        | `stagecast/livekit-9IE5eH`                                  |
+| YouTube Secret        | `stagecast/youtube-CSMIPL`                                  |
+| DynamoDB Table        | `StagecastControlPlane-MetadataTable30E05F1F-L3CN4XJPLUE1`  |
 
 ### ユーザー要件の進捗 (ADR 0012) — **全達成 🎉**
 
-| 要件 | 状況 |
-|---|---|
-| 1. 登壇者・管理者・スピーカーが現在の画面を確認できる | ✅ R17 admin-web + stage-web |
-| 2. 管理者がレイアウトを調整できる | ✅ R16 |
-| 3. 誰も投影してなくても何かしらの配信が続いている | ✅ R15 (イベント中 fallback)、 365日24h は R18 別 ADR |
+| 要件                                                  | 状況                                                  |
+| ----------------------------------------------------- | ----------------------------------------------------- |
+| 1. 登壇者・管理者・スピーカーが現在の画面を確認できる | ✅ R17 admin-web + stage-web                          |
+| 2. 管理者がレイアウトを調整できる                     | ✅ R16                                                |
+| 3. 誰も投影してなくても何かしらの配信が続いている     | ✅ R15 (イベント中 fallback)、 365日24h は R18 別 ADR |
 
 ---
 
@@ -239,6 +239,7 @@ LiveKit Egress (`pkg/source/web.go`) は **カスタムテンプレートから�
 ### 4-2. mute/unmute サイクルの track 再 attach (R15)
 
 `adaptiveStream: true` の SFU は mute 時に track を自動 unsubscribe するため:
+
 - `RoomEvent.TrackSubscribed` / `TrackUnsubscribed` を refresh のトリガーに必須
 - Tile の `useEffect` dependency に **track 参照** (`publication.track`) を含める
 - Chrome autoplay policy で attach 後 `videoRef.current.play().catch(() => {})` 明示呼出
@@ -259,20 +260,20 @@ LiveKit Egress (`pkg/source/web.go`) は **カスタムテンプレートから�
 
 ## 5. 補足: 今セッションの全 PR 一覧
 
-| PR | カテゴリ | 内容 |
-|---|---|---|
-| #119 | fix | Egress LNA / insecure: true (R12-followup-23) |
-| #120 | chore | R12 cleanup + 完了マーク |
-| #121 | docs | ADR 0012 起票 |
-| #122 | feat | R15 基盤 (composer-template + S3+CloudFront + Egress template_base) |
-| #123 | fix | R15-followup-1: START_RECORDING シグナル |
-| #124 | fix | R15-followup-2: mute/unmute 再 attach |
-| #125 | fix | R15-followup-3: 1 video publication = 1 tile |
-| #126 | docs | R15 完了マーク |
-| #127 | feat | R16 (layout 切替 + 4 layouts + admin-token) |
-| #128 | fix | R16-followup-1: Spotlight flex → grid |
-| #129 | docs | R16 完了マーク |
-| #130 | feat | R17 admin-web (preview-token + LivePreview) |
-| #131 | docs | R17 admin-web 完了マーク |
+| PR   | カテゴリ | 内容                                                                |
+| ---- | -------- | ------------------------------------------------------------------- |
+| #119 | fix      | Egress LNA / insecure: true (R12-followup-23)                       |
+| #120 | chore    | R12 cleanup + 完了マーク                                            |
+| #121 | docs     | ADR 0012 起票                                                       |
+| #122 | feat     | R15 基盤 (composer-template + S3+CloudFront + Egress template_base) |
+| #123 | fix      | R15-followup-1: START_RECORDING シグナル                            |
+| #124 | fix      | R15-followup-2: mute/unmute 再 attach                               |
+| #125 | fix      | R15-followup-3: 1 video publication = 1 tile                        |
+| #126 | docs     | R15 完了マーク                                                      |
+| #127 | feat     | R16 (layout 切替 + 4 layouts + admin-token)                         |
+| #128 | fix      | R16-followup-1: Spotlight flex → grid                               |
+| #129 | docs     | R16 完了マーク                                                      |
+| #130 | feat     | R17 admin-web (preview-token + LivePreview)                         |
+| #131 | docs     | R17 admin-web 完了マーク                                            |
 
 合計 13 PR (R12 残 2 + ADR 0012 11)。

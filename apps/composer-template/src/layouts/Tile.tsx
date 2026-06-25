@@ -7,11 +7,7 @@
 import { useEffect, useRef } from "react";
 import type { VideoTile } from "./types.js";
 
-export function Tile(props: {
-  tile: VideoTile;
-  showLabel?: boolean;
-  isTalking?: boolean;
-}) {
+export function Tile(props: { tile: VideoTile; showLabel?: boolean; isTalking?: boolean }) {
   const { tile } = props;
   const showLabel = props.showLabel !== false;
   const videoRef = useRef<HTMLVideoElement>(null);

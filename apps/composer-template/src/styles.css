@@ -4,17 +4,26 @@
  */
 
 /* --- Reset --- */
-html, body, #root, .composer-root {
+html,
+body,
+#root,
+.composer-root {
   margin: 0;
   padding: 0;
   width: 100%;
   height: 100%;
   background: #0a0a0b;
   overflow: hidden;
-  font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+  font-family:
+    system-ui,
+    -apple-system,
+    "Segoe UI",
+    sans-serif;
   color: rgba(255, 255, 255, 0.94);
 }
-* { box-sizing: border-box; }
+* {
+  box-sizing: border-box;
+}
 
 /* --- Design Tokens (inline for Egress cold-start) --- */
 :root {
@@ -26,15 +35,29 @@ html, body, #root, .composer-root {
 
 /* --- Animations --- */
 @keyframes pulse {
-  0%, 100% { opacity: 0.3; transform: scale(0.8); }
-  50% { opacity: 1; transform: scale(1.2); }
+  0%,
+  100% {
+    opacity: 0.3;
+    transform: scale(0.8);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1.2);
+  }
 }
 @keyframes tally-breathe {
-  0%, 100% { opacity: 0.6; }
-  50% { opacity: 1; }
+  0%,
+  100% {
+    opacity: 0.6;
+  }
+  50% {
+    opacity: 1;
+  }
 }
 @media (prefers-reduced-motion: reduce) {
-  *, *::before, *::after {
+  *,
+  *::before,
+  *::after {
     animation-duration: 0.01ms !important;
     transition-duration: 0.01ms !important;
   }
