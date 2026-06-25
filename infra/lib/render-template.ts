@@ -18,6 +18,8 @@ export interface RenderEventMediaSpec {
   rtmpUrl?: string;
   /** YouTube ストリームキーを格納した Secrets Manager の参照名 (例: stagecast/youtube-stream-key)。 */
   streamKeyRef?: string;
+  /** ECS サービスの desiredCount (scaleUp 用)。 */
+  desiredCount?: number;
 }
 
 export function renderEventMediaTemplate(spec: RenderEventMediaSpec): string {
@@ -32,16 +34,13 @@ export function renderEventMediaTemplate(spec: RenderEventMediaSpec): string {
   // ControlPlane の ComposerWebDistribution から reconcile Lambda の env に注入される。
   // 未指定なら LiveKit Egress のデフォルトテンプレート (`http://localhost:7980/`) にフォールバック。
   const composerTemplateUrl = process.env.COMPOSER_TEMPLATE_URL;
-  // ADR 0009: LiveKit シグナリングを NLB + ACM で TLS 終端する。4 つ全てが揃っているときのみ
-  // NLB / Route53 ARecord を作る (揃っていなければ ADR 0008 D-4 の Public IP 直接公開にフォールバック)。
-  const tlsCertificateArn = process.env.MEDIA_CERTIFICATE_ARN;
-  const hostedZoneId = process.env.MEDIA_HOSTED_ZONE_ID;
-  const hostedZoneName = process.env.MEDIA_HOSTED_ZONE_NAME;
+  // ADR 0016 D-2: TLS 証明書を Secrets Manager から参照する。
+  const tlsCertSecretArn = process.env.TLS_CERT_SECRET_ARN;
   const mediaDomainName = process.env.MEDIA_DOMAIN_NAME;
-  const tlsProps =
-    tlsCertificateArn && hostedZoneId && hostedZoneName && mediaDomainName
-      ? { tlsCertificateArn, hostedZoneId, hostedZoneName, mediaDomainName }
-      : {};
+  const tlsProps = {
+    ...(tlsCertSecretArn ? { tlsCertSecretArn } : {}),
+    ...(mediaDomainName ? { mediaDomainName } : {}),
+  };
   // 共有 VPC (ControlPlaneStack の SharedMediaVpc) を ControlPlaneStack から env 経由で受け取る。
   // 揃っていなければ EventMediaStack は per-event VPC を作成 (後方互換)。
   const sharedVpcId = process.env.SHARED_VPC_ID;
@@ -77,6 +76,7 @@ export function renderEventMediaTemplate(spec: RenderEventMediaSpec): string {
     ...(sharedClusterName ? { sharedClusterName } : {}),
     ...(sharedSfuTaskRoleArn ? { sharedSfuTaskRoleArn } : {}),
     ...(sharedCaptionTaskRoleArn ? { sharedCaptionTaskRoleArn } : {}),
+    ...(spec.desiredCount !== undefined ? { desiredCount: spec.desiredCount } : {}),
   });
   const assembly = app.synth();
   const template = assembly.getStackByName(stackName).template as unknown;

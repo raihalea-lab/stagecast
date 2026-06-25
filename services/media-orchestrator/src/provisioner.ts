@@ -19,6 +19,8 @@ export interface EventMediaSpec {
   rtmpUrl?: string | undefined;
   /** YouTube ストリームキー参照名 (Secret 内のフィールド名)。R12, ADR 0006 D-4。 */
   streamKeyRef?: string | undefined;
+  /** ECS サービスの初期 desiredCount。0 で事前プロビジョニング (ADR 0016 D-4)。 */
+  desiredCount?: number;
 }
 
 export type StackStatus = "provisioning" | "running" | "destroying" | "destroyed";

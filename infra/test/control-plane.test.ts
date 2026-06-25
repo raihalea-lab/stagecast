@@ -177,8 +177,8 @@ describe("ControlPlaneStack", () => {
     });
   });
 
-  it("Secrets Manager に invite-token / livekit / youtube の 3 シークレット (T7, ADR D-10)", () => {
-    template.resourceCountIs("AWS::SecretsManager::Secret", 3);
+  it("Secrets Manager に invite-token / livekit / youtube / tls-cert の 4 シークレット (T7, ADR D-10, ADR 0016)", () => {
+    template.resourceCountIs("AWS::SecretsManager::Secret", 4);
     template.hasResourceProperties("AWS::SecretsManager::Secret", {
       Name: "stagecast/invite-token-secret",
     });
@@ -300,12 +300,12 @@ describe("ControlPlaneStack", () => {
       },
     });
     // 広い実リソース作成権限はこのロール側に集約される。
-    // ADR 0009 D-1 で elasticloadbalancing を復活、ADR 0009 D-4 で route53 を追加。
+    // ADR 0016: NLB 廃止により elasticloadbalancing は不要。route53 は reconcile Lambda 側に移動。
     template.hasResourceProperties("AWS::IAM::Policy", {
       PolicyDocument: {
         Statement: Match.arrayWith([
           Match.objectLike({
-            Action: Match.arrayWith(["ec2:*", "ecs:*", "elasticloadbalancing:*"]),
+            Action: Match.arrayWith(["ec2:*", "ecs:*"]),
           }),
         ]),
       },
@@ -328,37 +328,34 @@ describe("ControlPlaneStack", () => {
     });
   });
 
-  it("ADR 0009 D-3: LiveKit 用 ACM ワイルドカード証明書を 1 つ持つ", () => {
-    template.resourceCountIs("AWS::CertificateManager::Certificate", 1);
-    template.hasResourceProperties("AWS::CertificateManager::Certificate", {
-      DomainName: Match.stringLikeRegexp("^\\*\\.media\\."),
-      ValidationMethod: "DNS",
+  it("ADR 0016: TLS 証明書を Secrets Manager で管理する", () => {
+    template.resourceCountIs("AWS::CertificateManager::Certificate", 0);
+    template.hasResourceProperties("AWS::SecretsManager::Secret", {
+      Description: Match.stringLikeRegexp("TLS"),
     });
   });
 
-  it("ADR 0009: MediaCertificateArn / MediaHostedZone* / MediaDomainName を CfnOutput する", () => {
-    template.hasOutput("MediaCertificateArn", {});
+  it("ADR 0016: TlsCertSecretArn / MediaHostedZone* / MediaDomainName を CfnOutput する", () => {
+    template.hasOutput("TlsCertSecretArn", {});
     template.hasOutput("MediaHostedZoneId", {});
     template.hasOutput("MediaHostedZoneName", {});
     template.hasOutput("MediaDomainName", {});
   });
 
-  it("ADR 0009: RenderTemplateFunction に MEDIA_* 環境変数 4 種を渡す", () => {
+  it("ADR 0016: RenderTemplateFunction に TLS_CERT_SECRET_ARN / MEDIA_DOMAIN_NAME 環境変数を渡す", () => {
     const fns = template.findResources("AWS::Lambda::Function");
     const renderFn = Object.values(fns).find((f) => {
       const envText = JSON.stringify(
         (f.Properties as { Environment?: { Variables?: unknown } }).Environment?.Variables ?? {},
       );
-      return envText.includes("CAPTION_WORKER_IMAGE") && envText.includes("MEDIA_CERTIFICATE_ARN");
+      return envText.includes("CAPTION_WORKER_IMAGE") && envText.includes("TLS_CERT_SECRET_ARN");
     });
     expect(renderFn).toBeDefined();
     const envText = JSON.stringify(
       (renderFn?.Properties as { Environment?: { Variables?: unknown } }).Environment?.Variables ??
         {},
     );
-    expect(envText).toContain("MEDIA_CERTIFICATE_ARN");
-    expect(envText).toContain("MEDIA_HOSTED_ZONE_ID");
-    expect(envText).toContain("MEDIA_HOSTED_ZONE_NAME");
+    expect(envText).toContain("TLS_CERT_SECRET_ARN");
     expect(envText).toContain("MEDIA_DOMAIN_NAME");
   });
 
