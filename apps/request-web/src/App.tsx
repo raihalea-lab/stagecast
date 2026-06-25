@@ -15,12 +15,17 @@ import {
 } from "@stagecast/ui";
 
 const TWO_HOURS_MS = 2 * 60 * 60 * 1000;
+const SELECTION_EVENT_ID = "__selection__";
 
 function toCalendarDateTime(iso: string): string {
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return iso;
   const pad = (n: number) => String(n).padStart(2, "0");
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
+function toCalendarDateTimeFromLocal(dtLocal: string): string {
+  return dtLocal.replace("T", " ");
 }
 
 function toDatetimeLocalFromZdt(zdt: Temporal.ZonedDateTime): string {
@@ -42,7 +47,7 @@ function computeDefaultEndsAt(startsAt: string): string {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
 
-const CALENDAR_DEFS = {
+const LEGEND_DEFS = {
   scheduled: {
     colorName: "scheduled",
     label: "予定",
@@ -61,6 +66,22 @@ const CALENDAR_DEFS = {
     lightColors: { main: "#d1d5db", container: "#f9fafb", onContainer: "#6b7280" },
     darkColors: { main: "#4b5563", container: "#1f2937", onContainer: "#d1d5db" },
   },
+  request: {
+    colorName: "request",
+    label: "リクエスト済",
+    lightColors: { main: "#f59e0b", container: "#fef3c7", onContainer: "#92400e" },
+    darkColors: { main: "#fbbf24", container: "#92400e", onContainer: "#fef3c7" },
+  },
+} as const;
+
+const CALENDAR_DEFS = {
+  ...LEGEND_DEFS,
+  selection: {
+    colorName: "selection",
+    label: "選択中",
+    lightColors: { main: "#8b5cf6", container: "#ede9fe", onContainer: "#5b21b6" },
+    darkColors: { main: "#a78bfa", container: "#5b21b6", onContainer: "#ede9fe" },
+  },
 } as const;
 
 interface PublicEvent {
@@ -71,8 +92,16 @@ interface PublicEvent {
   status: string;
 }
 
+interface LocalRequest {
+  id: string;
+  title: string;
+  startsAt: string;
+  endsAt: string;
+}
+
 export function App(props: { controlApiUrl: string }) {
   const [publicEvents, setPublicEvents] = useState<PublicEvent[]>([]);
+  const [localRequests, setLocalRequests] = useState<LocalRequest[]>([]);
   const [formOpen, setFormOpen] = useState(true);
   const [startsAt, setStartsAt] = useState("");
   const [endsAt, setEndsAt] = useState("");
@@ -98,21 +127,30 @@ export function App(props: { controlApiUrl: string }) {
     void fetchPublicEvents();
   }, [fetchPublicEvents]);
 
-  const calendarEvents = useMemo(
-    () =>
-      publicEvents.map((e) => {
-        const endFallback =
-          e.endsAt ?? new Date(Date.parse(e.startsAt) + TWO_HOURS_MS).toISOString();
-        return {
-          id: e.id,
-          title: e.title,
-          start: toCalendarDateTime(e.startsAt),
-          end: toCalendarDateTime(endFallback),
-          calendarId: e.status,
-        };
-      }),
-    [publicEvents],
-  );
+  const calendarEvents = useMemo(() => {
+    const events = publicEvents.map((e) => {
+      const endFallback = e.endsAt ?? new Date(Date.parse(e.startsAt) + TWO_HOURS_MS).toISOString();
+      return {
+        id: e.id,
+        title: e.title,
+        start: toCalendarDateTime(e.startsAt),
+        end: toCalendarDateTime(endFallback),
+        calendarId: e.status,
+      };
+    });
+
+    for (const r of localRequests) {
+      events.push({
+        id: r.id,
+        title: `📋 ${r.title}`,
+        start: toCalendarDateTimeFromLocal(r.startsAt),
+        end: toCalendarDateTimeFromLocal(r.endsAt),
+        calendarId: "request",
+      });
+    }
+
+    return events;
+  }, [publicEvents, localRequests]);
 
   const setTimeRange = (start: string, end: string) => {
     setStartsAt(start);
@@ -128,6 +166,7 @@ export function App(props: { controlApiUrl: string }) {
     views: [createViewWeek(), createViewMonthGrid()],
     defaultView: "month-grid",
     dayBoundaries: { start: "07:00", end: "23:00" },
+    weekOptions: { gridStep: 15 },
     events: calendarEvents,
     calendars: CALENDAR_DEFS,
     callbacks: {
@@ -155,6 +194,24 @@ export function App(props: { controlApiUrl: string }) {
     },
   });
 
+  useEffect(() => {
+    if (!calendar) return;
+
+    const events = [...calendarEvents];
+
+    if (startsAt && endsAt) {
+      events.push({
+        id: SELECTION_EVENT_ID,
+        title: "🔍 選択中の時間帯",
+        start: toCalendarDateTimeFromLocal(startsAt),
+        end: toCalendarDateTimeFromLocal(endsAt),
+        calendarId: "selection",
+      });
+    }
+
+    calendar.events.set(events);
+  }, [calendar, calendarEvents, startsAt, endsAt]);
+
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!title.trim() || !requesterName.trim() || !startsAt || !endsAt) {
@@ -180,7 +237,13 @@ export function App(props: { controlApiUrl: string }) {
         const body = await res.json().catch(() => ({ error: "送信に失敗しました" }));
         throw new Error((body as { error?: string }).error ?? "送信に失敗しました");
       }
+      setLocalRequests((prev) => [
+        ...prev,
+        { id: `local-${prev.length}`, title: title.trim(), startsAt, endsAt },
+      ]);
       setSubmitted(true);
+      setStartsAt("");
+      setEndsAt("");
       setTitle("");
       setDescription("");
     } catch (err) {
@@ -201,7 +264,7 @@ export function App(props: { controlApiUrl: string }) {
       <div className="flex flex-col gap-6 p-6 lg:flex-row">
         <div className="flex-1">
           <div className="flex flex-wrap items-center gap-3 pb-2 text-xs text-text-secondary">
-            {Object.entries(CALENDAR_DEFS).map(([key, cal]) => (
+            {Object.entries(LEGEND_DEFS).map(([key, cal]) => (
               <span key={key} className="flex items-center gap-1.5">
                 <span
                   className="inline-block size-3 rounded-full"
@@ -227,8 +290,13 @@ export function App(props: { controlApiUrl: string }) {
                     <p className="text-sm text-emerald-600">
                       リクエストを送信しました！管理者の承認をお待ちください。
                     </p>
-                    <Button variant="outline" onClick={() => setFormOpen(false)}>
-                      閉じる
+                    <Button
+                      variant="outline"
+                      onClick={() => {
+                        setSubmitted(false);
+                      }}
+                    >
+                      続けてリクエスト
                     </Button>
                   </div>
                 ) : (
