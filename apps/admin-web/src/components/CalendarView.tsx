@@ -1,61 +1,64 @@
 import { useMemo } from "react";
-import { ScheduleXCalendar, useCalendarApp } from "@schedule-x/react";
-import { createViewWeek, createViewMonthGrid } from "@schedule-x/calendar";
-import "@schedule-x/theme-default/dist/index.css";
+import FullCalendar from "@fullcalendar/react";
+import dayGridPlugin from "@fullcalendar/daygrid";
+import timeGridPlugin from "@fullcalendar/timegrid";
+import interactionPlugin from "@fullcalendar/interaction";
+import jaLocale from "@fullcalendar/core/locales/ja";
+import type { EventClickArg } from "@fullcalendar/core";
+import type { DateClickArg } from "@fullcalendar/interaction";
 import type { EventDefinition, EventRequest } from "@stagecast/shared";
-import type { Temporal } from "temporal-polyfill";
 
 const TWO_HOURS_MS = 2 * 60 * 60 * 1000;
 
-function toCalendarDateTime(iso: string): string {
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return iso;
+function toDatetimeLocal(
+  d: Date,
+  hour?: number,
+  minute?: number,
+): string {
   const pad = (n: number) => String(n).padStart(2, "0");
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  const h = hour ?? d.getHours();
+  const m = minute ?? d.getMinutes();
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(h)}:${pad(m)}`;
 }
 
-function toDatetimeLocalFromZdt(zdt: Temporal.ZonedDateTime): string {
-  const pad = (n: number) => String(n).padStart(2, "0");
-  return `${zdt.year}-${pad(zdt.month)}-${pad(zdt.day)}T${pad(zdt.hour)}:${pad(zdt.minute)}`;
-}
-
-function toDatetimeLocalFromDate(pd: Temporal.PlainDate, hour = 9): string {
-  const pad = (n: number) => String(n).padStart(2, "0");
-  return `${pd.year}-${pad(pd.month)}-${pad(pd.day)}T${pad(hour)}:00`;
-}
-
-const CALENDAR_DEFS = {
+const STATUS_COLORS: Record<
+  string,
+  { backgroundColor: string; borderColor: string; textColor: string }
+> = {
   draft: {
-    colorName: "draft",
-    label: "下書き",
-    lightColors: { main: "#9ca3af", container: "#f3f4f6", onContainer: "#1f2937" },
-    darkColors: { main: "#6b7280", container: "#374151", onContainer: "#f9fafb" },
+    backgroundColor: "#f3f4f6",
+    borderColor: "#9ca3af",
+    textColor: "#1f2937",
   },
   scheduled: {
-    colorName: "scheduled",
-    label: "予定",
-    lightColors: { main: "#3b82f6", container: "#dbeafe", onContainer: "#1e3a5f" },
-    darkColors: { main: "#60a5fa", container: "#1e3a5f", onContainer: "#dbeafe" },
+    backgroundColor: "#dbeafe",
+    borderColor: "#3b82f6",
+    textColor: "#1e3a5f",
   },
   live: {
-    colorName: "live",
-    label: "配信中",
-    lightColors: { main: "#ef4444", container: "#fee2e2", onContainer: "#7f1d1d" },
-    darkColors: { main: "#f87171", container: "#7f1d1d", onContainer: "#fee2e2" },
+    backgroundColor: "#fee2e2",
+    borderColor: "#ef4444",
+    textColor: "#7f1d1d",
   },
   ended: {
-    colorName: "ended",
-    label: "終了",
-    lightColors: { main: "#d1d5db", container: "#f9fafb", onContainer: "#6b7280" },
-    darkColors: { main: "#4b5563", container: "#1f2937", onContainer: "#d1d5db" },
+    backgroundColor: "#f9fafb",
+    borderColor: "#d1d5db",
+    textColor: "#6b7280",
   },
   request: {
-    colorName: "request",
-    label: "リクエスト",
-    lightColors: { main: "#f59e0b", container: "#fef3c7", onContainer: "#78350f" },
-    darkColors: { main: "#fbbf24", container: "#78350f", onContainer: "#fef3c7" },
+    backgroundColor: "#fef3c7",
+    borderColor: "#f59e0b",
+    textColor: "#78350f",
   },
-} as const;
+};
+
+const LEGEND_ITEMS = [
+  { label: "下書き", color: "#9ca3af" },
+  { label: "予定", color: "#3b82f6" },
+  { label: "配信中", color: "#ef4444" },
+  { label: "終了", color: "#d1d5db" },
+  { label: "リクエスト", color: "#f59e0b" },
+];
 
 export function CalendarView(props: {
   events: EventDefinition[];
@@ -64,69 +67,81 @@ export function CalendarView(props: {
   onDateTimeClick?: (dateTime: string) => void;
 }) {
   const calendarEvents = useMemo(() => {
-    const eventItems = props.events.map((e) => {
-      const endFallback = e.endsAt ?? new Date(Date.parse(e.startsAt) + TWO_HOURS_MS).toISOString();
-      return {
-        id: e.id,
-        title: e.title,
-        start: toCalendarDateTime(e.startsAt),
-        end: toCalendarDateTime(endFallback),
-        _type: "event" as const,
-        calendarId: e.status,
-      };
-    });
+    const eventItems = props.events.map((e) => ({
+      id: e.id,
+      title: e.title,
+      start: e.startsAt,
+      end:
+        e.endsAt ??
+        new Date(
+          Date.parse(e.startsAt) + TWO_HOURS_MS,
+        ).toISOString(),
+      ...(STATUS_COLORS[e.status] ?? STATUS_COLORS.scheduled),
+    }));
     const requestItems = props.requests
       .filter((r) => r.status === "pending")
       .map((r) => ({
         id: `req-${r.id}`,
         title: `[リクエスト] ${r.title}`,
-        start: toCalendarDateTime(r.startsAt),
-        end: toCalendarDateTime(r.endsAt),
-        _type: "request" as const,
-        calendarId: "request",
+        start: r.startsAt,
+        end: r.endsAt,
+        ...STATUS_COLORS.request,
       }));
     return [...eventItems, ...requestItems];
   }, [props.events, props.requests]);
 
-  const calendar = useCalendarApp({
-    locale: "ja-JP",
-    firstDayOfWeek: 1,
-    timezone: "Asia/Tokyo",
-    views: [createViewWeek(), createViewMonthGrid()],
-    defaultView: "month-grid",
-    dayBoundaries: { start: "07:00", end: "23:00" },
-    events: calendarEvents,
-    calendars: CALENDAR_DEFS,
-    callbacks: {
-      onEventClick(calendarEvent) {
-        const id = String(calendarEvent.id);
-        if (id.startsWith("req-")) return;
-        props.onEventClick(id);
-      },
-      onClickDateTime(dateTime) {
-        props.onDateTimeClick?.(toDatetimeLocalFromZdt(dateTime));
-      },
-      onClickDate(date) {
-        props.onDateTimeClick?.(toDatetimeLocalFromDate(date));
-      },
-    },
-  });
-
   return (
-    <div className="sx-calendar-wrapper w-full">
+    <div className="w-full">
       <div className="flex flex-wrap items-center gap-3 pb-2 text-xs text-text-secondary">
-        {Object.entries(CALENDAR_DEFS).map(([key, cal]) => (
-          <span key={key} className="flex items-center gap-1.5">
+        {LEGEND_ITEMS.map((item) => (
+          <span
+            key={item.label}
+            className="flex items-center gap-1.5"
+          >
             <span
               className="inline-block size-3 rounded-full"
-              style={{ backgroundColor: cal.lightColors.main }}
+              style={{ backgroundColor: item.color }}
             />
-            {cal.label}
+            {item.label}
           </span>
         ))}
       </div>
       <div className="h-[520px]">
-        <ScheduleXCalendar calendarApp={calendar} />
+        <FullCalendar
+          plugins={[
+            dayGridPlugin,
+            timeGridPlugin,
+            interactionPlugin,
+          ]}
+          initialView="dayGridMonth"
+          locale={jaLocale}
+          firstDay={1}
+          headerToolbar={{
+            left: "prev,next today",
+            center: "title",
+            right: "dayGridMonth,timeGridWeek",
+          }}
+          slotMinTime="07:00:00"
+          slotMaxTime="23:00:00"
+          height="100%"
+          events={calendarEvents}
+          eventClick={(info: EventClickArg) => {
+            const id = info.event.id;
+            if (id.startsWith("req-")) return;
+            props.onEventClick(id);
+          }}
+          dateClick={(info: DateClickArg) => {
+            if (info.allDay) {
+              props.onDateTimeClick?.(
+                toDatetimeLocal(info.date, 9, 0),
+              );
+            } else {
+              props.onDateTimeClick?.(
+                toDatetimeLocal(info.date),
+              );
+            }
+          }}
+        />
       </div>
     </div>
   );

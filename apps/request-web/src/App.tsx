@@ -1,14 +1,11 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ScheduleXCalendar, useCalendarApp } from "@schedule-x/react";
-import { createViewWeek, createViewMonthGrid } from "@schedule-x/calendar";
-import "@schedule-x/theme-default/dist/index.css";
-import type { Temporal } from "temporal-polyfill";
-
-// Schedule-X v4.6.0 uses the global Temporal for instanceof checks.
-// Module-imported Temporal creates a different prototype chain, so we
-// must use the same global instance to pass event validation.
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-const T = (globalThis as any).Temporal as typeof Temporal;
+import { useCallback, useEffect, useMemo, useState } from "react";
+import FullCalendar from "@fullcalendar/react";
+import dayGridPlugin from "@fullcalendar/daygrid";
+import timeGridPlugin from "@fullcalendar/timegrid";
+import interactionPlugin from "@fullcalendar/interaction";
+import jaLocale from "@fullcalendar/core/locales/ja";
+import type { DateSelectArg, EventDropArg } from "@fullcalendar/core";
+import type { EventResizeDoneArg } from "@fullcalendar/interaction";
 import {
   Button,
   Card,
@@ -21,81 +18,64 @@ import {
 } from "@stagecast/ui";
 
 const TWO_HOURS_MS = 2 * 60 * 60 * 1000;
+const SELECTION_ID = "_selection_";
 
-function toTemporalZdt(iso: string): Temporal.ZonedDateTime {
-  const d = new Date(iso);
-  const epochMs = d.getTime();
-  if (Number.isNaN(epochMs)) {
-    return T.PlainDateTime.from(iso.replace(" ", "T")).toZonedDateTime(
-      T.Now.timeZoneId(),
-    );
-  }
-  return T.Instant.fromEpochMilliseconds(epochMs).toZonedDateTimeISO(
-    T.Now.timeZoneId(),
-  );
-}
-
-function snapTo10Min(zdt: Temporal.ZonedDateTime): Temporal.ZonedDateTime {
-  const rounded = Math.round(zdt.minute / 10) * 10;
-  return zdt.with({ minute: rounded % 60, second: 0, millisecond: 0, microsecond: 0, nanosecond: 0 })
-    .add({ minutes: rounded >= 60 ? 10 : 0 });
-}
-
-function toDatetimeLocalFromZdt(zdt: Temporal.ZonedDateTime): string {
+function toDatetimeLocal(
+  d: Date,
+  hour?: number,
+  minute?: number,
+): string {
   const pad = (n: number) => String(n).padStart(2, "0");
-  return `${zdt.year}-${pad(zdt.month)}-${pad(zdt.day)}T${pad(zdt.hour)}:${pad(zdt.minute)}`;
-}
-
-function toDatetimeLocalFromDate(pd: Temporal.PlainDate, hour = 9): string {
-  const pad = (n: number) => String(n).padStart(2, "0");
-  return `${pd.year}-${pad(pd.month)}-${pad(pd.day)}T${pad(hour)}:00`;
+  const h = hour ?? d.getHours();
+  const m = minute ?? d.getMinutes();
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(h)}:${pad(m)}`;
 }
 
 function computeDefaultEndsAt(startsAt: string): string {
   if (!startsAt) return "";
   const ms = Date.parse(startsAt);
   if (Number.isNaN(ms)) return "";
-  const d = new Date(ms + TWO_HOURS_MS);
-  const pad = (n: number) => String(n).padStart(2, "0");
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  return toDatetimeLocal(new Date(ms + TWO_HOURS_MS));
 }
 
-const SELECTION_EVENT_ID = "_selection_";
-
-const LEGEND_DEFS = {
+const STATUS_COLORS: Record<
+  string,
+  { backgroundColor: string; borderColor: string; textColor: string }
+> = {
   scheduled: {
-    colorName: "scheduled",
-    label: "予定",
-    lightColors: { main: "#3b82f6", container: "#dbeafe", onContainer: "#1e3a5f" },
-    darkColors: { main: "#60a5fa", container: "#1e3a5f", onContainer: "#dbeafe" },
+    backgroundColor: "#dbeafe",
+    borderColor: "#3b82f6",
+    textColor: "#1e3a5f",
   },
   live: {
-    colorName: "live",
-    label: "配信中",
-    lightColors: { main: "#ef4444", container: "#fee2e2", onContainer: "#7f1d1d" },
-    darkColors: { main: "#f87171", container: "#7f1d1d", onContainer: "#fee2e2" },
+    backgroundColor: "#fee2e2",
+    borderColor: "#ef4444",
+    textColor: "#7f1d1d",
   },
   ended: {
-    colorName: "ended",
-    label: "終了",
-    lightColors: { main: "#d1d5db", container: "#f9fafb", onContainer: "#6b7280" },
-    darkColors: { main: "#4b5563", container: "#1f2937", onContainer: "#d1d5db" },
+    backgroundColor: "#f9fafb",
+    borderColor: "#d1d5db",
+    textColor: "#6b7280",
   },
-  selection: {
-    colorName: "selection",
-    label: "選択中",
-    lightColors: { main: "#f59e0b", container: "#fef3c7", onContainer: "#78350f" },
-    darkColors: { main: "#fbbf24", container: "#78350f", onContainer: "#fef3c7" },
+  draft: {
+    backgroundColor: "#f3f4f6",
+    borderColor: "#9ca3af",
+    textColor: "#1f2937",
   },
-} as const;
+};
 
-interface CalendarEvent {
-  id: string;
-  title: string;
-  start: Temporal.ZonedDateTime;
-  end: Temporal.ZonedDateTime;
-  calendarId: string;
-}
+const SELECTION_COLORS = {
+  backgroundColor: "#fef3c7",
+  borderColor: "#f59e0b",
+  textColor: "#78350f",
+};
+
+const LEGEND_ITEMS = [
+  { label: "予定", color: "#3b82f6" },
+  { label: "配信中", color: "#ef4444" },
+  { label: "終了", color: "#d1d5db" },
+  { label: "選択中", color: "#f59e0b" },
+];
 
 interface PublicEvent {
   id: string;
@@ -111,276 +91,118 @@ interface LocalRequest {
   endsAt: string;
 }
 
-const DAY_START = 7;
-const DAY_END = 23;
-const DAY_SPAN = DAY_END - DAY_START;
-
 function CalendarDisplay(props: {
-  events: CalendarEvent[];
+  publicEvents: PublicEvent[];
+  startsAt: string;
+  endsAt: string;
   onTimeRangeSelect: (start: string, end: string) => void;
 }) {
-  const dragStartRef = useRef<string | null>(null);
-  const calRef = useRef<ReturnType<typeof useCalendarApp>>(null);
-  const isDraggingRef = useRef(false);
-  const wrapperRef = useRef<HTMLDivElement>(null);
-  const onTimeRangeSelectRef = useRef(props.onTimeRangeSelect);
-  onTimeRangeSelectRef.current = props.onTimeRangeSelect;
+  const events = useMemo(() => {
+    const items = props.publicEvents.map((e) => ({
+      id: e.id,
+      title: e.title,
+      start: e.startsAt,
+      end:
+        e.endsAt ??
+        new Date(
+          Date.parse(e.startsAt) + TWO_HOURS_MS,
+        ).toISOString(),
+      editable: false,
+      ...(STATUS_COLORS[e.status] ?? STATUS_COLORS.scheduled),
+    }));
 
-  const upsertSelectionBlock = (startDt: string, endDt: string) => {
-    const cal = calRef.current;
-    if (!cal) return;
-    const existing = cal.events.get(SELECTION_EVENT_ID);
-    const evt = {
-      id: SELECTION_EVENT_ID,
-      title: "選択中",
-      start: toTemporalZdt(startDt),
-      end: toTemporalZdt(endDt),
-      calendarId: "selection",
-    };
-    if (existing) {
-      cal.events.update(evt);
-    } else {
-      cal.events.add(evt);
+    if (props.startsAt && props.endsAt) {
+      items.push({
+        id: SELECTION_ID,
+        title: "選択中",
+        start: props.startsAt,
+        end: props.endsAt,
+        editable: true,
+        ...SELECTION_COLORS,
+      });
     }
-  };
 
-  const calcTimeFromY = (
-    clientY: number,
-    startZdt: Temporal.ZonedDateTime,
-    dayCol: HTMLElement,
-  ): string => {
-    const relY = clientY - dayCol.getBoundingClientRect().top;
-    const fraction = Math.max(0, Math.min(1, relY / dayCol.offsetHeight));
-    const totalMin = DAY_START * 60 + fraction * DAY_SPAN * 60;
-    const rounded = Math.round(totalMin / 10) * 10;
-    const h = Math.min(DAY_END, Math.max(DAY_START, Math.floor(rounded / 60)));
-    const m = rounded % 60;
-    const zdt = startZdt.with({
-      hour: h,
-      minute: m,
-      second: 0,
-      millisecond: 0,
-      microsecond: 0,
-      nanosecond: 0,
-    });
-    return toDatetimeLocalFromZdt(zdt);
-  };
+    return items;
+  }, [props.publicEvents, props.startsAt, props.endsAt]);
 
-  const calendar = useCalendarApp({
-    locale: "ja-JP",
-    firstDayOfWeek: 1,
-    timezone: "Asia/Tokyo",
-    views: [createViewWeek(), createViewMonthGrid()],
-    defaultView: "month-grid",
-    dayBoundaries: { start: "07:00", end: "23:00" },
-    weekOptions: { gridStep: 60 },
-    events: props.events,
-    calendars: LEGEND_DEFS,
-    callbacks: {
-      onMouseDownDateTime(dateTime, mouseDownEvent) {
-        const snapped = snapTo10Min(dateTime);
-        const startDt = toDatetimeLocalFromZdt(snapped);
-        dragStartRef.current = startDt;
-
-        const target = mouseDownEvent.target as HTMLElement | null;
-        const dayCol = target?.closest(".sx__time-grid-day") as HTMLElement | null;
-        if (!dayCol) return;
-
-        isDraggingRef.current = true;
-        const initialEnd = toDatetimeLocalFromZdt(snapped.add({ minutes: 30 }));
-        upsertSelectionBlock(startDt, initialEnd);
-
-        const onMove = (e: MouseEvent) => {
-          if (!isDraggingRef.current) return;
-          const currentDt = calcTimeFromY(e.clientY, snapped, dayCol);
-          const [s, en] =
-            startDt < currentDt
-              ? [startDt, currentDt]
-              : [currentDt, startDt];
-          if (s !== en) upsertSelectionBlock(s, en);
-        };
-
-        const onUp = () => {
-          isDraggingRef.current = false;
-          document.removeEventListener("mousemove", onMove);
-          document.removeEventListener("mouseup", onUp);
-        };
-
-        document.addEventListener("mousemove", onMove);
-        document.addEventListener("mouseup", onUp);
-      },
-      onClickDateTime(dateTime) {
-        const clickedDt = toDatetimeLocalFromZdt(snapTo10Min(dateTime));
-        const dragStart = dragStartRef.current;
-        dragStartRef.current = null;
-
-        let start: string;
-        let end: string;
-        if (dragStart && dragStart !== clickedDt) {
-          [start, end] =
-            dragStart < clickedDt
-              ? [dragStart, clickedDt]
-              : [clickedDt, dragStart];
-        } else {
-          start = clickedDt;
-          end = computeDefaultEndsAt(clickedDt);
-        }
-        upsertSelectionBlock(start, end);
+  const handleSelect = useCallback(
+    (info: DateSelectArg) => {
+      if (info.allDay) {
+        const start = toDatetimeLocal(info.start, 9, 0);
+        const end = toDatetimeLocal(info.start, 11, 0);
         props.onTimeRangeSelect(start, end);
-      },
-      onClickDate(date) {
-        dragStartRef.current = null;
-        const dt = toDatetimeLocalFromDate(date);
-        const endDt = computeDefaultEndsAt(dt);
-        upsertSelectionBlock(dt, endDt);
-        props.onTimeRangeSelect(dt, endDt);
-      },
-    },
-  });
-  calRef.current = calendar;
-
-  useEffect(() => {
-    const wrapper = wrapperRef.current;
-    if (!wrapper) return;
-
-    const EDGE_PX = 8;
-
-    const getSelEl = () =>
-      wrapper.querySelector(
-        `[data-event-id="${SELECTION_EVENT_ID}"]`,
-      ) as HTMLElement | null;
-
-    const handleMouseDown = (e: MouseEvent) => {
-      if (isDraggingRef.current) return;
-      const selEl = getSelEl();
-      if (!selEl) return;
-      const target = e.target as HTMLElement;
-      if (!selEl.contains(target) && target !== selEl) return;
-
-      e.stopPropagation();
-      e.preventDefault();
-
-      const rect = selEl.getBoundingClientRect();
-      const dayCol = selEl.closest(
-        ".sx__time-grid-day",
-      ) as HTMLElement | null;
-      if (!dayCol) return;
-
-      const cal = calRef.current;
-      if (!cal) return;
-      const existing = cal.events.get(SELECTION_EVENT_ID);
-      if (!existing) return;
-
-      const startZdt = existing.start as Temporal.ZonedDateTime;
-      const endZdt = existing.end as Temporal.ZonedDateTime;
-      const curStart = toDatetimeLocalFromZdt(startZdt);
-      const curEnd = toDatetimeLocalFromZdt(endZdt);
-      const durMin = endZdt.since(startZdt).total({ unit: "minute" });
-
-      const relY = e.clientY - rect.top;
-      const mode: "top" | "bottom" | "move" =
-        relY <= EDGE_PX
-          ? "top"
-          : relY >= rect.height - EDGE_PX
-            ? "bottom"
-            : "move";
-
-      const mouseOffsetFromTop = e.clientY - rect.top;
-      isDraggingRef.current = true;
-      document.body.style.cursor =
-        mode === "move" ? "grabbing" : "ns-resize";
-
-      const onMove = (me: MouseEvent) => {
-        if (!isDraggingRef.current) return;
-        if (mode === "top") {
-          const ns = calcTimeFromY(me.clientY, startZdt, dayCol);
-          if (ns < curEnd) upsertSelectionBlock(ns, curEnd);
-        } else if (mode === "bottom") {
-          const ne = calcTimeFromY(me.clientY, startZdt, dayCol);
-          if (ne > curStart) upsertSelectionBlock(curStart, ne);
+      } else {
+        const diffMs =
+          info.end.getTime() - info.start.getTime();
+        if (diffMs <= 60 * 60 * 1000) {
+          props.onTimeRangeSelect(
+            toDatetimeLocal(info.start),
+            computeDefaultEndsAt(toDatetimeLocal(info.start)),
+          );
         } else {
-          const topY = me.clientY - mouseOffsetFromTop;
-          const ns = calcTimeFromY(topY, startZdt, dayCol);
-          const nsZdt = toTemporalZdt(ns);
-          const neZdt = nsZdt.add({ minutes: durMin });
-          upsertSelectionBlock(ns, toDatetimeLocalFromZdt(neZdt));
-        }
-      };
-
-      const onUp = () => {
-        isDraggingRef.current = false;
-        document.removeEventListener("mousemove", onMove);
-        document.removeEventListener("mouseup", onUp);
-        document.body.style.cursor = "";
-
-        const fin = calRef.current?.events.get(SELECTION_EVENT_ID);
-        if (fin) {
-          onTimeRangeSelectRef.current(
-            toDatetimeLocalFromZdt(
-              fin.start as Temporal.ZonedDateTime,
-            ),
-            toDatetimeLocalFromZdt(
-              fin.end as Temporal.ZonedDateTime,
-            ),
+          props.onTimeRangeSelect(
+            toDatetimeLocal(info.start),
+            toDatetimeLocal(info.end),
           );
         }
-      };
+      }
+      info.view.calendar.unselect();
+    },
+    [props.onTimeRangeSelect],
+  );
 
-      document.addEventListener("mousemove", onMove);
-      document.addEventListener("mouseup", onUp);
-    };
-
-    const handleHover = (e: MouseEvent) => {
-      const selEl = getSelEl();
-      if (!selEl || isDraggingRef.current) return;
-      const target = e.target as HTMLElement;
-      if (!selEl.contains(target) && target !== selEl) {
-        selEl.style.cursor = "";
+  const handleEventChange = useCallback(
+    (info: EventDropArg | EventResizeDoneArg) => {
+      if (info.event.id !== SELECTION_ID) {
+        info.revert();
         return;
       }
-      const rect = selEl.getBoundingClientRect();
-      const ry = e.clientY - rect.top;
-      selEl.style.cursor =
-        ry <= EDGE_PX || ry >= rect.height - EDGE_PX
-          ? "ns-resize"
-          : "grab";
-    };
-
-    wrapper.addEventListener("mousedown", handleMouseDown, true);
-    wrapper.addEventListener("mousemove", handleHover);
-    return () => {
-      wrapper.removeEventListener("mousedown", handleMouseDown, true);
-      wrapper.removeEventListener("mousemove", handleHover);
-    };
-  }, []);
+      if (info.event.start && info.event.end) {
+        props.onTimeRangeSelect(
+          toDatetimeLocal(info.event.start),
+          toDatetimeLocal(info.event.end),
+        );
+      }
+    },
+    [props.onTimeRangeSelect],
+  );
 
   return (
-    <div ref={wrapperRef} className="h-[520px] w-full">
-      <style>{`
-        [data-event-id="${SELECTION_EVENT_ID}"] {
-          position: relative;
-        }
-        [data-event-id="${SELECTION_EVENT_ID}"]::before,
-        [data-event-id="${SELECTION_EVENT_ID}"]::after {
-          content: '';
-          position: absolute;
-          left: 25%;
-          right: 25%;
-          height: 3px;
-          background: rgba(245, 158, 11, 0.7);
-          border-radius: 2px;
-        }
-        [data-event-id="${SELECTION_EVENT_ID}"]::before { top: 2px; }
-        [data-event-id="${SELECTION_EVENT_ID}"]::after { bottom: 2px; }
-      `}</style>
-      <ScheduleXCalendar calendarApp={calendar} />
+    <div className="h-[520px] w-full">
+      <FullCalendar
+        plugins={[dayGridPlugin, timeGridPlugin, interactionPlugin]}
+        initialView="dayGridMonth"
+        locale={jaLocale}
+        firstDay={1}
+        headerToolbar={{
+          left: "prev,next today",
+          center: "title",
+          right: "dayGridMonth,timeGridWeek",
+        }}
+        slotMinTime="07:00:00"
+        slotMaxTime="23:00:00"
+        slotDuration="01:00:00"
+        snapDuration="00:10:00"
+        height="100%"
+        selectable
+        selectMirror
+        unselectAuto={false}
+        events={events}
+        select={handleSelect}
+        eventDrop={handleEventChange}
+        eventResize={handleEventChange}
+      />
     </div>
   );
 }
 
 export function App(props: { controlApiUrl: string }) {
-  const [publicEvents, setPublicEvents] = useState<PublicEvent[] | null>(null);
-  const [localRequests, setLocalRequests] = useState<LocalRequest[]>([]);
+  const [publicEvents, setPublicEvents] = useState<
+    PublicEvent[] | null
+  >(null);
+  const [localRequests, setLocalRequests] = useState<
+    LocalRequest[]
+  >([]);
   const [formOpen, setFormOpen] = useState(true);
   const [startsAt, setStartsAt] = useState("");
   const [endsAt, setEndsAt] = useState("");
@@ -394,7 +216,9 @@ export function App(props: { controlApiUrl: string }) {
 
   const fetchPublicEvents = useCallback(async () => {
     try {
-      const res = await fetch(`${props.controlApiUrl}/events/public`);
+      const res = await fetch(
+        `${props.controlApiUrl}/events/public`,
+      );
       if (res.ok) {
         setPublicEvents(await res.json());
         return;
@@ -409,20 +233,6 @@ export function App(props: { controlApiUrl: string }) {
     void fetchPublicEvents();
   }, [fetchPublicEvents]);
 
-  const calendarEvents = useMemo(() => {
-    if (!publicEvents) return [];
-    return publicEvents.map((e) => {
-      const endFallback = e.endsAt ?? new Date(Date.parse(e.startsAt) + TWO_HOURS_MS).toISOString();
-      return {
-        id: e.id,
-        title: e.title,
-        start: toTemporalZdt(e.startsAt),
-        end: toTemporalZdt(endFallback),
-        calendarId: e.status,
-      };
-    });
-  }, [publicEvents]);
-
   const setTimeRange = (start: string, end: string) => {
     setStartsAt(start);
     setEndsAt(end);
@@ -433,37 +243,57 @@ export function App(props: { controlApiUrl: string }) {
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!title.trim() || !requesterName.trim() || !startsAt || !endsAt) {
+    if (
+      !title.trim() ||
+      !requesterName.trim() ||
+      !startsAt ||
+      !endsAt
+    ) {
       setError("必須項目を入力してください");
       return;
     }
     setSubmitting(true);
     setError(undefined);
     try {
-      const res = await fetch(`${props.controlApiUrl}/event-requests`, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          requesterName: requesterName.trim(),
-          contactInfo: contactInfo.trim() || undefined,
-          title: title.trim(),
-          startsAt,
-          endsAt,
-          description: description.trim() || undefined,
-        }),
-      });
+      const res = await fetch(
+        `${props.controlApiUrl}/event-requests`,
+        {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            requesterName: requesterName.trim(),
+            contactInfo: contactInfo.trim() || undefined,
+            title: title.trim(),
+            startsAt,
+            endsAt,
+            description: description.trim() || undefined,
+          }),
+        },
+      );
       if (!res.ok) {
-        const body = await res.json().catch(() => ({ error: "送信に失敗しました" }));
-        throw new Error((body as { error?: string }).error ?? "送信に失敗しました");
+        const body = await res
+          .json()
+          .catch(() => ({ error: "送信に失敗しました" }));
+        throw new Error(
+          (body as { error?: string }).error ??
+            "送信に失敗しました",
+        );
       }
-      setLocalRequests((prev) => [...prev, { title: title.trim(), startsAt, endsAt }]);
+      setLocalRequests((prev) => [
+        ...prev,
+        { title: title.trim(), startsAt, endsAt },
+      ]);
       setSubmitted(true);
       setStartsAt("");
       setEndsAt("");
       setTitle("");
       setDescription("");
     } catch (err) {
-      setError(err instanceof Error ? err.message : "送信に失敗しました");
+      setError(
+        err instanceof Error
+          ? err.message
+          : "送信に失敗しました",
+      );
     } finally {
       setSubmitting(false);
     }
@@ -483,7 +313,9 @@ export function App(props: { controlApiUrl: string }) {
   return (
     <div className="min-h-dvh bg-surface-0">
       <header className="border-b border-line-1 px-6 py-4">
-        <h1 className="text-lg font-semibold text-text-primary">Stagecast イベントリクエスト</h1>
+        <h1 className="text-lg font-semibold text-text-primary">
+          Stagecast イベントリクエスト
+        </h1>
         <p className="text-sm text-text-secondary">
           カレンダーの空き時間をクリックまたは週表示でドラッグして、イベントをリクエストできます
         </p>
@@ -491,13 +323,16 @@ export function App(props: { controlApiUrl: string }) {
       <div className="flex flex-col gap-6 p-6 lg:flex-row">
         <div className="flex-1">
           <div className="flex flex-wrap items-center gap-3 pb-2 text-xs text-text-secondary">
-            {Object.entries(LEGEND_DEFS).map(([key, cal]) => (
-              <span key={key} className="flex items-center gap-1.5">
+            {LEGEND_ITEMS.map((item) => (
+              <span
+                key={item.label}
+                className="flex items-center gap-1.5"
+              >
                 <span
                   className="inline-block size-3 rounded-full"
-                  style={{ backgroundColor: cal.lightColors.main }}
+                  style={{ backgroundColor: item.color }}
                 />
-                {cal.label}
+                {item.label}
               </span>
             ))}
           </div>
@@ -506,16 +341,24 @@ export function App(props: { controlApiUrl: string }) {
               読み込み中…
             </div>
           ) : (
-            <CalendarDisplay events={calendarEvents} onTimeRangeSelect={setTimeRange} />
+            <CalendarDisplay
+              publicEvents={publicEvents}
+              startsAt={startsAt}
+              endsAt={endsAt}
+              onTimeRangeSelect={setTimeRange}
+            />
           )}
           {localRequests.length > 0 && (
             <div className="mt-3 rounded-md border border-amber-200 bg-amber-50 px-4 py-3">
-              <p className="mb-2 text-xs font-medium text-amber-800">送信済みリクエスト</p>
+              <p className="mb-2 text-xs font-medium text-amber-800">
+                送信済みリクエスト
+              </p>
               <ul className="flex flex-col gap-1">
                 {localRequests.map((r, i) => (
                   <li key={i} className="text-xs text-amber-700">
-                    {r.title}（{formatLocalDateTime(r.startsAt)} 〜 {formatLocalDateTime(r.endsAt)}
-                    ）
+                    {r.title}（
+                    {formatLocalDateTime(r.startsAt)} 〜{" "}
+                    {formatLocalDateTime(r.endsAt)}）
                   </li>
                 ))}
               </ul>
@@ -544,7 +387,10 @@ export function App(props: { controlApiUrl: string }) {
                     </Button>
                   </div>
                 ) : (
-                  <form onSubmit={submit} className="flex flex-col gap-3">
+                  <form
+                    onSubmit={submit}
+                    className="flex flex-col gap-3"
+                  >
                     {error && (
                       <p className="rounded-md border border-error/40 bg-error/10 px-3 py-2 text-xs text-error">
                         {error}
@@ -555,36 +401,52 @@ export function App(props: { controlApiUrl: string }) {
                       <Input
                         id="rw-name"
                         value={requesterName}
-                        onChange={(e) => setRequesterName(e.target.value)}
+                        onChange={(e) =>
+                          setRequesterName(e.target.value)
+                        }
                         placeholder="山田太郎"
                       />
                     </div>
                     <div className="grid gap-1.5">
-                      <Label htmlFor="rw-contact">連絡先（メール / Slack / X など）</Label>
+                      <Label htmlFor="rw-contact">
+                        連絡先（メール / Slack / X など）
+                      </Label>
                       <Input
                         id="rw-contact"
                         value={contactInfo}
-                        onChange={(e) => setContactInfo(e.target.value)}
+                        onChange={(e) =>
+                          setContactInfo(e.target.value)
+                        }
                         placeholder="例: user@example.com, @slack_id"
                       />
                     </div>
                     <div className="grid gap-1.5">
-                      <Label htmlFor="rw-title">イベントタイトル *</Label>
+                      <Label htmlFor="rw-title">
+                        イベントタイトル *
+                      </Label>
                       <Input
                         id="rw-title"
                         value={title}
-                        onChange={(e) => setTitle(e.target.value)}
+                        onChange={(e) =>
+                          setTitle(e.target.value)
+                        }
                       />
                     </div>
                     <div className="grid gap-1.5">
-                      <Label htmlFor="rw-starts">開始日時</Label>
+                      <Label htmlFor="rw-starts">
+                        開始日時
+                      </Label>
                       <Input
                         id="rw-starts"
                         type="datetime-local"
                         value={startsAt}
                         onChange={(e) => {
                           setStartsAt(e.target.value);
-                          setEndsAt(computeDefaultEndsAt(e.target.value));
+                          setEndsAt(
+                            computeDefaultEndsAt(
+                              e.target.value,
+                            ),
+                          );
                         }}
                       />
                     </div>
@@ -594,7 +456,9 @@ export function App(props: { controlApiUrl: string }) {
                         id="rw-ends"
                         type="datetime-local"
                         value={endsAt}
-                        onChange={(e) => setEndsAt(e.target.value)}
+                        onChange={(e) =>
+                          setEndsAt(e.target.value)
+                        }
                       />
                     </div>
                     <div className="grid gap-1.5">
@@ -602,14 +466,18 @@ export function App(props: { controlApiUrl: string }) {
                       <textarea
                         id="rw-desc"
                         value={description}
-                        onChange={(e) => setDescription(e.target.value)}
+                        onChange={(e) =>
+                          setDescription(e.target.value)
+                        }
                         className="rounded-md border border-line-2 bg-surface-1 px-3 py-2 text-sm text-text-primary"
                         rows={3}
                         maxLength={1000}
                       />
                     </div>
                     <Button type="submit" disabled={submitting}>
-                      {submitting ? "送信中…" : "リクエストを送信"}
+                      {submitting
+                        ? "送信中…"
+                        : "リクエストを送信"}
                     </Button>
                   </form>
                 )}
