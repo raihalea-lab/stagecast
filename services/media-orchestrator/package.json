@@ -22,6 +22,7 @@
     "@stagecast/shared": "workspace:*"
   },
   "devDependencies": {
+    "@aws-sdk/client-route-53": "^3.1075.0",
     "@types/aws-lambda": "^8.10.162",
     "@types/node": "^25.9.2",
     "typescript": "^6.0.3",

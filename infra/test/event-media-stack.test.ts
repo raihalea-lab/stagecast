@@ -21,7 +21,7 @@ function synth(customApi = false): Template {
   return Template.fromStack(stack);
 }
 
-/** ADR 0009 D-1: TLS Props を渡したときの synth (NLB + Route53 ARecord あり)。 */
+/** ADR 0016 D-1: tlsCertSecretArn を渡したときの synth (Caddy サイドカーあり)。 */
 function synthWithTls(): Template {
   const app = new App();
   const stack = new EventMediaStack(app, eventMediaStackName("evt-tls"), {
@@ -29,9 +29,8 @@ function synthWithTls(): Template {
     eventId: "evt-tls",
     captionEngine: "transcribe",
     customCaptionApi: false,
-    tlsCertificateArn: "arn:aws:acm:ap-northeast-1:111111111111:certificate/test-cert",
-    hostedZoneId: "Z0000TESTZONE",
-    hostedZoneName: "aws.example.com",
+    tlsCertSecretArn:
+      "arn:aws:secretsmanager:ap-northeast-1:111111111111:secret:stagecast/tls-cert-abc123",
     mediaDomainName: "media.aws.example.com",
   });
   return Template.fromStack(stack);
@@ -95,7 +94,7 @@ describe("EventMediaStack (DESIGN.md 7.1/7.3, N-5)", () => {
     expect(portMapped.length).toBe(1);
   });
 
-  it("ADR 0009 D-1: TLS Props 未指定時は NLB を作らない (後方互換、Public IP 直接公開にフォールバック)", () => {
+  it("ADR 0016 D-1: tlsCertSecretArn 未指定時は NLB も Caddy も作らない (後方互換)", () => {
     template.resourceCountIs("AWS::ElasticLoadBalancingV2::LoadBalancer", 0);
     template.resourceCountIs("AWS::ElasticLoadBalancingV2::Listener", 0);
     template.resourceCountIs("AWS::ElasticLoadBalancingV2::TargetGroup", 0);
@@ -329,45 +328,45 @@ describe("liveKitServerConfig (R1)", () => {
   });
 });
 
-describe("EventMediaStack with TLS props (ADR 0009)", () => {
+describe("EventMediaStack with TLS (Caddy sidecar, ADR 0016)", () => {
   const template = synthWithTls();
 
-  it("ADR 0009 D-1: internet-facing NLB を 1 つ作る", () => {
-    template.resourceCountIs("AWS::ElasticLoadBalancingV2::LoadBalancer", 1);
-    template.hasResourceProperties("AWS::ElasticLoadBalancingV2::LoadBalancer", {
-      Type: "network",
-      Scheme: "internet-facing",
+  it("ADR 0016 D-1: NLB は作らない (Caddy サイドカーで TLS 終端)", () => {
+    template.resourceCountIs("AWS::ElasticLoadBalancingV2::LoadBalancer", 0);
+    template.resourceCountIs("AWS::ElasticLoadBalancingV2::Listener", 0);
+    template.resourceCountIs("AWS::ElasticLoadBalancingV2::TargetGroup", 0);
+  });
+
+  it("ADR 0016 D-1: SFU TaskDef に Caddy サイドカーが含まれる", () => {
+    const taskDefs = template.findResources("AWS::ECS::TaskDefinition");
+    const withCaddy = Object.values(taskDefs).filter((d) =>
+      JSON.stringify(d).includes("CaddyContainer"),
+    );
+    expect(withCaddy.length).toBe(1);
+    const json = JSON.stringify(withCaddy[0]);
+    expect(json).toContain("caddy:2-alpine");
+    expect(json).toContain('"Essential":true');
+  });
+
+  it("ADR 0016 D-1: Caddy は 443/TCP をポートマッピングする", () => {
+    const taskDefs = template.findResources("AWS::ECS::TaskDefinition");
+    const withCaddy = Object.values(taskDefs).filter((d) =>
+      JSON.stringify(d).includes("CaddyContainer"),
+    );
+    expect(withCaddy.length).toBe(1);
+    const json = JSON.stringify(withCaddy[0]);
+    expect(json).toContain('"ContainerPort":443');
+  });
+
+  it("ADR 0016 D-1: SFU SG が 443/TCP をインターネットへ開く", () => {
+    template.hasResourceProperties("AWS::EC2::SecurityGroup", {
+      SecurityGroupIngress: Match.arrayWith([
+        Match.objectLike({ IpProtocol: "tcp", FromPort: 443, ToPort: 443, CidrIp: "0.0.0.0/0" }),
+      ]),
     });
   });
 
-  it("ADR 0009 D-1: TLS Listener (port 443) が ACM 証明書を attach する", () => {
-    template.hasResourceProperties("AWS::ElasticLoadBalancingV2::Listener", {
-      Port: 443,
-      Protocol: "TLS",
-      Certificates: [
-        {
-          CertificateArn: "arn:aws:acm:ap-northeast-1:111111111111:certificate/test-cert",
-        },
-      ],
-    });
-  });
-
-  it("ADR 0009 D-1: TargetGroup は SFU の TCP 7880 を狙う", () => {
-    template.hasResourceProperties("AWS::ElasticLoadBalancingV2::TargetGroup", {
-      Port: 7880,
-      Protocol: "TCP",
-      TargetType: "ip",
-    });
-  });
-
-  it("ADR 0009 D-4: per-event DNS は event-{eventId.slice(0,8)} prefix で作られる", () => {
-    template.hasResourceProperties("AWS::Route53::RecordSet", {
-      Type: "A",
-      Name: "event-evt-tls.media.aws.example.com.",
-    });
-  });
-
-  it("ADR 0009 D-1: LivekitDomainName CfnOutput を持つ (reconcile が DescribeStacks で取得する)", () => {
+  it("ADR 0016 D-3: LivekitDomainName CfnOutput を持つ (reconcile が Route53 A レコードを管理する)", () => {
     template.hasOutput(
       "LivekitDomainName",
       Match.objectLike({

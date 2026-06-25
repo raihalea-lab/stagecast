@@ -26,7 +26,6 @@ import {
   aws_cloudwatch_actions as cwActions,
   aws_sns as sns,
   aws_s3_deployment as s3deploy,
-  aws_certificatemanager as acm,
   aws_route53 as route53,
   aws_budgets as budgets,
   aws_sns_subscriptions as snsSubscriptions,
@@ -193,11 +192,7 @@ export class ControlPlaneStack extends Stack {
           const mediaHostedZone = route53.HostedZone.fromLookup(this, "MediaHostedZone", {
             domainName: mediaHostedZoneName,
           });
-          const mediaCertificate = new acm.Certificate(this, "MediaCertificate", {
-            domainName: `*.${mediaDomainName}`,
-            validation: acm.CertificateValidation.fromDns(mediaHostedZone),
-          });
-          return { mediaDomainName, mediaHostedZone, mediaCertificate };
+          return { mediaDomainName, mediaHostedZone };
         })()
       : undefined;
 
@@ -358,6 +353,11 @@ export class ControlPlaneStack extends Stack {
         JSON.stringify({ apiKey: "", oauthClientId: "", oauthClientSecret: "" }),
       ),
       removalPolicy: RemovalPolicy.DESTROY,
+    });
+
+    const tlsCertSecret = new secretsmanager.Secret(this, "TlsCertSecret", {
+      secretName: "stagecast/tls-cert",
+      description: "Wildcard TLS certificate for *.media.{domain} (ADR 0016 D-2)",
     });
 
     // --- KVS WebRTC Signaling Channel (R12-followup-19 / ADR 0011 案 E) ---
@@ -634,19 +634,17 @@ export class ControlPlaneStack extends Stack {
     // LiveKit シグナリング TLS 用のドメイン / 証明書 (ADR 0009 D-3)。EventMediaStack の NLB が attach する。
     // context `mediaHostedZoneName` 未指定時は CfnOutput も作らない (TLS スタック構築をスキップ)。
     if (tlsConfig) {
-      new CfnOutput(this, "MediaCertificateArn", {
-        value: tlsConfig.mediaCertificate.certificateArn,
-      });
       new CfnOutput(this, "MediaHostedZoneId", { value: tlsConfig.mediaHostedZone.hostedZoneId });
       new CfnOutput(this, "MediaHostedZoneName", { value: mediaHostedZoneName! });
       new CfnOutput(this, "MediaDomainName", { value: tlsConfig.mediaDomainName });
     }
+    new CfnOutput(this, "TlsCertSecretArn", { value: tlsCertSecret.secretArn });
 
     // --- EventMediaStack 作成用 CloudFormation サービスロール (R5, ADR 0005 D-5) ---
     // 広い権限 (ec2/ecs/elasticache/iam/logs/cw/sns) はこのロールに集約し、
     // cloudformation.amazonaws.com からのみ assume 可能にする。reconcile Lambda 自身は
     // これらを直接持たず、CFN にロールを渡す (iam:PassRole) だけにして攻撃面を絞る。
-    // ADR 0009 で NLB をシグナリング用に復活させたため elasticloadbalancing と route53 権限を追加。
+    // ADR 0016 で NLB を Caddy サイドカーに置換。route53 は reconcile Lambda 側に移動。
     const eventMediaCfnRole = new iam.Role(this, "EventMediaCfnExecRole", {
       assumedBy: new iam.ServicePrincipal("cloudformation.amazonaws.com"),
       description: "CloudFormation execution role for EventMediaStack (ADR 0005 D-5)",
@@ -660,8 +658,6 @@ export class ControlPlaneStack extends Stack {
           "logs:*",
           "cloudwatch:*",
           "sns:*",
-          // ADR 0009 D-1: NLB + TLS Listener + TargetGroup の作成・削除に必要。
-          "elasticloadbalancing:*",
           // CDK テンプレートは CFN deploy 時に bootstrap バージョン (/cdk-bootstrap/hnb659fds/version)
           // を SSM Parameter Store から読み取る。この権限が無いと CreateStack が AccessDenied で失敗する。
           "ssm:GetParameter",
@@ -744,17 +740,10 @@ export class ControlPlaneStack extends Stack {
         // Egress 録画の出力先 (制御層の成果物バケットを共用)。未設定だと EventMediaStack 既定の
         // ハードコード名にフォールバックし、実在しないバケットを参照してしまう (ADR 0006 D-4)。
         RECORDINGS_BUCKET_NAME: assetsBucket.bucketName,
-        // ADR 0009: LiveKit シグナリングを NLB + ACM で TLS 終端する。EventMediaStack が
-        // これらを使って NLB の TLS Listener と Route53 ARecord を作成する。
-        // tlsConfig 未指定なら env を渡さず、EventMediaStack は ADR 0008 D-4 の Public IP 直接公開にフォールバック。
-        ...(tlsConfig
-          ? {
-              MEDIA_CERTIFICATE_ARN: tlsConfig.mediaCertificate.certificateArn,
-              MEDIA_HOSTED_ZONE_ID: tlsConfig.mediaHostedZone.hostedZoneId,
-              MEDIA_HOSTED_ZONE_NAME: mediaHostedZoneName!,
-              MEDIA_DOMAIN_NAME: tlsConfig.mediaDomainName,
-            }
-          : {}),
+        // ADR 0016 D-2: ACM 証明書から Secrets Manager に移行。TLS_CERT_SECRET_ARN で参照する。
+        // tlsConfig 未指定なら MEDIA_DOMAIN_NAME を渡さず、Public IP 直接公開にフォールバック (ADR 0008 D-4)。
+        TLS_CERT_SECRET_ARN: tlsCertSecret.secretArn,
+        ...(tlsConfig ? { MEDIA_DOMAIN_NAME: tlsConfig.mediaDomainName } : {}),
         // 共有 VPC を EventMediaStack に渡す (起動時間短縮)。
         SHARED_VPC_ID: sharedMediaVpc.vpcId,
         SHARED_VPC_CIDR: sharedMediaVpc.vpcCidrBlock,
@@ -797,7 +786,7 @@ export class ControlPlaneStack extends Stack {
         target: "node24",
         minify: true,
         format: lambdaNodejs.OutputFormat.ESM,
-        externalModules: ["@aws-sdk/*"],
+        externalModules: ["@aws-sdk/*", "@aws-sdk/client-route-53"],
         banner:
           "import{createRequire}from'node:module';const require=createRequire(import.meta.url);",
       },
@@ -815,6 +804,13 @@ export class ControlPlaneStack extends Stack {
         MAX_PARALLEL_EVENTS: "10",
         // ADR 0015 Phase 3: 共有 Cluster 名を reconcile に渡す (サービス名解決に使う)。
         SHARED_CLUSTER_NAME: sharedMediaCluster.clusterName,
+        // Route53 更新用のホストゾーン / ドメイン名 (reconcile が DNS レコードを操作する)。
+        ...(tlsConfig
+          ? {
+              MEDIA_HOSTED_ZONE_ID: tlsConfig.mediaHostedZone.hostedZoneId,
+              MEDIA_DOMAIN_NAME: tlsConfig.mediaDomainName,
+            }
+          : {}),
       },
     });
     // reconcile は RenderTemplateFunction を invoke できる。
@@ -848,6 +844,18 @@ export class ControlPlaneStack extends Stack {
     reconcileFn.addToRolePolicy(
       new iam.PolicyStatement({
         actions: ["ecs:ListTasks", "ecs:DescribeTasks", "ec2:DescribeNetworkInterfaces"],
+        resources: ["*"],
+      }),
+    );
+    reconcileFn.addToRolePolicy(
+      new iam.PolicyStatement({
+        actions: ["route53:ChangeResourceRecordSets"],
+        resources: ["*"],
+      }),
+    );
+    reconcileFn.addToRolePolicy(
+      new iam.PolicyStatement({
+        actions: ["ecs:DescribeServices", "ecs:UpdateService"],
         resources: ["*"],
       }),
     );

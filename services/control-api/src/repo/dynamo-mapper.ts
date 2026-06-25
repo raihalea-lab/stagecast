@@ -31,7 +31,12 @@ export function eventToItem(event: EventDefinition): Item {
     // それ以外は undefined にして DocClient の removeUndefinedValues で消す → sparse index。
     // ADR 0015 Phase 4: warmup 状態でもインフラ起動が必要なので liveStatus を立てる。
     eventId: event.id,
-    liveStatus: event.status === "live" || event.status === "warmup" ? "live" : undefined,
+    liveStatus:
+      event.status === "live" || event.status === "warmup"
+        ? "live"
+        : event.status === "scheduled"
+          ? "pending"
+          : undefined,
     ...event,
   };
 }

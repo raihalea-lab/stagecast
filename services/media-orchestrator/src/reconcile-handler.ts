@@ -125,6 +125,23 @@ async function deps(): Promise<HandlerDeps> {
       );
       const publicIp = enis.NetworkInterfaces?.[0]?.Association?.PublicIp;
       if (!publicIp) return undefined;
+
+      // 3) ADR 0016 D-3: Route53 A レコードを動的 UPSERT する。
+      const mediaDomain = process.env.MEDIA_DOMAIN_NAME;
+      const zoneId = process.env.MEDIA_HOSTED_ZONE_ID;
+      if (mediaDomain && zoneId) {
+        const recordName = `event-${eventId.slice(0, 8)}.${mediaDomain}`;
+        try {
+          await upsertRoute53ARecord(zoneId, recordName, publicIp);
+          return `wss://${recordName}`;
+        } catch (err) {
+          log.warn("route53 upsert failed, falling back to IP", {
+            eventId,
+            error: String(err),
+          });
+        }
+      }
+
       return `wss://${publicIp}:${LIVEKIT_SIGNAL_PORT}`;
     },
   };
@@ -169,15 +186,31 @@ async function deps(): Promise<HandlerDeps> {
 
   cached = {
     fetchDesired: async () => {
-      const res = await dynamo.send(
-        new QueryCommand({
-          TableName: tableName,
-          IndexName: "gsi-live",
-          KeyConditionExpression: "liveStatus = :v",
-          ExpressionAttributeValues: { ":v": "live" },
-        }),
-      );
-      return (res.Items ?? []).map(toDesiredEvent);
+      const [liveRes, pendingRes] = await Promise.all([
+        dynamo.send(
+          new QueryCommand({
+            TableName: tableName,
+            IndexName: "gsi-live",
+            KeyConditionExpression: "liveStatus = :v",
+            ExpressionAttributeValues: { ":v": "live" },
+          }),
+        ),
+        dynamo.send(
+          new QueryCommand({
+            TableName: tableName,
+            IndexName: "gsi-live",
+            KeyConditionExpression: "liveStatus = :v",
+            ExpressionAttributeValues: { ":v": "pending" },
+          }),
+        ),
+      ]);
+      return [
+        ...(liveRes.Items ?? []).map(toDesiredEvent),
+        ...(pendingRes.Items ?? []).map((it) => ({
+          ...toDesiredEvent(it),
+          pending: true as const,
+        })),
+      ];
     },
     fetchActual: async () => {
       const stacks: ActualStack[] = [];
@@ -250,6 +283,66 @@ export function classifyStackStatus(status: string): ActualStackKind {
   if (status.includes("FAILED") || status.startsWith("ROLLBACK")) return "failed";
   if (status === "DELETE_COMPLETE") return "deleting";
   return "failed";
+}
+
+async function upsertRoute53ARecord(
+  hostedZoneId: string,
+  recordName: string,
+  publicIp: string,
+): Promise<void> {
+  const { Route53Client, ChangeResourceRecordSetsCommand } =
+    await import("@aws-sdk/client-route-53");
+  const r53 = new Route53Client({});
+  await r53.send(
+    new ChangeResourceRecordSetsCommand({
+      HostedZoneId: hostedZoneId,
+      ChangeBatch: {
+        Changes: [
+          {
+            Action: "UPSERT",
+            ResourceRecordSet: {
+              Name: recordName,
+              Type: "A",
+              TTL: 60,
+              ResourceRecords: [{ Value: publicIp }],
+            },
+          },
+        ],
+      },
+    }),
+  );
+}
+
+async function deleteRoute53ARecord(hostedZoneId: string, recordName: string): Promise<void> {
+  const { Route53Client, ListResourceRecordSetsCommand, ChangeResourceRecordSetsCommand } =
+    await import("@aws-sdk/client-route-53");
+  const r53 = new Route53Client({});
+  // DELETE にはレコードの現在値が必要なので、先に値を取得する。
+  const listed = await r53.send(
+    new ListResourceRecordSetsCommand({
+      HostedZoneId: hostedZoneId,
+      StartRecordName: recordName,
+      StartRecordType: "A",
+      MaxItems: 1,
+    }),
+  );
+  const existing = listed.ResourceRecordSets?.find(
+    (rrs: { Name?: string }) => rrs.Name === `${recordName}.` || rrs.Name === recordName,
+  );
+  if (!existing || existing.Type !== "A") return; // レコードが存在しない
+  await r53.send(
+    new ChangeResourceRecordSetsCommand({
+      HostedZoneId: hostedZoneId,
+      ChangeBatch: {
+        Changes: [
+          {
+            Action: "DELETE",
+            ResourceRecordSet: existing,
+          },
+        ],
+      },
+    }),
+  );
 }
 
 function makeExecutor(): ReconcileExecutor {
@@ -341,6 +434,37 @@ function isWarmupEvent(event: unknown): event is WarmupEvent {
   );
 }
 
+/**
+ * ADR 0016 D-6: pending → live 遷移時に desiredCount=0 のサービスを 1 に引き上げる。
+ * 全 ECS サービスの desiredCount が 0 なら 1 に更新する。
+ */
+async function scaleUpIfNeeded(eventId: string): Promise<void> {
+  const { ECSClient, DescribeServicesCommand, UpdateServiceCommand } =
+    await import("@aws-sdk/client-ecs");
+  const ecsClient = new ECSClient({});
+  const cluster = clusterName(eventId);
+  const serviceNames = [
+    sfuServiceName(eventId),
+    process.env.SHARED_CLUSTER_NAME ? `valkey-${eventId}` : "valkey",
+    process.env.SHARED_CLUSTER_NAME ? `captionworker-${eventId}` : "captionworker",
+  ];
+  const desc = await ecsClient.send(
+    new DescribeServicesCommand({ cluster, services: serviceNames }),
+  );
+  for (const svc of desc.services ?? []) {
+    if (svc.desiredCount === 0 && svc.serviceName) {
+      await ecsClient.send(
+        new UpdateServiceCommand({
+          cluster,
+          service: svc.serviceName,
+          desiredCount: 1,
+        }),
+      );
+      log.info("scaled up service", { eventId, service: svc.serviceName });
+    }
+  }
+}
+
 /** EventBridge スケジュールまたはウォームアップスケジューラから呼ばれるエントリ。 */
 export async function handler(
   _event: ScheduledEvent | WarmupEvent,
@@ -428,6 +552,19 @@ export async function handler(
     },
   });
 
+  // ADR 0016 D-6: live イベントで running スタックの desiredCount が 0 の場合、1 に引き上げる。
+  const actualById = new Map(actual.map((a) => [a.eventId, a]));
+  for (const d2 of desired.filter((d) => !d.pending)) {
+    const a = actualById.get(d2.eventId);
+    if (a?.kind === "running") {
+      try {
+        await scaleUpIfNeeded(d2.eventId);
+      } catch (err) {
+        log.error("scale-up failed", { eventId: d2.eventId, error: String(err) });
+      }
+    }
+  }
+
   // ADR 0008 D-2: live + 既にスタック running の各イベントに対して media を確定させる。
   const runningIds = new Set(actual.filter((a) => a.kind === "running").map((a) => a.eventId));
   const liveRunning = desired.filter((d) => runningIds.has(d.eventId));
@@ -450,6 +587,22 @@ export async function handler(
     if (a.kind !== "deleting") continue;
     await d.mediaPublisher.clear(a.eventId);
     log.info("media clear", { eventId: a.eventId });
+  }
+
+  // ADR 0016 D-3: Route53 クリーンアップ
+  const mediaDomainName = process.env.MEDIA_DOMAIN_NAME;
+  const hostedZoneId = process.env.MEDIA_HOSTED_ZONE_ID;
+  if (mediaDomainName && hostedZoneId) {
+    for (const a of actual) {
+      if (!desiredIds.has(a.eventId) && a.kind !== "deleting") {
+        const recordName = `event-${a.eventId.slice(0, 8)}.${mediaDomainName}`;
+        try {
+          await deleteRoute53ARecord(hostedZoneId, recordName);
+        } catch {
+          // レコードが存在しない場合は無視
+        }
+      }
+    }
   }
 
   return { ...planResult, mediaUpdated };

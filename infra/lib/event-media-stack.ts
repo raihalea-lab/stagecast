@@ -14,10 +14,6 @@ import {
   aws_cloudwatch as cloudwatch,
   aws_sns as sns,
   aws_cloudwatch_actions as cwActions,
-  aws_elasticloadbalancingv2 as elbv2,
-  aws_route53 as route53,
-  aws_route53_targets as route53Targets,
-  aws_certificatemanager as acm,
   aws_servicediscovery as servicediscovery,
 } from "aws-cdk-lib";
 import type { Construct } from "constructs";
@@ -65,18 +61,19 @@ export interface EventMediaStackProps extends StackProps {
    * (実バケットは deploy 時に解決、ADR 0006 D-4)。
    */
   recordingsBucketName?: string;
-  /**
-   * LiveKit シグナリング TLS 用 ACM 証明書 ARN (ADR 0009 D-1, D-3)。
-   * 指定時のみ NLB + TLS Listener + Route53 ARecord を作成する。
-   * 未指定時は ADR 0008 D-4 の Public IP 直接公開にフォールバック (後方互換)。
-   */
-  tlsCertificateArn?: string;
-  /** LiveKit per-event DNS 用 Route53 HostedZone ID (ADR 0009 D-4)。tlsCertificateArn と同時に指定する。 */
-  hostedZoneId?: string;
-  /** LiveKit per-event DNS 用 Route53 HostedZone 名 (例: `example.com`)。 */
-  hostedZoneName?: string;
-  /** LiveKit シグナリング用ドメイン (例: `media.example.com`)。`event-XXXXXXXX.${mediaDomainName}` で per-event 名を組み立てる。 */
+  /** LiveKit シグナリング用ドメイン (例: `media.example.com`)。reconcile Lambda が Route53 A レコードを動的に管理する (ADR 0016 D-3)。 */
   mediaDomainName?: string;
+  /**
+   * Secrets Manager に格納したワイルドカード TLS 証明書の ARN (ADR 0016 D-2)。
+   * cert/key を JSON フィールドとして格納: { "cert": "-----BEGIN CERTIFICATE-----...", "key": "-----BEGIN PRIVATE KEY-----..." }
+   * 指定時のみ Caddy TLS サイドカーを SFU Task に追加する。
+   */
+  tlsCertSecretArn?: string;
+  /**
+   * ECS サービスの初期 desiredCount (ADR 0016 D-4)。
+   * 0 で事前プロビジョニング (スタックのみ作成、タスク未起動)。デフォルト 1。
+   */
+  desiredCount?: number;
   /**
    * ControlPlaneStack で事前作成した共有 VPC の情報 (R12-followup, N-1)。
    * 指定時はこの VPC を参照し per-event VPC を作らない (イベント起動時間 2-3 分短縮)。
@@ -267,6 +264,9 @@ export class EventMediaStack extends Stack {
       secrets?: Record<string, ecs.Secret>;
       /** essential=false で sidecar クラッシュが Task 再起動を起こさないよう保護 (ADR 0010 D-1) */
       essential?: boolean;
+      ports?: { containerPort: number; protocol?: ecs.Protocol }[];
+      entryPoint?: string[];
+      command?: string[];
     }
     interface ServiceOptions {
       ports?: { containerPort: number; protocol?: ecs.Protocol }[];
@@ -351,7 +351,7 @@ export class EventMediaStack extends Stack {
       // sidecar コンテナを追加 (ADR 0010: SFU TaskDef に Egress を同居)。
       for (const sidecar of opts.sidecars ?? []) {
         grantEcrPull(sidecar.image);
-        taskDef.addContainer(`${sidecar.name}Container`, {
+        const sc = taskDef.addContainer(`${sidecar.name}Container`, {
           image: ecs.ContainerImage.fromRegistry(sidecar.image),
           logging: ecs.LogDrivers.awsLogs({ streamPrefix: sidecar.name, logGroup }),
           essential: sidecar.essential ?? false,
@@ -361,12 +361,20 @@ export class EventMediaStack extends Stack {
             ...sidecar.environment,
           },
           ...(sidecar.secrets ? { secrets: sidecar.secrets } : {}),
+          ...(sidecar.entryPoint ? { entryPoint: sidecar.entryPoint } : {}),
+          ...(sidecar.command ? { command: sidecar.command } : {}),
         });
+        for (const p of sidecar.ports ?? []) {
+          sc.addPortMappings({
+            containerPort: p.containerPort,
+            ...(p.protocol ? { protocol: p.protocol } : {}),
+          });
+        }
       }
       return new ecs.FargateService(this, `${name}Service`, {
         cluster,
         taskDefinition: taskDef,
-        desiredCount: 1,
+        desiredCount: props.desiredCount ?? 1,
         // ephemeral: 破棄を速くするため最小構成。
         minHealthyPercent: 0,
         circuitBreaker: { rollback: false },
@@ -416,18 +424,23 @@ export class EventMediaStack extends Stack {
     // ADR 0008 D-4: Public IP を直接公開し、NLB を廃止。reconcile Lambda が ECS から
     // task の Public IP を引いて events.media.livekitUrl に書き戻す (ADR 0008 D-2)。
     // LIVEKIT_KEYS は Secret の livekitKeys フィールドから ECS Secret で直接注入 (シェル不要)。
-    // 4 つのプロパティが全て揃っているときのみ NLB + TLS 構成。揃っていなければ ADR 0008 D-4 の
-    // Public IP 直接公開にフォールバックする (後方互換)。tlsProps は Egress の LIVEKIT_WS_URL
-    // 解決にも使うので、SFU 作成より前に宣言する。
-    const tlsProps =
-      props.tlsCertificateArn && props.hostedZoneId && props.hostedZoneName && props.mediaDomainName
-        ? {
-            certificateArn: props.tlsCertificateArn,
-            hostedZoneId: props.hostedZoneId,
-            hostedZoneName: props.hostedZoneName,
-            mediaDomainName: props.mediaDomainName,
-          }
-        : undefined;
+    // ADR 0016 D-1: NLB を廃止し Caddy TLS サイドカーで wss:// シグナリングを提供する。
+    // ADR 0016 D-3: reconcile Lambda が Route53 A レコードを動的に管理する。
+
+    // ADR 0016 D-2: ワイルドカード TLS 証明書を Secrets Manager から取得し Caddy に注入する。
+    const tlsSecrets: Record<string, ecs.Secret> | undefined = props.tlsCertSecretArn
+      ? (() => {
+          const secret = secretsmanager.Secret.fromSecretCompleteArn(
+            this,
+            "TlsCertSecret",
+            props.tlsCertSecretArn,
+          );
+          return {
+            TLS_CERT: ecs.Secret.fromSecretsManager(secret, "cert"),
+            TLS_KEY: ecs.Secret.fromSecretsManager(secret, "key"),
+          };
+        })()
+      : undefined;
 
     // ADR 0010: SFU と Egress を同一 Task に sidecar 同居。Egress は localhost で SFU と疎通し
     // (LIVEKIT_WS_URL=ws://localhost:7880)、psrpc は Valkey 経由で共有する。
@@ -480,6 +493,23 @@ export class EventMediaStack extends Stack {
           },
           secrets: livekitSecrets,
         },
+        // ADR 0016 D-1: Caddy TLS リバースプロキシ。wss:// シグナリングを NLB なしで提供する。
+        ...(props.tlsCertSecretArn
+          ? [
+              {
+                name: "Caddy",
+                image: "caddy:2-alpine",
+                essential: true,
+                ports: [{ containerPort: 443, protocol: ecs.Protocol.TCP }],
+                entryPoint: ["sh", "-c"],
+                command: [
+                  'printf "%s" "$TLS_CERT" > /tmp/cert.pem && printf "%s" "$TLS_KEY" > /tmp/key.pem && printf \':443 {\\n  tls /tmp/cert.pem /tmp/key.pem\\n  reverse_proxy localhost:7880\\n}\\n\' > /tmp/Caddyfile && exec caddy run --config /tmp/Caddyfile --adapter caddyfile',
+                ],
+                secrets: tlsSecrets,
+                environment: {},
+              },
+            ]
+          : []),
       ],
     });
 
@@ -520,77 +550,15 @@ export class EventMediaStack extends Stack {
       ec2.Port.udp(LIVEKIT_PORTS.rtcUdp),
       "WebRTC media/UDP (public, ADR 0008 D-4 / ADR 0009 D-2)",
     );
+    // ADR 0016 D-1: Caddy TLS シグナリング用ポート。
+    if (props.tlsCertSecretArn) {
+      sfu.connections.allowFromAnyIpv4(
+        ec2.Port.tcp(443),
+        "Caddy TLS signaling (public, ADR 0016 D-1)",
+      );
+    }
     // R12-followup-19: TURN ポート (UDP 3478 + relay range 50300-50400) は廃止。
     // AWS KVS WebRTC が TURN を提供するため SFU 側で TURN ポート開放不要。
-
-    // --- NLB + TLS + Route53 でシグナリングを wss:// 化 (ADR 0009 D-1, D-3, D-4) ---
-    if (tlsProps) {
-      // internet-facing NLB。NLB は無料の cross-zone load balancing を有効化して
-      // SFU タスクの配置 AZ に依存せず到達できるようにする。
-      const nlb = new elbv2.NetworkLoadBalancer(this, "SfuNlb", {
-        vpc,
-        internetFacing: true,
-        crossZoneEnabled: true,
-        vpcSubnets: { subnetType: ec2.SubnetType.PUBLIC },
-      });
-      // SFU の SG が NLB の listener からのトラフィックを受け取るための許可。
-      // NLB はクライアント IP をそのまま転送する (preserve client IP) ため、SG ルールは
-      // 0.0.0.0/0 ベース。既存の allowFromAnyIpv4(7880) で既にカバーされている。
-
-      const certificate = acm.Certificate.fromCertificateArn(
-        this,
-        "SfuTlsCertificate",
-        tlsProps.certificateArn,
-      );
-      const tgGroup = new elbv2.NetworkTargetGroup(this, "SfuSignalingTargetGroup", {
-        vpc,
-        port: LIVEKIT_PORTS.signaling,
-        protocol: elbv2.Protocol.TCP,
-        targetType: elbv2.TargetType.IP,
-        targets: [
-          sfu.loadBalancerTarget({
-            containerName: "SfuContainer",
-            containerPort: LIVEKIT_PORTS.signaling,
-          }),
-        ],
-        healthCheck: {
-          protocol: elbv2.Protocol.TCP,
-          interval: Duration.seconds(10),
-        },
-        // ephemeral スタックなので速い deregister で破棄時間を短縮。
-        deregistrationDelay: Duration.seconds(10),
-      });
-      nlb.addListener("SfuTlsListener", {
-        port: 443,
-        protocol: elbv2.Protocol.TLS,
-        certificates: [certificate],
-        sslPolicy: elbv2.SslPolicy.TLS13_RES,
-        defaultAction: elbv2.NetworkListenerAction.forward([tgGroup]),
-      });
-
-      // per-event DNS: event-{eventId.slice(0,8)}.{mediaDomainName} (ADR 0009 D-4)。
-      const livekitDomainName = `event-${props.eventId.slice(0, 8)}.${tlsProps.mediaDomainName}`;
-      const hostedZone = route53.HostedZone.fromHostedZoneAttributes(this, "MediaHostedZoneRef", {
-        hostedZoneId: tlsProps.hostedZoneId,
-        zoneName: tlsProps.hostedZoneName,
-      });
-      new route53.ARecord(this, "SfuAliasRecord", {
-        zone: hostedZone,
-        recordName: livekitDomainName,
-        target: route53.RecordTarget.fromAlias(new route53Targets.LoadBalancerTarget(nlb)),
-      });
-
-      // CfnOutput: reconcile Lambda が DescribeStacks で取得し events.media.livekitUrl に書き戻す。
-      new CfnOutput(this, "LivekitDomainName", {
-        value: livekitDomainName,
-        description:
-          "LiveKit シグナリング用ドメイン (NLB + ACM + Route53, ADR 0009)。reconcile が wss:// に変換して events.media に書き戻す",
-      });
-      new CfnOutput(this, "SfuNlbDnsName", {
-        value: nlb.loadBalancerDnsName,
-        description: "NLB の AWS-managed DNS (alias 解決確認用)",
-      });
-    }
 
     // --- オブザーバビリティ (T9, ADR 0003 監視・検知) ---
     // 通知 SNS Topic (運用者が後で email/Slack を購読する想定)。
@@ -614,7 +582,7 @@ export class EventMediaStack extends Stack {
         threshold: 1,
         comparisonOperator: cloudwatch.ComparisonOperator.LESS_THAN_THRESHOLD,
         evaluationPeriods: 2,
-        treatMissingData: cloudwatch.TreatMissingData.BREACHING,
+        treatMissingData: cloudwatch.TreatMissingData.NOT_BREACHING,
       });
       alarm.addAlarmAction(new cwActions.SnsAction(alarmTopic));
       taskAlarms.push(alarm);
@@ -800,6 +768,12 @@ export class EventMediaStack extends Stack {
     // ADR 0008 D-4: NLB を廃止。stage-web は events.media.livekitUrl (reconcile が書き戻す
     // Public IP ベース URL) で接続する。
     new CfnOutput(this, "ClusterName", { value: cluster.clusterName });
+    if (props.mediaDomainName) {
+      new CfnOutput(this, "LivekitDomainName", {
+        value: `event-${props.eventId.slice(0, 8)}.${props.mediaDomainName}`,
+        description: "reconcile Lambda が Route53 A レコードを管理するドメイン名 (ADR 0016 D-3)",
+      });
+    }
     new CfnOutput(this, "SfuServiceName", {
       value: sfuServiceName,
       description: "reconcile Lambda が ecs:ListTasks で参照する SFU service 名 (ADR 0008 D-2)",
