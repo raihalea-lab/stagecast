@@ -9,7 +9,6 @@ import { ControlPlaneStack } from "../lib/control-plane-stack";
 function synth(): Template {
   const app = new App({
     context: {
-      mediaHostedZoneName: "example.com",
       // HostedZone.fromLookup の dummy 値（テストでは Route53 を実際に叩かない）。
       "hosted-zone:account=111111111111:domainName=example.com:region=ap-northeast-1": {
         Id: "/hostedzone/ZTESTEXAMPLE",
@@ -19,6 +18,7 @@ function synth(): Template {
   });
   const stack = new ControlPlaneStack(app, "TestControlPlane", {
     env: { account: "111111111111", region: "ap-northeast-1" },
+    userConfig: { mediaHostedZoneName: "example.com" },
   });
   return Template.fromStack(stack);
 }
@@ -428,8 +428,6 @@ describe("ControlPlaneStack 初期管理者ブートストラップ (R6, ADR 000
   // synth は esbuild バンドルを伴い重いので describe スコープで 1 度だけ実行する。
   const app = new App({
     context: {
-      initialAdmins: "a@x.com,b@y.com",
-      mediaHostedZoneName: "example.com",
       "hosted-zone:account=111111111111:domainName=example.com:region=ap-northeast-1": {
         Id: "/hostedzone/ZTESTEXAMPLE",
         Name: "example.com.",
@@ -438,6 +436,10 @@ describe("ControlPlaneStack 初期管理者ブートストラップ (R6, ADR 000
   });
   const stack = new ControlPlaneStack(app, "TestCPAdmins", {
     env: { account: "111111111111", region: "ap-northeast-1" },
+    userConfig: {
+      initialAdmins: "a@x.com,b@y.com",
+      mediaHostedZoneName: "example.com",
+    },
   });
   const t = Template.fromStack(stack);
 
@@ -474,7 +476,6 @@ describe("ControlPlaneStack SPA 配信 (webAssets)", () => {
 
   const app = new App({
     context: {
-      mediaHostedZoneName: "example.com",
       "hosted-zone:account=111111111111:domainName=example.com:region=ap-northeast-1": {
         Id: "/hostedzone/ZTESTEXAMPLE",
         Name: "example.com.",
@@ -484,6 +485,7 @@ describe("ControlPlaneStack SPA 配信 (webAssets)", () => {
   const stack = new ControlPlaneStack(app, "TestCPWeb", {
     env: { account: "111111111111", region: "ap-northeast-1" },
     webAssets: { adminWebDir, stageWebDir, composerWebDir },
+    userConfig: { mediaHostedZoneName: "example.com" },
   });
   const t = Template.fromStack(stack);
 
