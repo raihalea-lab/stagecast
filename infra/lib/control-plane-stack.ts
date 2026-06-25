@@ -686,6 +686,8 @@ export class ControlPlaneStack extends Stack {
           "logs:*",
           "cloudwatch:*",
           "sns:*",
+          "servicediscovery:*",
+          "route53:*",
           // CDK テンプレートは CFN deploy 時に bootstrap バージョン (/cdk-bootstrap/hnb659fds/version)
           // を SSM Parameter Store から読み取る。この権限が無いと CreateStack が AccessDenied で失敗する。
           "ssm:GetParameter",
