@@ -144,13 +144,10 @@ function CalendarDisplay(props: {
   const calcTimeFromY = (
     clientY: number,
     startZdt: Temporal.ZonedDateTime,
-    gridBody: HTMLElement,
+    dayCol: HTMLElement,
   ): string => {
-    const rect = gridBody.getBoundingClientRect();
-    const scrollEl = gridBody.closest(".sx__week-grid") as HTMLElement | null;
-    const scrollTop = scrollEl?.scrollTop ?? 0;
-    const relY = clientY - rect.top + scrollTop;
-    const fraction = Math.max(0, Math.min(1, relY / gridBody.scrollHeight));
+    const relY = clientY - dayCol.getBoundingClientRect().top;
+    const fraction = Math.max(0, Math.min(1, relY / dayCol.offsetHeight));
     const totalMin = DAY_START * 60 + fraction * DAY_SPAN * 60;
     const rounded = Math.round(totalMin / 10) * 10;
     const h = Math.min(DAY_END, Math.max(DAY_START, Math.floor(rounded / 60)));
@@ -177,15 +174,14 @@ function CalendarDisplay(props: {
     events: props.events,
     calendars: LEGEND_DEFS,
     callbacks: {
-      onMouseDownDateTime(dateTime) {
+      onMouseDownDateTime(dateTime, mouseDownEvent) {
         const snapped = snapTo10Min(dateTime);
         const startDt = toDatetimeLocalFromZdt(snapped);
         dragStartRef.current = startDt;
 
-        const gridBody = document.querySelector(
-          ".sx__week-grid__time-grid-body",
-        ) as HTMLElement | null;
-        if (!gridBody) return;
+        const target = mouseDownEvent.target as HTMLElement | null;
+        const dayCol = target?.closest(".sx__time-grid-day") as HTMLElement | null;
+        if (!dayCol) return;
 
         isDraggingRef.current = true;
         const initialEnd = toDatetimeLocalFromZdt(snapped.add({ minutes: 30 }));
@@ -193,7 +189,7 @@ function CalendarDisplay(props: {
 
         const onMove = (e: MouseEvent) => {
           if (!isDraggingRef.current) return;
-          const currentDt = calcTimeFromY(e.clientY, snapped, gridBody);
+          const currentDt = calcTimeFromY(e.clientY, snapped, dayCol);
           const [s, en] =
             startDt < currentDt
               ? [startDt, currentDt]
