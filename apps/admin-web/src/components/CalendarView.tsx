@@ -91,6 +91,7 @@ export function CalendarView(props: {
   const calendar = useCalendarApp({
     locale: "ja-JP",
     firstDayOfWeek: 1,
+    timezone: "Asia/Tokyo",
     views: [createViewWeek(), createViewMonthGrid()],
     defaultView: "month-grid",
     dayBoundaries: { start: "07:00", end: "23:00" },
