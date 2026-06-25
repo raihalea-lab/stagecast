@@ -413,17 +413,6 @@ export function App(props: { controlApiUrl: string }) {
     }
   };
 
-  const formatLocalDateTime = (dt: string) => {
-    const d = new Date(dt);
-    if (Number.isNaN(d.getTime())) return dt;
-    return d.toLocaleString("ja-JP", {
-      month: "short",
-      day: "numeric",
-      hour: "2-digit",
-      minute: "2-digit",
-    });
-  };
-
   return (
     <div className="flex h-dvh flex-col bg-surface-0">
       <header className="shrink-0 border-b border-line-1 px-6 py-4">
@@ -465,22 +454,6 @@ export function App(props: { controlApiUrl: string }) {
               endsAt={endsAt}
               onTimeRangeSelect={setTimeRange}
             />
-          )}
-          {localRequests.length > 0 && (
-            <div className="mt-3 shrink-0 rounded-md border border-amber-200 bg-amber-50 px-4 py-3">
-              <p className="mb-2 text-xs font-medium text-amber-800">
-                送信済みリクエスト
-              </p>
-              <ul className="flex flex-col gap-1">
-                {localRequests.map((r, i) => (
-                  <li key={i} className="text-xs text-amber-700">
-                    {r.title}（
-                    {formatLocalDateTime(r.startsAt)} 〜{" "}
-                    {formatLocalDateTime(r.endsAt)}）
-                  </li>
-                ))}
-              </ul>
-            </div>
           )}
         </div>
         {formOpen && (
