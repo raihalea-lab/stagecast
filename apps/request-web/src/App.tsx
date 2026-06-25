@@ -110,12 +110,10 @@ function CalendarDisplay(props: {
   onTimeRangeSelect: (start: string, end: string) => void;
 }) {
   const dragStartRef = useRef<string | null>(null);
+  const calRef = useRef<ReturnType<typeof useCalendarApp>>(null);
 
-  const addSelectionBlock = (
-    cal: ReturnType<typeof useCalendarApp>,
-    startDt: string,
-    endDt: string,
-  ) => {
+  const addSelectionBlock = (startDt: string, endDt: string) => {
+    const cal = calRef.current;
     if (!cal) return;
     try {
       cal.events.remove(SELECTION_EVENT_ID);
@@ -159,18 +157,19 @@ function CalendarDisplay(props: {
           start = clickedDt;
           end = computeDefaultEndsAt(clickedDt);
         }
-        addSelectionBlock(calendar, start, end);
+        addSelectionBlock(start, end);
         props.onTimeRangeSelect(start, end);
       },
       onClickDate(date) {
         dragStartRef.current = null;
         const dt = toDatetimeLocalFromDate(date);
         const endDt = computeDefaultEndsAt(dt);
-        addSelectionBlock(calendar, dt, endDt);
+        addSelectionBlock(dt, endDt);
         props.onTimeRangeSelect(dt, endDt);
       },
     },
   });
+  calRef.current = calendar;
 
   return (
     <div className="h-[520px] w-full">
