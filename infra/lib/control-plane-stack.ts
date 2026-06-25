@@ -129,6 +129,15 @@ export class ControlPlaneStack extends Stack {
       ],
     });
 
+    const caddySidecarRepo = new ecr.Repository(this, "CaddySidecarRepo", {
+      repositoryName: "stagecast/caddy-sidecar",
+      imageScanOnPush: true,
+      imageTagMutability: ecr.TagMutability.MUTABLE,
+      removalPolicy: RemovalPolicy.DESTROY,
+      emptyOnDelete: true,
+      lifecycleRules: [{ description: "keep last 10 images", maxImageCount: 10 }],
+    });
+
     // --- 共有 VPC (R12-followup, N-1: 無料リソースの事前作成でイベント起動時間を短縮) ---
     // EventMediaStack で per-event VPC を作っていた経緯 (ADR 0008) だが、VPC + subnet 自体は無料で
     // 隔離は SG で十分なので、共有することで起動時間 2-3 分の短縮 + リソース数削減のメリットが大きい。
@@ -195,6 +204,33 @@ export class ControlPlaneStack extends Stack {
           return { mediaDomainName, mediaHostedZone };
         })()
       : undefined;
+
+    // ADR 0016 D-6: Caddy DNS-01 チャレンジ用 Route53 権限。
+    if (tlsConfig) {
+      sharedSfuTaskRole.addToPolicy(
+        new iam.PolicyStatement({
+          actions: [
+            "route53:ChangeResourceRecordSets",
+            "route53:ListResourceRecordSets",
+            "route53:GetChange",
+          ],
+          resources: [tlsConfig.mediaHostedZone.hostedZoneArn, "arn:aws:route53:::change/*"],
+        }),
+      );
+      sharedSfuTaskRole.addToPolicy(
+        new iam.PolicyStatement({
+          actions: ["route53:ListHostedZones", "route53:ListHostedZonesByName"],
+          resources: ["*"],
+        }),
+      );
+    }
+    // ADR 0016 D-6: certmagic-s3 用 S3 権限。
+    sharedSfuTaskRole.addToPolicy(
+      new iam.PolicyStatement({
+        actions: ["s3:GetObject", "s3:PutObject", "s3:DeleteObject", "s3:ListBucket"],
+        resources: [assetsBucket.bucketArn, `${assetsBucket.arnForObjects("caddy-certs/*")}`],
+      }),
+    );
 
     // --- S3 + CloudFront: 管理 SPA / 登壇者 SPA の静的ホスティング (DESIGN.md 3.1, T6) ---
     const adminWebBucket = this.buildSpaBucket("AdminWebBucket");
@@ -353,11 +389,6 @@ export class ControlPlaneStack extends Stack {
         JSON.stringify({ apiKey: "", oauthClientId: "", oauthClientSecret: "" }),
       ),
       removalPolicy: RemovalPolicy.DESTROY,
-    });
-
-    const tlsCertSecret = new secretsmanager.Secret(this, "TlsCertSecret", {
-      secretName: "stagecast/tls-cert",
-      description: "Wildcard TLS certificate for *.media.{domain} (ADR 0016 D-2)",
     });
 
     // --- KVS WebRTC Signaling Channel (R12-followup-19 / ADR 0011 案 E) ---
@@ -638,8 +669,6 @@ export class ControlPlaneStack extends Stack {
       new CfnOutput(this, "MediaHostedZoneName", { value: mediaHostedZoneName! });
       new CfnOutput(this, "MediaDomainName", { value: tlsConfig.mediaDomainName });
     }
-    new CfnOutput(this, "TlsCertSecretArn", { value: tlsCertSecret.secretArn });
-
     // --- EventMediaStack 作成用 CloudFormation サービスロール (R5, ADR 0005 D-5) ---
     // 広い権限 (ec2/ecs/elasticache/iam/logs/cw/sns) はこのロールに集約し、
     // cloudformation.amazonaws.com からのみ assume 可能にする。reconcile Lambda 自身は
@@ -740,10 +769,15 @@ export class ControlPlaneStack extends Stack {
         // Egress 録画の出力先 (制御層の成果物バケットを共用)。未設定だと EventMediaStack 既定の
         // ハードコード名にフォールバックし、実在しないバケットを参照してしまう (ADR 0006 D-4)。
         RECORDINGS_BUCKET_NAME: assetsBucket.bucketName,
-        // ADR 0016 D-2: ACM 証明書から Secrets Manager に移行。TLS_CERT_SECRET_ARN で参照する。
-        // tlsConfig 未指定なら MEDIA_DOMAIN_NAME を渡さず、Public IP 直接公開にフォールバック (ADR 0008 D-4)。
-        TLS_CERT_SECRET_ARN: tlsCertSecret.secretArn,
-        ...(tlsConfig ? { MEDIA_DOMAIN_NAME: tlsConfig.mediaDomainName } : {}),
+        // ADR 0016 D-6: Caddy ACME 自動 HTTPS + certmagic-s3。
+        CADDY_SIDECAR_IMAGE: `${caddySidecarRepo.repositoryUri}:latest`,
+        CERT_BUCKET_NAME: assetsBucket.bucketName,
+        ...(tlsConfig
+          ? {
+              MEDIA_DOMAIN_NAME: tlsConfig.mediaDomainName,
+              MEDIA_HOSTED_ZONE_ID: tlsConfig.mediaHostedZone.hostedZoneId,
+            }
+          : {}),
         // 共有 VPC を EventMediaStack に渡す (起動時間短縮)。
         SHARED_VPC_ID: sharedMediaVpc.vpcId,
         SHARED_VPC_CIDR: sharedMediaVpc.vpcCidrBlock,

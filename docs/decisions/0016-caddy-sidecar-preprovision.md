@@ -22,11 +22,9 @@ LiveKit 公式デプロイリポジトリ (`livekit/deploy`) は Caddy リバー
 - port 443 で TLS を終端し、`localhost:7880` にリバースプロキシ
 - `essential: true` — Caddy 停止 = シグナリング不可 → タスク全体再起動
 
-### D-2: ACM 証明書から Secrets Manager に移行
+### D-2: ~~ACM 証明書から Secrets Manager に移行~~ → D-6 で ACME 自動化に移行
 
-- ACM 証明書はエクスポ不可 (private key 取得不可) → Caddy で使えない
-- `*.media.example.com` ワイルドカード証明書を Secrets Manager に格納
-- cert/key を ECS Secrets として Caddy コンテナに注入
+- ~~ACM 証明書はエクスポ不可 → Secrets Manager に格納~~ → D-6 で廃止
 
 ### D-3: Route53 A レコードを reconcile Lambda が動的管理
 
@@ -44,13 +42,24 @@ LiveKit 公式デプロイリポジトリ (`livekit/deploy`) は Caddy リバー
 
 - NLB 廃止に伴い不要
 
+### D-6: Caddy ACME 自動 HTTPS + certmagic-s3 で証明書管理を完全自動化
+
+- D-2 の Secrets Manager 手動投入を廃止
+- `caddy-dns/route53` + `certmagic-s3` プラグインを含むカスタム Caddy イメージを ECR で管理
+- Caddy が ACME (Let's Encrypt) DNS-01 チャレンジで `*.media.{domain}` のワイルドカード証明書を自動取得
+- 証明書は S3 (`assetsBucket` の `caddy-certs/` prefix) に永続化 — 全イベントで共有
+- SFU TaskRole に Route53 DNS-01 用 + S3 読み書き権限を追加
+- 将来 CDK S3 Files L2 が GA になれば、storage backend を S3 API → NFS マウントに切替可能
+
 ## 影響・トレードオフ
 
-| 項目        | Before (ADR 0009)             | After (ADR 0016)                  |
-| ----------- | ----------------------------- | --------------------------------- |
-| TLS 終端    | NLB + ACM                     | Caddy sidecar + Secrets Manager   |
-| idle コスト | ~$16/月                       | $0                                |
-| DNS 解決    | NLB Alias (即時)              | A レコード TTL=60s (最大60s 遅延) |
-| 事前作成    | 不可 (NLB 課金)               | 可 (desiredCount:0, 全無料)       |
-| 証明書管理  | ACM 自動更新                  | 手動 or certbot Lambda            |
-| 起動時間    | warmup で CFn Create (~2-3分) | warmup で ECS Scale-up (~30-60s)  |
+| 項目        | Before (ADR 0009)             | After (ADR 0016 D-6)                 |
+| ----------- | ----------------------------- | ------------------------------------ |
+| TLS 終端    | NLB + ACM                     | Caddy sidecar + ACME 自動            |
+| idle コスト | ~$16/月                       | $0                                   |
+| DNS 解決    | NLB Alias (即時)              | A レコード TTL=60s (最大60s 遅延)    |
+| 事前作成    | 不可 (NLB 課金)               | 可 (desiredCount:0, 全無料)          |
+| 証明書管理  | ACM 自動更新                  | Caddy ACME 自動取得・更新            |
+| 手動操作    | cert/key を Secret に投入     | ゼロ                                 |
+| 起動時間    | warmup で CFn Create (~2-3分) | warmup で ECS Scale-up (~30-60s)     |
+| 初回起動    | cert があれば即 TLS 開始      | ACME 取得待ち (~30s、以降キャッシュ) |
