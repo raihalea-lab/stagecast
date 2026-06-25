@@ -2,7 +2,13 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ScheduleXCalendar, useCalendarApp } from "@schedule-x/react";
 import { createViewWeek, createViewMonthGrid } from "@schedule-x/calendar";
 import "@schedule-x/theme-default/dist/index.css";
-import { Temporal } from "temporal-polyfill";
+import type { Temporal } from "temporal-polyfill";
+
+// Schedule-X v4.6.0 uses the global Temporal for instanceof checks.
+// Module-imported Temporal creates a different prototype chain, so we
+// must use the same global instance to pass event validation.
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const T = (globalThis as any).Temporal as typeof Temporal;
 import {
   Button,
   Card,
@@ -20,12 +26,12 @@ function toTemporalZdt(iso: string): Temporal.ZonedDateTime {
   const d = new Date(iso);
   const epochMs = d.getTime();
   if (Number.isNaN(epochMs)) {
-    return Temporal.PlainDateTime.from(iso.replace(" ", "T")).toZonedDateTime(
-      Temporal.Now.timeZoneId(),
+    return T.PlainDateTime.from(iso.replace(" ", "T")).toZonedDateTime(
+      T.Now.timeZoneId(),
     );
   }
-  return Temporal.Instant.fromEpochMilliseconds(epochMs).toZonedDateTimeISO(
-    Temporal.Now.timeZoneId(),
+  return T.Instant.fromEpochMilliseconds(epochMs).toZonedDateTimeISO(
+    T.Now.timeZoneId(),
   );
 }
 
