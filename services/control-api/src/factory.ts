@@ -67,6 +67,8 @@ export interface FactoryConfig {
   streamKeyResolver?: StreamKeyResolver;
   /** R12-followup-19: ICE 用 TURN を取得する provider (本番 = KVS, テスト = fake)。 */
   iceServerProvider?: IceServerProvider;
+  /** ADR 0015 Phase 2: live 遷移時に reconcile Lambda を直接起動するコールバック。 */
+  onGoLive?: (eventId: string) => Promise<void>;
   now?: () => number;
   newId?: () => string;
 }
@@ -110,6 +112,7 @@ export function buildControlApi(config: FactoryConfig = {}) {
     newId,
     now,
     cleanupStorage,
+    onGoLive: config.onGoLive,
   });
   const invites = createInviteService({
     repo: config.inviteRepo ?? dynamo?.inviteRepo ?? new MemoryInviteTokenRepository(),

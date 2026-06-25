@@ -8,7 +8,6 @@ import {
   Tags,
   aws_ec2 as ec2,
   aws_ecs as ecs,
-  aws_elasticache as elasticache,
   aws_logs as logs,
   aws_iam as iam,
   aws_secretsmanager as secretsmanager,
@@ -19,6 +18,7 @@ import {
   aws_route53 as route53,
   aws_route53_targets as route53Targets,
   aws_certificatemanager as acm,
+  aws_servicediscovery as servicediscovery,
 } from "aws-cdk-lib";
 import type { Construct } from "constructs";
 import type { CaptionEngineKind, CaptionSinkKind } from "@stagecast/shared";
@@ -157,39 +157,20 @@ export class EventMediaStack extends Stack {
       containerInsightsV2: ecs.ContainerInsights.ENABLED,
     });
 
-    // --- 共有状態: ElastiCache for Valkey (cluster mode disabled, ADR 0010 D-6) ---
-    // R12-followup-3 (ADR 0010 D-6): Serverless (cluster mode 強制) では LiveKit psrpc の
-    // service registration が SUBSCRIBE/PUBLISH の cluster shard 制約で機能しない (sidecar 同居でも不可)。
-    // cluster-mode-disabled の単一ノード ReplicationGroup に切替えて LiveKit が想定する標準 Redis モードで動かす。
-    // コスト: cache.t4g.micro ~$0.020/h × イベント起動時間 (1〜3h なら $0.02〜0.06 / イベント)。
-    const valkeySg = new ec2.SecurityGroup(this, "ValkeySg", { vpc, allowAllOutbound: true });
-    valkeySg.addIngressRule(
-      ec2.Peer.ipv4(vpc.vpcCidrBlock),
-      ec2.Port.tcp(6379),
-      "Valkey port from within VPC",
+    // --- 共有状態: Valkey on Fargate (ADR 0015) ---
+    // ADR 0015: ElastiCache (起動 5-10 分) を廃止し、Fargate コンテナで Valkey を起動 (1-2 分)。
+    // 標準 Redis プロトコルのみ使用 (psrpc pub/sub, Streams, GET/SET)。
+    // CloudMap でサービスディスカバリし、SFU/Egress/CaptionWorker が DNS 名でアクセスする。
+    const namespace = new servicediscovery.PrivateDnsNamespace(
+      this,
+      "ServiceDiscovery",
+      {
+        name: `stagecast-${props.eventId}.local`,
+        vpc,
+      },
     );
-    const valkeySubnetGroup = new elasticache.CfnSubnetGroup(this, "ValkeySubnetGroup", {
-      description: `Valkey subnet group for event ${props.eventId}`,
-      subnetIds: vpc.selectSubnets({ subnetType: ec2.SubnetType.PUBLIC }).subnetIds,
-    });
-    const valkey = new elasticache.CfnReplicationGroup(this, "Valkey", {
-      replicationGroupDescription: `Valkey for event ${props.eventId}`,
-      engine: "valkey",
-      cacheNodeType: "cache.t4g.micro",
-      numCacheClusters: 1,
-      automaticFailoverEnabled: false,
-      multiAzEnabled: false,
-      transitEncryptionEnabled: true,
-      atRestEncryptionEnabled: true,
-      port: 6379,
-      cacheSubnetGroupName: valkeySubnetGroup.ref,
-      securityGroupIds: [valkeySg.securityGroupId],
-      // ephemeral: 破棄を速くするため自動バックアップは行わない。
-      snapshotRetentionLimit: 0,
-    });
-    valkey.addDependency(valkeySubnetGroup);
-    // 単一ノード (cluster mode disabled) なので primary endpoint を使う (Serverless 時とは異なる属性名)。
-    const valkeyEndpoint = valkey.attrPrimaryEndPointAddress;
+    const valkeyDnsName = `valkey.stagecast-${props.eventId}.local`;
+    const valkeyEndpoint = valkeyDnsName;
 
     // --- メディア/字幕の Fargate サービス群 ---
     const logGroup = new logs.LogGroup(this, "Logs", {
@@ -278,6 +259,8 @@ export class EventMediaStack extends Stack {
       memoryLimitMiB?: number;
       /** sidecar コンテナ群 (ADR 0010: SFU TaskDef に Egress を同居)。 */
       sidecars?: SidecarOptions[];
+      /** CloudMap サービスディスカバリ (ADR 0015: Valkey on Fargate)。 */
+      cloudMapOptions?: ecs.CloudMapOptions;
     }
     const addService = (
       name: string,
@@ -362,8 +345,42 @@ export class EventMediaStack extends Stack {
         assignPublicIp: true,
         vpcSubnets: { subnetType: ec2.SubnetType.PUBLIC },
         ...(opts.serviceName ? { serviceName: opts.serviceName } : {}),
+        ...(opts.cloudMapOptions ? { cloudMapOptions: opts.cloudMapOptions } : {}),
       });
     };
+
+    // --- Valkey on Fargate (ADR 0015) ---
+    // ElastiCache (起動 5-10 分) を廃止し Fargate コンテナで起動 (1-2 分)。
+    // CloudMap DNS でサービスディスカバリ。SFU/Egress/CaptionWorker が DNS 名でアクセスする。
+    const valkeyService = addService(
+      "Valkey",
+      "valkey/valkey:8-alpine",
+      {
+        cpu: 256,
+        memoryLimitMiB: 512,
+        ports: [{ containerPort: 6379, protocol: ecs.Protocol.TCP }],
+        command: [
+          "valkey-server",
+          "--save", "",
+          "--appendonly", "no",
+          "--protected-mode", "no",
+          "--maxmemory", "256mb",
+          "--maxmemory-policy", "allkeys-lru",
+        ],
+        cloudMapOptions: {
+          cloudMapNamespace: namespace,
+          name: "valkey",
+          dnsRecordType: servicediscovery.DnsRecordType.A,
+          dnsTtl: Duration.seconds(5),
+        },
+      },
+    );
+    // VPC 内の他サービスからの 6379/TCP アクセスを許可。
+    valkeyService.connections.allowFrom(
+      ec2.Peer.ipv4(vpc.vpcCidrBlock),
+      ec2.Port.tcp(6379),
+      "Valkey port from within VPC (ADR 0015)",
+    );
 
     // SFU(LiveKit): signaling(TCP) + WebRTC(TCP fallback / UDP)。config と Valkey を注入 (R1)。
     // ADR 0008 D-4: Public IP を直接公開し、NLB を廃止。reconcile Lambda が ECS から
@@ -866,12 +883,9 @@ export function liveKitServerConfig(valkeyEndpoint: string): string {
     // `rtcConfig.iceServers` として Room.connect に渡す → LiveKit Client SDK の `if (!rtcConfig.iceServers)`
     // 判定で server からの iceServers を完全 bypass。 SFU は ICE 通信の relay 先として KVS TURN を経由する。
     "redis:",
-    // ADR 0010 D-6: Valkey は cluster-mode-disabled の単一ノードに切替えた。
-    // 単一クライアントモード (redis.NewClient) で接続するため `address` を使う。
-    // psrpc の SUBSCRIBE/PUBLISH は標準 Redis pub/sub で動作する。
+    // ADR 0015: Valkey on Fargate (CloudMap DNS)。VPC 内部通信のみなので TLS 不要。
     `  address: ${valkeyEndpoint}:6379`,
-    // ElastiCache transit encryption を有効化しているので TLS で接続する。
-    "  use_tls: true",
+    "  use_tls: false",
     "logging:",
     "  level: info",
     "  json: true",
@@ -895,9 +909,9 @@ export function liveKitServerConfig(valkeyEndpoint: string): string {
 export function liveKitEgressConfig(valkeyEndpoint: string, composerTemplateUrl?: string): string {
   return [
     "redis:",
-    // ADR 0010 D-6: SFU と同じく単一ノードに合わせて address を使う。
+    // ADR 0015: SFU と同じく Fargate Valkey (CloudMap DNS)。TLS 不要。
     `  address: ${valkeyEndpoint}:6379`,
-    "  use_tls: true",
+    "  use_tls: false",
     `ws_url: ws://localhost:${LIVEKIT_PORTS.signaling}`,
     // R12-followup-23: localhost ws:// 接続を Chrome に許可する (ADR 0010 D-7)。
     // 同 Task 内 sidecar 同居 (ADR 0010 D-2) では SFU を ws://localhost:7880 で叩く構成だが、

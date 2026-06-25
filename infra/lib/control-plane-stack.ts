@@ -360,6 +360,7 @@ export class ControlPlaneStack extends Stack {
         externalModules: [
           "@aws-sdk/client-cognito-identity-provider",
           "@aws-sdk/client-dynamodb",
+          "@aws-sdk/client-lambda",
           "@aws-sdk/client-s3",
           "@aws-sdk/client-secrets-manager",
           "@aws-sdk/lib-dynamodb",
@@ -806,6 +807,11 @@ export class ControlPlaneStack extends Stack {
       }),
     );
     new CfnOutput(this, "EventMediaCfnExecRoleArn", { value: eventMediaCfnRole.roleArn });
+
+    // ADR 0015 Phase 2: control-api が live 遷移時に reconcile Lambda を直接起動する。
+    // EventBridge の 0-60 秒検知遅延をスキップし、即座にスタック作成を開始する。
+    controlApiFn.addEnvironment("RECONCILE_FUNCTION_NAME", reconcileFn.functionName);
+    reconcileFn.grantInvoke(controlApiFn);
 
     new events.Rule(this, "ReconcileSchedule", {
       description: "media-orchestrator の reconcile を 60 秒ごとに起動 (ADR 0003 D-2)",

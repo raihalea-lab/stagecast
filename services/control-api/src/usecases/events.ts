@@ -65,6 +65,7 @@ export function createEventService(deps: {
   newId: () => string;
   now: () => number;
   cleanupStorage?: (eventId: string) => Promise<void>;
+  onGoLive?: (eventId: string) => Promise<void>;
 }) {
   const { repo, newId, now } = deps;
 
@@ -160,6 +161,10 @@ export function createEventService(deps: {
     }
     const next: EventDefinition = { ...e, status, updatedAtMs: now() };
     await repo.put(next);
+    // ADR 0015 Phase 2: live 遷移時に reconcile Lambda を直接起動し、EventBridge 検知遅延 (0-60s) をスキップ。
+    if (status === "live") {
+      deps.onGoLive?.(eventId).catch(() => {});
+    }
     return next;
   }
 

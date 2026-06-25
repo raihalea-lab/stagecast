@@ -10,9 +10,9 @@ describe("render-template-handler (D1)", () => {
     });
     const parsed = JSON.parse(template) as { Resources: Record<string, { Type: string }> };
     const types = Object.values(parsed.Resources).map((r) => r.Type);
-    // ADR 0010 D-6: Valkey は ServerlessCache から ReplicationGroup (cluster mode disabled) に切替。
-    expect(types).toContain("AWS::ElastiCache::ReplicationGroup");
-    // ADR 0010: Egress は SFU の sidecar として同 Task に同居するので独立 Service は 2 つ。
-    expect(types.filter((t) => t === "AWS::ECS::Service")).toHaveLength(2);
+    // ADR 0015: ElastiCache 廃止 → Fargate Valkey + CloudMap。
+    expect(types).toContain("AWS::ServiceDiscovery::PrivateDnsNamespace");
+    // ADR 0015: Valkey + SFU + CaptionWorker = 3 サービス。
+    expect(types.filter((t) => t === "AWS::ECS::Service")).toHaveLength(3);
   });
 });

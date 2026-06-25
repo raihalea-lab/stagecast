@@ -132,6 +132,21 @@ export async function buildControlApiFromEnv(options: BuildFromEnvOptions = {}):
     ? createKvsIceServerProvider({ channelArn: env.KVS_SIGNALING_CHANNEL_ARN })
     : undefined;
 
+  // ADR 0015 Phase 2: RECONCILE_FUNCTION_NAME があれば live 遷移時に reconcile Lambda を直接起動。
+  const reconcileFunctionName = env.RECONCILE_FUNCTION_NAME;
+  const onGoLive = reconcileFunctionName
+    ? async (_eventId: string) => {
+        const { LambdaClient, InvokeCommand } = await import("@aws-sdk/client-lambda");
+        const client = new LambdaClient({});
+        await client.send(
+          new InvokeCommand({
+            FunctionName: reconcileFunctionName,
+            InvocationType: "Event",
+          }),
+        );
+      }
+    : undefined;
+
   return buildControlApi({
     inviteSecret,
     livekitMinter,
@@ -140,6 +155,7 @@ export async function buildControlApiFromEnv(options: BuildFromEnvOptions = {}):
     egressStarter,
     streamKeyResolver,
     ...(iceServerProvider ? { iceServerProvider } : {}),
+    ...(onGoLive ? { onGoLive } : {}),
   });
 }
 
