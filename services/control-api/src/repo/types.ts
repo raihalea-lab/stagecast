@@ -6,6 +6,7 @@
  */
 import type {
   EventDefinition,
+  EventRequest,
   InvitedRole,
   PresentationState,
   SpeakerVisibility,
@@ -34,6 +35,13 @@ export interface InviteTokenRepository {
   put(record: InviteTokenRecord): Promise<void>;
   get(jti: string): Promise<InviteTokenRecord | undefined>;
   listByEvent(eventId: string): Promise<InviteTokenRecord[]>;
+}
+
+export interface EventRequestRepository {
+  put(request: EventRequest): Promise<void>;
+  get(id: string): Promise<EventRequest | undefined>;
+  list(): Promise<EventRequest[]>;
+  delete(id: string): Promise<void>;
 }
 
 export interface PresentationRepository {

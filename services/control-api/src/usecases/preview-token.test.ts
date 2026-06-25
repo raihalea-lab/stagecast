@@ -15,7 +15,9 @@ function buildEvents() {
   });
 }
 
-function fakeMinter(): LiveKitTokenMinter & { calls: Array<{ identity: string; room: string; role: string }> } {
+function fakeMinter(): LiveKitTokenMinter & {
+  calls: Array<{ identity: string; room: string; role: string }>;
+} {
   const calls: Array<{ identity: string; room: string; role: string }> = [];
   return {
     calls,
@@ -32,10 +34,17 @@ describe("PreviewTokenService.issue (R17, ADR 0012 D-6)", () => {
     const created = await events.create({
       title: "test",
       startsAt: "2026-06-19T00:00:00.000Z",
-      caption: { languages: ["ja"], youtubeLanguage: "ja", engine: "transcribe", customApiEnabled: false },
+      caption: {
+        languages: ["ja"],
+        youtubeLanguage: "ja",
+        engine: "transcribe",
+        customApiEnabled: false,
+      },
     });
     await events.setStatus(created.id, "live");
-    await events.update(created.id, { media: { livekitUrl: "wss://event-X.example.com" } } as never);
+    await events.update(created.id, {
+      media: { livekitUrl: "wss://event-X.example.com" },
+    } as never);
     const minter = fakeMinter();
     const svc = createPreviewTokenService({ events, liveKitMinter: minter });
 
@@ -55,7 +64,12 @@ describe("PreviewTokenService.issue (R17, ADR 0012 D-6)", () => {
     const created = await events.create({
       title: "test",
       startsAt: "2026-06-19T00:00:00.000Z",
-      caption: { languages: ["ja"], youtubeLanguage: "ja", engine: "transcribe", customApiEnabled: false },
+      caption: {
+        languages: ["ja"],
+        youtubeLanguage: "ja",
+        engine: "transcribe",
+        customApiEnabled: false,
+      },
     });
     const svc = createPreviewTokenService({ events, liveKitMinter: fakeMinter() });
     await expect(svc.issue(created.id)).rejects.toBeInstanceOf(ServiceUnavailableError);
@@ -66,7 +80,12 @@ describe("PreviewTokenService.issue (R17, ADR 0012 D-6)", () => {
     const created = await events.create({
       title: "test",
       startsAt: "2026-06-19T00:00:00.000Z",
-      caption: { languages: ["ja"], youtubeLanguage: "ja", engine: "transcribe", customApiEnabled: false },
+      caption: {
+        languages: ["ja"],
+        youtubeLanguage: "ja",
+        engine: "transcribe",
+        customApiEnabled: false,
+      },
     });
     await events.setStatus(created.id, "live");
     const svc = createPreviewTokenService({ events, liveKitMinter: fakeMinter() });
@@ -78,10 +97,17 @@ describe("PreviewTokenService.issue (R17, ADR 0012 D-6)", () => {
     const created = await events.create({
       title: "test",
       startsAt: "2026-06-19T00:00:00.000Z",
-      caption: { languages: ["ja"], youtubeLanguage: "ja", engine: "transcribe", customApiEnabled: false },
+      caption: {
+        languages: ["ja"],
+        youtubeLanguage: "ja",
+        engine: "transcribe",
+        customApiEnabled: false,
+      },
     });
     await events.setStatus(created.id, "live");
-    await events.update(created.id, { media: { livekitUrl: "wss://event-X.example.com" } } as never);
+    await events.update(created.id, {
+      media: { livekitUrl: "wss://event-X.example.com" },
+    } as never);
     const svc = createPreviewTokenService({ events, liveKitMinter: fakeMinter() });
     const r1 = await svc.issue(created.id);
     const r2 = await svc.issue(created.id);

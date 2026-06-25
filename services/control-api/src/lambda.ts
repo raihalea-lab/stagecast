@@ -170,14 +170,16 @@ function resolveEgressStarter(
       }
       // wss:// は HTTP リクエスト用に https:// に変換する (LiveKit SDK の Twirp HTTP は https を使う)。
       const httpUrl = livekitUrl.replace(/^wss:\/\//i, "https://").replace(/^ws:\/\//i, "http://");
-      console.log(JSON.stringify({
-        msg: "egress.startRtmpEgress",
-        livekitUrl,
-        httpUrl,
-        roomName,
-        streamUrl: streamUrl.replace(/\/[^/]+$/, "/***"), // streamKey 部分は伏字
-        recordingsBucket: recordingsBucketName ?? "(not configured)",
-      }));
+      console.log(
+        JSON.stringify({
+          msg: "egress.startRtmpEgress",
+          livekitUrl,
+          httpUrl,
+          roomName,
+          streamUrl: streamUrl.replace(/\/[^/]+$/, "/***"), // streamKey 部分は伏字
+          recordingsBucket: recordingsBucketName ?? "(not configured)",
+        }),
+      );
       const sdk = await import("livekit-server-sdk");
       const client = new sdk.EgressClient(httpUrl, apiKey, apiSecret);
       try {
@@ -220,11 +222,13 @@ function resolveEgressStarter(
         );
         return { egressId: info.egressId };
       } catch (err) {
-        console.error(JSON.stringify({
-          msg: "egress.failed",
-          error: err instanceof Error ? err.message : String(err),
-          stack: err instanceof Error ? err.stack : undefined,
-        }));
+        console.error(
+          JSON.stringify({
+            msg: "egress.failed",
+            error: err instanceof Error ? err.message : String(err),
+            stack: err instanceof Error ? err.stack : undefined,
+          }),
+        );
         throw err;
       }
     },

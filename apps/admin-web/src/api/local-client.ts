@@ -8,6 +8,7 @@
 import { buildControlApi, type App } from "@stagecast/control-api";
 import type {
   EventDefinition,
+  EventRequest,
   EventStatus,
   InvitedRole,
   LiveKitCredentials,
@@ -18,7 +19,7 @@ import type {
   YouTubeCredentials,
   YouTubeSettingsStatus,
 } from "@stagecast/shared";
-import type { CreateEventInput } from "@stagecast/control-api";
+import type { CreateEventInput, CreateEventRequestInput } from "@stagecast/control-api";
 import type {
   AdminTokenResult,
   ControlApiClient,
@@ -119,5 +120,22 @@ export class LocalControlApiClient implements ControlApiClient {
   }
   putYouTubeSettings(creds: YouTubeCredentials): Promise<YouTubeSettingsStatus> {
     return this.call("PUT", "/settings/youtube", creds);
+  }
+  listEventRequests(): Promise<EventRequest[]> {
+    return this.call("GET", "/event-requests");
+  }
+  createEventRequest(input: CreateEventRequestInput): Promise<EventRequest> {
+    return this.call("POST", "/event-requests", input, false);
+  }
+  approveEventRequest(id: string): Promise<{ request: EventRequest; event: EventDefinition }> {
+    return this.call("POST", `/event-requests/${id}/approve`);
+  }
+  rejectEventRequest(id: string, reason?: string): Promise<EventRequest> {
+    return this.call("POST", `/event-requests/${id}/reject`, { reason });
+  }
+  listPublicEvents() {
+    return this.call<
+      { id: string; title: string; startsAt: string; endsAt?: string; status: string }[]
+    >("GET", "/events/public", undefined, false);
   }
 }

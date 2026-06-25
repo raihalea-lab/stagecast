@@ -49,7 +49,7 @@ describe("ControlPlaneStack", () => {
   });
 
   it("admin-web / stage-web / composer-web の CloudFront ディストリビューションがある (T6, ADR 0012 D-2)", () => {
-    template.resourceCountIs("AWS::CloudFront::Distribution", 3);
+    template.resourceCountIs("AWS::CloudFront::Distribution", 4);
   });
 
   it("制御 API の Lambda + HTTP API がある (T5)", () => {

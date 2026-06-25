@@ -608,3 +608,197 @@ describe("settings (LiveKit / YouTube) HTTP", () => {
     expect(get.body).toEqual({ configured: true, streamKeyConfigured: false });
   });
 });
+
+describe("event requests", () => {
+  let app: App;
+  let counter: number;
+
+  beforeEach(() => {
+    counter = 0;
+    app = buildControlApi({
+      inviteSecret: "test-secret",
+      now: () => 1_000_000,
+      newId: () => `id-${++counter}`,
+    });
+  });
+
+  const validRequest = {
+    requesterName: "太郎",
+    title: "勉強会",
+    startsAt: "2026-07-01T09:00:00Z",
+    endsAt: "2026-07-01T11:00:00Z",
+    description: "Reactハンズオン",
+  };
+
+  it("公開で POST /event-requests を作成できる（認証不要）", async () => {
+    const res = await app.handle(
+      req({ method: "POST", path: "/event-requests", body: validRequest }),
+    );
+    expect(res.status).toBe(201);
+    const body = res.body as { id: string; status: string; title: string };
+    expect(body.status).toBe("pending");
+    expect(body.title).toBe("勉強会");
+  });
+
+  it("タイトル空でバリデーションエラー", async () => {
+    const res = await app.handle(
+      req({
+        method: "POST",
+        path: "/event-requests",
+        body: { ...validRequest, title: "" },
+      }),
+    );
+    expect(res.status).toBe(400);
+  });
+
+  it("endsAt < startsAt でバリデーションエラー", async () => {
+    const res = await app.handle(
+      req({
+        method: "POST",
+        path: "/event-requests",
+        body: { ...validRequest, endsAt: "2026-07-01T08:00:00Z" },
+      }),
+    );
+    expect(res.status).toBe(400);
+  });
+
+  it("管理者は GET /event-requests で一覧を取得", async () => {
+    await app.handle(req({ method: "POST", path: "/event-requests", body: validRequest }));
+    const res = await app.handle(
+      req({ method: "GET", path: "/event-requests", headers: adminAuth }),
+    );
+    expect(res.status).toBe(200);
+    expect((res.body as unknown[]).length).toBe(1);
+  });
+
+  it("認証なしの GET /event-requests は 401", async () => {
+    const res = await app.handle(req({ method: "GET", path: "/event-requests" }));
+    expect(res.status).toBe(401);
+  });
+
+  it("承認フロー: pending→approved で EventDefinition が自動作成される", async () => {
+    const create = await app.handle(
+      req({ method: "POST", path: "/event-requests", body: validRequest }),
+    );
+    const requestId = (create.body as { id: string }).id;
+
+    const approve = await app.handle(
+      req({
+        method: "POST",
+        path: `/event-requests/${requestId}/approve`,
+        headers: adminAuth,
+      }),
+    );
+    expect(approve.status).toBe(200);
+    const body = approve.body as {
+      request: { status: string; approvedEventId: string };
+      event: { id: string; title: string; status: string };
+    };
+    expect(body.request.status).toBe("approved");
+    expect(body.event.title).toBe("勉強会");
+    expect(body.event.status).toBe("draft");
+    expect(body.request.approvedEventId).toBe(body.event.id);
+  });
+
+  it("二重承認は 400", async () => {
+    const create = await app.handle(
+      req({ method: "POST", path: "/event-requests", body: validRequest }),
+    );
+    const requestId = (create.body as { id: string }).id;
+    await app.handle(
+      req({
+        method: "POST",
+        path: `/event-requests/${requestId}/approve`,
+        headers: adminAuth,
+      }),
+    );
+    const res = await app.handle(
+      req({
+        method: "POST",
+        path: `/event-requests/${requestId}/approve`,
+        headers: adminAuth,
+      }),
+    );
+    expect(res.status).toBe(400);
+  });
+
+  it("却下フロー: pending→rejected", async () => {
+    const create = await app.handle(
+      req({ method: "POST", path: "/event-requests", body: validRequest }),
+    );
+    const requestId = (create.body as { id: string }).id;
+
+    const reject = await app.handle(
+      req({
+        method: "POST",
+        path: `/event-requests/${requestId}/reject`,
+        headers: adminAuth,
+        body: { reason: "日程が合わない" },
+      }),
+    );
+    expect(reject.status).toBe(200);
+    const body = reject.body as { status: string; rejectionReason: string };
+    expect(body.status).toBe("rejected");
+    expect(body.rejectionReason).toBe("日程が合わない");
+  });
+
+  it("承認済みを却下は 400", async () => {
+    const create = await app.handle(
+      req({ method: "POST", path: "/event-requests", body: validRequest }),
+    );
+    const requestId = (create.body as { id: string }).id;
+    await app.handle(
+      req({
+        method: "POST",
+        path: `/event-requests/${requestId}/approve`,
+        headers: adminAuth,
+      }),
+    );
+    const res = await app.handle(
+      req({
+        method: "POST",
+        path: `/event-requests/${requestId}/reject`,
+        headers: adminAuth,
+      }),
+    );
+    expect(res.status).toBe(400);
+  });
+
+  it("GET /events/public は draft を除外し機密フィールドを含まない", async () => {
+    // draft イベントを作成
+    await app.handle(
+      req({
+        method: "POST",
+        path: "/events",
+        headers: adminAuth,
+        body: { title: "Draft", startsAt: "2026-07-01T09:00:00Z", caption },
+      }),
+    );
+    // scheduled にする
+    const e2 = await app.handle(
+      req({
+        method: "POST",
+        path: "/events",
+        headers: adminAuth,
+        body: { title: "Scheduled", startsAt: "2026-07-02T09:00:00Z", caption },
+      }),
+    );
+    const scheduledId = (e2.body as { id: string }).id;
+    await app.handle(
+      req({
+        method: "POST",
+        path: `/events/${scheduledId}/status`,
+        headers: adminAuth,
+        body: { status: "scheduled" },
+      }),
+    );
+
+    const res = await app.handle(req({ method: "GET", path: "/events/public" }));
+    expect(res.status).toBe(200);
+    const body = res.body as { id: string; title: string; status: string }[];
+    expect(body.length).toBe(1);
+    expect(body[0].title).toBe("Scheduled");
+    expect(JSON.stringify(body[0])).not.toContain("caption");
+    expect(JSON.stringify(body[0])).not.toContain("youtube");
+  });
+});

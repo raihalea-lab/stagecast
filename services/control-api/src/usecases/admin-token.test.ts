@@ -15,7 +15,9 @@ function buildEvents() {
   });
 }
 
-function fakeMinter(): LiveKitTokenMinter & { calls: Array<{ identity: string; room: string; role: string }> } {
+function fakeMinter(): LiveKitTokenMinter & {
+  calls: Array<{ identity: string; room: string; role: string }>;
+} {
   const calls: Array<{ identity: string; room: string; role: string }> = [];
   return {
     calls,
@@ -32,12 +34,19 @@ describe("AdminTokenService.issue (R16, ADR 0012 D-4)", () => {
     const created = await events.create({
       title: "test",
       startsAt: "2026-06-19T00:00:00.000Z",
-      caption: { languages: ["ja"], youtubeLanguage: "ja", engine: "transcribe", customApiEnabled: false },
+      caption: {
+        languages: ["ja"],
+        youtubeLanguage: "ja",
+        engine: "transcribe",
+        customApiEnabled: false,
+      },
     });
     await events.setStatus(created.id, "live");
     // events.update の型は CreateEventInput ベースで media を含まないが、 実装は spread で
     // patch を受け入れるので as never で test 用に通す (既存 egress.test.ts と同じパターン)。
-    await events.update(created.id, { media: { livekitUrl: "wss://event-X.example.com" } } as never);
+    await events.update(created.id, {
+      media: { livekitUrl: "wss://event-X.example.com" },
+    } as never);
     const minter = fakeMinter();
     const svc = createAdminTokenService({ events, liveKitMinter: minter });
 
@@ -56,7 +65,12 @@ describe("AdminTokenService.issue (R16, ADR 0012 D-4)", () => {
     const created = await events.create({
       title: "test",
       startsAt: "2026-06-19T00:00:00.000Z",
-      caption: { languages: ["ja"], youtubeLanguage: "ja", engine: "transcribe", customApiEnabled: false },
+      caption: {
+        languages: ["ja"],
+        youtubeLanguage: "ja",
+        engine: "transcribe",
+        customApiEnabled: false,
+      },
     });
     // status は draft のまま
     const svc = createAdminTokenService({ events, liveKitMinter: fakeMinter() });
@@ -68,7 +82,12 @@ describe("AdminTokenService.issue (R16, ADR 0012 D-4)", () => {
     const created = await events.create({
       title: "test",
       startsAt: "2026-06-19T00:00:00.000Z",
-      caption: { languages: ["ja"], youtubeLanguage: "ja", engine: "transcribe", customApiEnabled: false },
+      caption: {
+        languages: ["ja"],
+        youtubeLanguage: "ja",
+        engine: "transcribe",
+        customApiEnabled: false,
+      },
     });
     await events.setStatus(created.id, "live");
     // media は設定しない
@@ -81,10 +100,17 @@ describe("AdminTokenService.issue (R16, ADR 0012 D-4)", () => {
     const created = await events.create({
       title: "test",
       startsAt: "2026-06-19T00:00:00.000Z",
-      caption: { languages: ["ja"], youtubeLanguage: "ja", engine: "transcribe", customApiEnabled: false },
+      caption: {
+        languages: ["ja"],
+        youtubeLanguage: "ja",
+        engine: "transcribe",
+        customApiEnabled: false,
+      },
     });
     await events.setStatus(created.id, "live");
-    await events.update(created.id, { media: { livekitUrl: "wss://event-X.example.com" } } as never);
+    await events.update(created.id, {
+      media: { livekitUrl: "wss://event-X.example.com" },
+    } as never);
     const minter = fakeMinter();
     const svc = createAdminTokenService({ events, liveKitMinter: minter });
 
@@ -101,12 +127,19 @@ describe("AdminTokenService.issue (R16, ADR 0012 D-4)", () => {
     const created = await events.create({
       title: "test",
       startsAt: "2026-06-19T00:00:00.000Z",
-      caption: { languages: ["ja"], youtubeLanguage: "ja", engine: "transcribe", customApiEnabled: false },
+      caption: {
+        languages: ["ja"],
+        youtubeLanguage: "ja",
+        engine: "transcribe",
+        customApiEnabled: false,
+      },
     });
     await events.setStatus(created.id, "live");
     // events.update の型は CreateEventInput ベースで media を含まないが、 実装は spread で
     // patch を受け入れるので as never で test 用に通す (既存 egress.test.ts と同じパターン)。
-    await events.update(created.id, { media: { livekitUrl: "wss://event-X.example.com" } } as never);
+    await events.update(created.id, {
+      media: { livekitUrl: "wss://event-X.example.com" },
+    } as never);
     const svc = createAdminTokenService({ events, liveKitMinter: fakeMinter() });
 
     const r1 = await svc.issue(created.id);

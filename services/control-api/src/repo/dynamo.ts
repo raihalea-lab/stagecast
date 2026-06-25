@@ -16,19 +16,28 @@ import {
   DeleteCommand,
   QueryCommand,
 } from "@aws-sdk/lib-dynamodb";
-import type { EventDefinition, PresentationState, SpeakerVisibility } from "@stagecast/shared";
+import type {
+  EventDefinition,
+  EventRequest,
+  PresentationState,
+  SpeakerVisibility,
+} from "@stagecast/shared";
 import type {
   EventRepository,
+  EventRequestRepository,
   InviteTokenRecord,
   InviteTokenRepository,
   PresentationRepository,
 } from "./types.js";
 import {
   eventPk,
+  eventRequestPk,
+  eventRequestToItem,
   eventToItem,
   invitePk,
   inviteToItem,
   itemToEvent,
+  itemToEventRequest,
   itemToInvite,
   itemToPresentation,
   presentationToItem,
@@ -101,6 +110,42 @@ export class DynamoInviteTokenRepository implements InviteTokenRepository {
   }
 }
 
+export class DynamoEventRequestRepository implements EventRequestRepository {
+  constructor(
+    private readonly table: string,
+    private readonly doc = createDocClient(),
+  ) {}
+
+  async put(request: EventRequest): Promise<void> {
+    await this.doc.send(
+      new PutCommand({ TableName: this.table, Item: eventRequestToItem(request) }),
+    );
+  }
+  async get(id: string): Promise<EventRequest | undefined> {
+    const res = await this.doc.send(
+      new GetCommand({ TableName: this.table, Key: { pk: eventRequestPk(id), sk: "META" } }),
+    );
+    return res.Item ? itemToEventRequest(res.Item) : undefined;
+  }
+  async list(): Promise<EventRequest[]> {
+    const res = await this.doc.send(
+      new QueryCommand({
+        TableName: this.table,
+        IndexName: "gsi1",
+        KeyConditionExpression: "gsi1pk = :pk",
+        ExpressionAttributeValues: { ":pk": "EVENT_REQUEST" },
+        ScanIndexForward: false,
+      }),
+    );
+    return (res.Items ?? []).map(itemToEventRequest);
+  }
+  async delete(id: string): Promise<void> {
+    await this.doc.send(
+      new DeleteCommand({ TableName: this.table, Key: { pk: eventRequestPk(id), sk: "META" } }),
+    );
+  }
+}
+
 export class DynamoPresentationRepository implements PresentationRepository {
   constructor(
     private readonly table: string,
@@ -153,6 +198,7 @@ export function dynamoRepositories(table: string, client?: DynamoDBClient) {
   const doc = createDocClient(client);
   return {
     eventRepo: new DynamoEventRepository(table, doc),
+    eventRequestRepo: new DynamoEventRequestRepository(table, doc),
     inviteRepo: new DynamoInviteTokenRepository(table, doc),
     presentationRepo: new DynamoPresentationRepository(table, doc),
   };

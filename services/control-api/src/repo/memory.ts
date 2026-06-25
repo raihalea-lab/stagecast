@@ -2,9 +2,15 @@
  * インメモリ・リポジトリ実装 (テスト/ローカル用)。
  * 本番では同じインターフェースの DynamoDB 実装に差し替える。
  */
-import type { EventDefinition, PresentationState, SpeakerVisibility } from "@stagecast/shared";
+import type {
+  EventDefinition,
+  EventRequest,
+  PresentationState,
+  SpeakerVisibility,
+} from "@stagecast/shared";
 import type {
   EventRepository,
+  EventRequestRepository,
   InviteTokenRecord,
   InviteTokenRepository,
   PresentationRepository,
@@ -40,6 +46,26 @@ export class MemoryInviteTokenRepository implements InviteTokenRepository {
   }
   async listByEvent(eventId: string): Promise<InviteTokenRecord[]> {
     return [...this.store.values()].filter((r) => r.eventId === eventId).map((r) => ({ ...r }));
+  }
+}
+
+export class MemoryEventRequestRepository implements EventRequestRepository {
+  private readonly store = new Map<string, EventRequest>();
+
+  async put(request: EventRequest): Promise<void> {
+    this.store.set(request.id, structuredClone(request));
+  }
+  async get(id: string): Promise<EventRequest | undefined> {
+    const r = this.store.get(id);
+    return r ? structuredClone(r) : undefined;
+  }
+  async list(): Promise<EventRequest[]> {
+    return [...this.store.values()]
+      .map((r) => structuredClone(r))
+      .sort((a, b) => b.createdAtMs - a.createdAtMs);
+  }
+  async delete(id: string): Promise<void> {
+    this.store.delete(id);
   }
 }
 
