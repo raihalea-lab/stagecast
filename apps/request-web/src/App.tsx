@@ -23,10 +23,6 @@ function toCalendarDateTime(iso: string): string {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
 
-function toCalendarDateTimeFromLocal(dtLocal: string): string {
-  return dtLocal.replace("T", " ");
-}
-
 function toDatetimeLocalFromZdt(zdt: Temporal.ZonedDateTime): string {
   const pad = (n: number) => String(n).padStart(2, "0");
   return `${zdt.year}-${pad(zdt.month)}-${pad(zdt.day)}T${pad(zdt.hour)}:${pad(zdt.minute)}`;
@@ -65,12 +61,6 @@ const LEGEND_DEFS = {
     lightColors: { main: "#d1d5db", container: "#f9fafb", onContainer: "#6b7280" },
     darkColors: { main: "#4b5563", container: "#1f2937", onContainer: "#d1d5db" },
   },
-  request: {
-    colorName: "request",
-    label: "リクエスト済",
-    lightColors: { main: "#f59e0b", container: "#fef3c7", onContainer: "#92400e" },
-    darkColors: { main: "#fbbf24", container: "#92400e", onContainer: "#fef3c7" },
-  },
 } as const;
 
 interface CalendarEvent {
@@ -90,7 +80,6 @@ interface PublicEvent {
 }
 
 interface LocalRequest {
-  id: string;
   title: string;
   startsAt: string;
   endsAt: string;
@@ -144,7 +133,7 @@ function CalendarDisplay(props: {
 }
 
 export function App(props: { controlApiUrl: string }) {
-  const [publicEvents, setPublicEvents] = useState<PublicEvent[]>([]);
+  const [publicEvents, setPublicEvents] = useState<PublicEvent[] | null>(null);
   const [localRequests, setLocalRequests] = useState<LocalRequest[]>([]);
   const [formOpen, setFormOpen] = useState(true);
   const [startsAt, setStartsAt] = useState("");
@@ -160,10 +149,14 @@ export function App(props: { controlApiUrl: string }) {
   const fetchPublicEvents = useCallback(async () => {
     try {
       const res = await fetch(`${props.controlApiUrl}/events/public`);
-      if (res.ok) setPublicEvents(await res.json());
+      if (res.ok) {
+        setPublicEvents(await res.json());
+        return;
+      }
     } catch {
       // API未接続
     }
+    setPublicEvents([]);
   }, [props.controlApiUrl]);
 
   useEffect(() => {
@@ -171,7 +164,8 @@ export function App(props: { controlApiUrl: string }) {
   }, [fetchPublicEvents]);
 
   const calendarEvents = useMemo(() => {
-    const events: CalendarEvent[] = publicEvents.map((e) => {
+    if (!publicEvents) return [];
+    return publicEvents.map((e) => {
       const endFallback = e.endsAt ?? new Date(Date.parse(e.startsAt) + TWO_HOURS_MS).toISOString();
       return {
         id: e.id,
@@ -181,24 +175,7 @@ export function App(props: { controlApiUrl: string }) {
         calendarId: e.status,
       };
     });
-
-    for (const r of localRequests) {
-      events.push({
-        id: r.id,
-        title: r.title,
-        start: toCalendarDateTimeFromLocal(r.startsAt),
-        end: toCalendarDateTimeFromLocal(r.endsAt),
-        calendarId: "request",
-      });
-    }
-
-    return events;
-  }, [publicEvents, localRequests]);
-
-  const calendarKey = useMemo(
-    () => `${publicEvents.map((e) => e.id).join(",")}-${localRequests.length}`,
-    [publicEvents, localRequests],
-  );
+  }, [publicEvents]);
 
   const setTimeRange = (start: string, end: string) => {
     setStartsAt(start);
@@ -233,10 +210,7 @@ export function App(props: { controlApiUrl: string }) {
         const body = await res.json().catch(() => ({ error: "送信に失敗しました" }));
         throw new Error((body as { error?: string }).error ?? "送信に失敗しました");
       }
-      setLocalRequests((prev) => [
-        ...prev,
-        { id: `local-${prev.length}`, title: title.trim(), startsAt, endsAt },
-      ]);
+      setLocalRequests((prev) => [...prev, { title: title.trim(), startsAt, endsAt }]);
       setSubmitted(true);
       setStartsAt("");
       setEndsAt("");
@@ -247,6 +221,17 @@ export function App(props: { controlApiUrl: string }) {
     } finally {
       setSubmitting(false);
     }
+  };
+
+  const formatLocalDateTime = (dt: string) => {
+    const d = new Date(dt);
+    if (Number.isNaN(d.getTime())) return dt;
+    return d.toLocaleString("ja-JP", {
+      month: "short",
+      day: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+    });
   };
 
   return (
@@ -270,11 +255,26 @@ export function App(props: { controlApiUrl: string }) {
               </span>
             ))}
           </div>
-          <CalendarDisplay
-            key={calendarKey}
-            events={calendarEvents}
-            onTimeRangeSelect={setTimeRange}
-          />
+          {publicEvents === null ? (
+            <div className="flex h-[520px] items-center justify-center text-sm text-text-secondary">
+              読み込み中…
+            </div>
+          ) : (
+            <CalendarDisplay events={calendarEvents} onTimeRangeSelect={setTimeRange} />
+          )}
+          {localRequests.length > 0 && (
+            <div className="mt-3 rounded-md border border-amber-200 bg-amber-50 px-4 py-3">
+              <p className="mb-2 text-xs font-medium text-amber-800">送信済みリクエスト</p>
+              <ul className="flex flex-col gap-1">
+                {localRequests.map((r, i) => (
+                  <li key={i} className="text-xs text-amber-700">
+                    {r.title}（{formatLocalDateTime(r.startsAt)} 〜 {formatLocalDateTime(r.endsAt)}
+                    ）
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
         </div>
         {formOpen && (
           <div className="w-full lg:w-96">
