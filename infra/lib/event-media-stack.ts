@@ -490,7 +490,7 @@ export class EventMediaStack extends Stack {
                 ports: [{ containerPort: 443, protocol: ecs.Protocol.TCP }],
                 entryPoint: ["sh", "-c"],
                 command: [
-                  `printf '{\\n  storage s3 {\\n    host "s3.%s.amazonaws.com"\\n    bucket "%s"\\n    prefix "caddy-certs/"\\n  }\\n}\\n\\n*.%s {\\n  tls {\\n    dns route53\\n  }\\n  reverse_proxy localhost:7880\\n}\\n' "$AWS_REGION" "$CERT_BUCKET" "$CADDY_DOMAIN" > /tmp/Caddyfile && exec caddy run --config /tmp/Caddyfile --adapter caddyfile`,
+                  `printf '{\\n  storage s3 {\\n    host "s3.%s.amazonaws.com"\\n    bucket "%s"\\n    prefix "caddy-certs/"\\n    use_iam_provider true\\n  }\\n}\\n\\n*.%s {\\n  tls {\\n    dns route53\\n  }\\n  reverse_proxy localhost:7880\\n}\\n' "$AWS_REGION" "$CERT_BUCKET" "$CADDY_DOMAIN" > /tmp/Caddyfile && exec caddy run --config /tmp/Caddyfile --adapter caddyfile`,
                 ],
                 environment: {
                   AWS_REGION: Stack.of(this).region,
