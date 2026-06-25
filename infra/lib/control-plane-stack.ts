@@ -32,6 +32,7 @@ import {
   aws_ec2 as ec2,
   aws_ecs as ecs,
   aws_kinesisvideo as kinesisvideo,
+  aws_ecr_assets as ecrAssets,
 } from "aws-cdk-lib";
 import type { Construct } from "constructs";
 
@@ -129,13 +130,10 @@ export class ControlPlaneStack extends Stack {
       ],
     });
 
-    const caddySidecarRepo = new ecr.Repository(this, "CaddySidecarRepo", {
-      repositoryName: "stagecast/caddy-sidecar",
-      imageScanOnPush: true,
-      imageTagMutability: ecr.TagMutability.MUTABLE,
-      removalPolicy: RemovalPolicy.DESTROY,
-      emptyOnDelete: true,
-      lifecycleRules: [{ description: "keep last 10 images", maxImageCount: 10 }],
+    // ADR 0016 D-6: Caddy + caddy-dns/route53 + certmagic-s3 のカスタムイメージ。
+    // DockerImageAsset で cdk deploy 時に自動 build & ECR push。GHA 不要。
+    const caddySidecarAsset = new ecrAssets.DockerImageAsset(this, "CaddySidecarImage", {
+      directory: path.join(__dirname, "../../services/caddy-sidecar"),
     });
 
     // --- 共有 VPC (R12-followup, N-1: 無料リソースの事前作成でイベント起動時間を短縮) ---
@@ -770,7 +768,7 @@ export class ControlPlaneStack extends Stack {
         // ハードコード名にフォールバックし、実在しないバケットを参照してしまう (ADR 0006 D-4)。
         RECORDINGS_BUCKET_NAME: assetsBucket.bucketName,
         // ADR 0016 D-6: Caddy ACME 自動 HTTPS + certmagic-s3。
-        CADDY_SIDECAR_IMAGE: `${caddySidecarRepo.repositoryUri}:latest`,
+        CADDY_SIDECAR_IMAGE: caddySidecarAsset.imageUri,
         CERT_BUCKET_NAME: assetsBucket.bucketName,
         ...(tlsConfig
           ? {
