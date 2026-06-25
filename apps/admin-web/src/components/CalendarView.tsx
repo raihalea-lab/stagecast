@@ -10,11 +10,7 @@ import type { EventDefinition, EventRequest } from "@stagecast/shared";
 const TWO_HOURS_MS = 2 * 60 * 60 * 1000;
 const VIEW_STORAGE_KEY = "stagecast-admin-cal-view";
 
-function toDatetimeLocal(
-  d: Date,
-  hour?: number,
-  minute?: number,
-): string {
+function toDatetimeLocal(d: Date, hour?: number, minute?: number): string {
   const pad = (n: number) => String(n).padStart(2, "0");
   const h = hour ?? d.getHours();
   const m = minute ?? d.getMinutes();
@@ -85,20 +81,14 @@ export function CalendarView(props: {
   onEventClick: (eventId: string) => void;
   onDateTimeClick?: (dateTime: string) => void;
 }) {
-  const [popover, setPopover] = useState<EventPopover | null>(
-    null,
-  );
+  const [popover, setPopover] = useState<EventPopover | null>(null);
 
   const calendarEvents = useMemo(() => {
     const eventItems = props.events.map((e) => ({
       id: e.id,
       title: e.title,
       start: e.startsAt,
-      end:
-        e.endsAt ??
-        new Date(
-          Date.parse(e.startsAt) + TWO_HOURS_MS,
-        ).toISOString(),
+      end: e.endsAt ?? new Date(Date.parse(e.startsAt) + TWO_HOURS_MS).toISOString(),
       ...(STATUS_COLORS[e.status] ?? STATUS_COLORS.scheduled),
     }));
     const requestItems = props.requests
@@ -113,39 +103,26 @@ export function CalendarView(props: {
     return [...eventItems, ...requestItems];
   }, [props.events, props.requests]);
 
-  const handleEventClick = useCallback(
-    (info: EventClickArg) => {
-      const id = info.event.id;
-      const isReq = id.startsWith("req-");
-      const rect = info.el.getBoundingClientRect();
-      setPopover({
-        title: info.event.title,
-        startStr: info.event.start
-          ? formatEventTime(info.event.start)
-          : "",
-        endStr: info.event.end
-          ? formatEventTime(info.event.end)
-          : "",
-        top: Math.min(
-          rect.bottom + 4,
-          window.innerHeight - 140,
-        ),
-        left: Math.min(rect.left, window.innerWidth - 280),
-        eventId: isReq ? null : id,
-      });
-      info.jsEvent.stopPropagation();
-    },
-    [],
-  );
+  const handleEventClick = useCallback((info: EventClickArg) => {
+    const id = info.event.id;
+    const isReq = id.startsWith("req-");
+    const rect = info.el.getBoundingClientRect();
+    setPopover({
+      title: info.event.title,
+      startStr: info.event.start ? formatEventTime(info.event.start) : "",
+      endStr: info.event.end ? formatEventTime(info.event.end) : "",
+      top: Math.min(rect.bottom + 4, window.innerHeight - 140),
+      left: Math.min(rect.left, window.innerWidth - 280),
+      eventId: isReq ? null : id,
+    });
+    info.jsEvent.stopPropagation();
+  }, []);
 
   return (
     <div className="flex h-[calc(100dvh-6rem)] w-full flex-col">
       <div className="flex shrink-0 flex-wrap items-center gap-3 pb-2 text-xs text-text-secondary">
         {LEGEND_ITEMS.map((item) => (
-          <span
-            key={item.label}
-            className="flex items-center gap-1.5"
-          >
+          <span key={item.label} className="flex items-center gap-1.5">
             <span
               className="inline-block size-3 rounded-full"
               style={{ backgroundColor: item.color }}
@@ -159,11 +136,7 @@ export function CalendarView(props: {
       </div>
       <div className="relative min-h-0 flex-1 [&_.fc-timegrid-slots]:!absolute [&_.fc-timegrid-slots]:!inset-0 [&_.fc-timegrid-slots_table]:!h-full">
         <FullCalendar
-          plugins={[
-            dayGridPlugin,
-            timeGridPlugin,
-            interactionPlugin,
-          ]}
+          plugins={[dayGridPlugin, timeGridPlugin, interactionPlugin]}
           initialView={localStorage.getItem(VIEW_STORAGE_KEY) || "dayGridMonth"}
           datesSet={(arg) => localStorage.setItem(VIEW_STORAGE_KEY, arg.view.type)}
           firstDay={1}
@@ -187,30 +160,21 @@ export function CalendarView(props: {
           dateClick={(info: DateClickArg) => {
             setPopover(null);
             if (info.allDay) {
-              props.onDateTimeClick?.(
-                toDatetimeLocal(info.date, 9, 0),
-              );
+              props.onDateTimeClick?.(toDatetimeLocal(info.date, 9, 0));
             } else {
-              props.onDateTimeClick?.(
-                toDatetimeLocal(info.date),
-              );
+              props.onDateTimeClick?.(toDatetimeLocal(info.date));
             }
           }}
         />
         {popover && (
           <>
-            <div
-              className="fixed inset-0 z-40"
-              onClick={() => setPopover(null)}
-            />
+            <div className="fixed inset-0 z-40" onClick={() => setPopover(null)} />
             <div
               className="fixed z-50 w-64 rounded-lg border border-line-1 bg-surface-0 p-3 shadow-lg"
               style={{ top: popover.top, left: popover.left }}
             >
               <div className="flex items-start justify-between">
-                <h3 className="text-sm font-medium text-text-primary">
-                  {popover.title}
-                </h3>
+                <h3 className="text-sm font-medium text-text-primary">{popover.title}</h3>
                 <button
                   type="button"
                   onClick={() => setPopover(null)}
@@ -220,8 +184,7 @@ export function CalendarView(props: {
                 </button>
               </div>
               <p className="mt-1 text-xs text-text-secondary">
-                {popover.startStr} &ndash; {popover.endStr}{" "}
-                JST
+                {popover.startStr} &ndash; {popover.endStr} JST
               </p>
               {popover.eventId && (
                 <button

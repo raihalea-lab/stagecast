@@ -31,6 +31,7 @@ import {
   aws_budgets as budgets,
   aws_sns_subscriptions as snsSubscriptions,
   aws_ec2 as ec2,
+  aws_ecs as ecs,
   aws_kinesisvideo as kinesisvideo,
 } from "aws-cdk-lib";
 import type { Construct } from "constructs";
@@ -139,6 +140,43 @@ export class ControlPlaneStack extends Stack {
       natGateways: 0,
       subnetConfiguration: [{ name: "Public", subnetType: ec2.SubnetType.PUBLIC, cidrMask: 24 }],
     });
+
+    // --- 共有 ECS Cluster + IAM Roles (ADR 0015 Phase 3, N-1: 無料リソースの事前作成) ---
+    // ECS Cluster はタスクが無ければ完全無料。IAM Role も無料。
+    // per-event CloudFormation テンプレートからこれらを省くことで ~20-30s の起動時間短縮。
+    const sharedMediaCluster = new ecs.Cluster(this, "SharedMediaCluster", {
+      vpc: sharedMediaVpc,
+      clusterName: "stagecast-media",
+      containerInsightsV2: ecs.ContainerInsights.ENABLED,
+    });
+
+    // SFU TaskRole: Egress の録画 S3 書き込み権限を含む (ADR 0010 D-3, D-5)。
+    const sharedSfuTaskRole = new iam.Role(this, "SharedSfuTaskRole", {
+      assumedBy: new iam.ServicePrincipal("ecs-tasks.amazonaws.com"),
+    });
+    sharedSfuTaskRole.addToPolicy(
+      new iam.PolicyStatement({
+        actions: ["s3:PutObject", "s3:AbortMultipartUpload", "s3:ListMultipartUploadParts"],
+        resources: [`arn:aws:s3:::${assetsBucket.bucketName}/recordings/*`],
+      }),
+    );
+
+    // CaptionWorker TaskRole: Transcribe/Translate/Bedrock (DESIGN.md 6.2)。
+    const sharedCaptionTaskRole = new iam.Role(this, "SharedCaptionTaskRole", {
+      assumedBy: new iam.ServicePrincipal("ecs-tasks.amazonaws.com"),
+    });
+    sharedCaptionTaskRole.addToPolicy(
+      new iam.PolicyStatement({
+        actions: [
+          "transcribe:StartStreamTranscriptionWebSocket",
+          "transcribe:StartStreamTranscription",
+          "translate:TranslateText",
+          "bedrock:InvokeModel",
+          "bedrock:InvokeModelWithResponseStream",
+        ],
+        resources: ["*"],
+      }),
+    );
 
     // --- LiveKit シグナリング用ドメイン / ACM 証明書 (ADR 0009 D-3) ---
     // EventMediaStack の NLB に attach するワイルドカード証明書を 1 つだけ作成し、全イベントで共有。
@@ -362,6 +400,7 @@ export class ControlPlaneStack extends Stack {
           "@aws-sdk/client-dynamodb",
           "@aws-sdk/client-lambda",
           "@aws-sdk/client-s3",
+          "@aws-sdk/client-scheduler",
           "@aws-sdk/client-secrets-manager",
           "@aws-sdk/lib-dynamodb",
           "@aws-sdk/s3-request-presigner",
@@ -721,6 +760,10 @@ export class ControlPlaneStack extends Stack {
         SHARED_VPC_CIDR: sharedMediaVpc.vpcCidrBlock,
         SHARED_SUBNET_IDS: sharedMediaVpc.publicSubnets.map((s) => s.subnetId).join(","),
         SHARED_SUBNET_AZS: sharedMediaVpc.publicSubnets.map((s) => s.availabilityZone).join(","),
+        // ADR 0015 Phase 3: 共有 ECS Cluster + IAM Roles を EventMediaStack に渡す。
+        SHARED_CLUSTER_NAME: sharedMediaCluster.clusterName,
+        SHARED_SFU_TASK_ROLE_ARN: sharedSfuTaskRole.roleArn,
+        SHARED_CAPTION_TASK_ROLE_ARN: sharedCaptionTaskRole.roleArn,
         // ADR 0012 D-3: カスタム Egress テンプレート (composer-template) の URL を
         // EventMediaStack に渡す。 render-template.ts が process.env から読んで Egress config
         // の template_base に注入する。
@@ -770,6 +813,8 @@ export class ControlPlaneStack extends Stack {
         RENDER_TEMPLATE_FUNCTION_NAME: renderTemplateFn.functionName,
         // ADR 0008 D-6: 並列イベント数の soft cap (コスト暴走防止)。
         MAX_PARALLEL_EVENTS: "10",
+        // ADR 0015 Phase 3: 共有 Cluster 名を reconcile に渡す (サービス名解決に使う)。
+        SHARED_CLUSTER_NAME: sharedMediaCluster.clusterName,
       },
     });
     // reconcile は RenderTemplateFunction を invoke できる。
@@ -812,6 +857,32 @@ export class ControlPlaneStack extends Stack {
     // EventBridge の 0-60 秒検知遅延をスキップし、即座にスタック作成を開始する。
     controlApiFn.addEnvironment("RECONCILE_FUNCTION_NAME", reconcileFn.functionName);
     reconcileFn.grantInvoke(controlApiFn);
+
+    // ADR 0015 Phase 4: EventBridge Scheduler が reconcile Lambda を invoke するための実行ロール。
+    // control-api が one-time schedule を作成し、startsAt の 5 分前に warmup を発火する。
+    const warmupSchedulerRole = new iam.Role(this, "WarmupSchedulerRole", {
+      assumedBy: new iam.ServicePrincipal("scheduler.amazonaws.com"),
+    });
+    reconcileFn.grantInvoke(warmupSchedulerRole);
+    controlApiFn.addEnvironment("RECONCILE_FUNCTION_ARN", reconcileFn.functionArn);
+    controlApiFn.addEnvironment("WARMUP_SCHEDULER_ROLE_ARN", warmupSchedulerRole.roleArn);
+    // control-api Lambda にスケジュール操作権限を付与。
+    controlApiFn.addToRolePolicy(
+      new iam.PolicyStatement({
+        actions: ["scheduler:CreateSchedule", "scheduler:DeleteSchedule"],
+        resources: [
+          `arn:aws:scheduler:${this.region}:${this.account}:schedule/default/stagecast-warmup-*`,
+        ],
+      }),
+    );
+    // EventBridge Scheduler が warmupSchedulerRole を PassRole で使えるよう、control-api に許可。
+    controlApiFn.addToRolePolicy(
+      new iam.PolicyStatement({
+        actions: ["iam:PassRole"],
+        resources: [warmupSchedulerRole.roleArn],
+        conditions: { StringEquals: { "iam:PassedToService": "scheduler.amazonaws.com" } },
+      }),
+    );
 
     new events.Rule(this, "ReconcileSchedule", {
       description: "media-orchestrator の reconcile を 60 秒ごとに起動 (ADR 0003 D-2)",

@@ -108,6 +108,22 @@ export interface EventMediaStackProps extends StackProps {
    * 未指定なら LiveKit Egress のデフォルトテンプレートを使う (`http://localhost:7980/`)。
    */
   composerTemplateUrl?: string;
+  /**
+   * ControlPlaneStack で事前作成した共有 ECS Cluster 名 (ADR 0015 Phase 3)。
+   * 指定時は per-event Cluster を作らず共有 Cluster を参照する (起動 ~10s 短縮)。
+   * サービス名は `sfu-{eventId}` 形式で per-event 一意にする。
+   */
+  sharedClusterName?: string;
+  /**
+   * ControlPlaneStack で事前作成した共有 SFU TaskRole の ARN (ADR 0015 Phase 3)。
+   * 指定時は per-event IAM Role を作らず共有 Role を参照する。
+   */
+  sharedSfuTaskRoleArn?: string;
+  /**
+   * ControlPlaneStack で事前作成した共有 CaptionWorker TaskRole の ARN (ADR 0015 Phase 3)。
+   * 指定時は per-event IAM Role を作らず共有 Role を参照する。
+   */
+  sharedCaptionTaskRoleArn?: string;
 }
 
 /**
@@ -150,25 +166,30 @@ export class EventMediaStack extends Stack {
           ],
         });
 
-    const cluster = new ecs.Cluster(this, "Cluster", {
-      vpc,
-      // reconcile Lambda が `ecs:ListTasks` で参照するため固定名 (ADR 0008 D-2)。
-      clusterName: eventMediaClusterName(props.eventId),
-      containerInsightsV2: ecs.ContainerInsights.ENABLED,
-    });
+    // ADR 0015 Phase 3: 共有 Cluster があればそれを参照、なければ per-event Cluster を作成。
+    // 共有 Cluster を使うとイベント起動時間 ~10s 短縮 (CloudFormation リソース数削減)。
+    // サービス名は共有時 `sfu-{eventId}` / per-event 時 `sfu` で衝突回避。
+    const cluster: ecs.ICluster = props.sharedClusterName
+      ? ecs.Cluster.fromClusterAttributes(this, "SharedClusterRef", {
+          clusterName: props.sharedClusterName,
+          vpc,
+          securityGroups: [],
+        })
+      : new ecs.Cluster(this, "Cluster", {
+          vpc,
+          clusterName: eventMediaClusterName(props.eventId),
+          containerInsightsV2: ecs.ContainerInsights.ENABLED,
+        });
+    const sfuServiceName = props.sharedClusterName ? `sfu-${props.eventId}` : SFU_SERVICE_NAME;
 
     // --- 共有状態: Valkey on Fargate (ADR 0015) ---
     // ADR 0015: ElastiCache (起動 5-10 分) を廃止し、Fargate コンテナで Valkey を起動 (1-2 分)。
     // 標準 Redis プロトコルのみ使用 (psrpc pub/sub, Streams, GET/SET)。
     // CloudMap でサービスディスカバリし、SFU/Egress/CaptionWorker が DNS 名でアクセスする。
-    const namespace = new servicediscovery.PrivateDnsNamespace(
-      this,
-      "ServiceDiscovery",
-      {
-        name: `stagecast-${props.eventId}.local`,
-        vpc,
-      },
-    );
+    const namespace = new servicediscovery.PrivateDnsNamespace(this, "ServiceDiscovery", {
+      name: `stagecast-${props.eventId}.local`,
+      vpc,
+    });
     const valkeyDnsName = `valkey.stagecast-${props.eventId}.local`;
     const valkeyEndpoint = valkeyDnsName;
 
@@ -180,22 +201,27 @@ export class EventMediaStack extends Stack {
       removalPolicy: RemovalPolicy.RETAIN,
     });
 
-    // 字幕ワーカーは Transcribe/Translate/Bedrock を呼ぶため最小権限を付与 (DESIGN.md 6.2)。
-    const captionTaskRole = new iam.Role(this, "CaptionTaskRole", {
-      assumedBy: new iam.ServicePrincipal("ecs-tasks.amazonaws.com"),
-    });
-    captionTaskRole.addToPolicy(
-      new iam.PolicyStatement({
-        actions: [
-          "transcribe:StartStreamTranscriptionWebSocket",
-          "transcribe:StartStreamTranscription",
-          "translate:TranslateText",
-          "bedrock:InvokeModel",
-          "bedrock:InvokeModelWithResponseStream",
-        ],
-        resources: ["*"],
-      }),
-    );
+    // ADR 0015 Phase 3: 共有 CaptionTaskRole があればそれを参照、なければ per-event で作成。
+    const captionTaskRole: iam.IRole = props.sharedCaptionTaskRoleArn
+      ? iam.Role.fromRoleArn(this, "SharedCaptionTaskRole", props.sharedCaptionTaskRoleArn)
+      : (() => {
+          const role = new iam.Role(this, "CaptionTaskRole", {
+            assumedBy: new iam.ServicePrincipal("ecs-tasks.amazonaws.com"),
+          });
+          role.addToPolicy(
+            new iam.PolicyStatement({
+              actions: [
+                "transcribe:StartStreamTranscriptionWebSocket",
+                "transcribe:StartStreamTranscription",
+                "translate:TranslateText",
+                "bedrock:InvokeModel",
+                "bedrock:InvokeModelWithResponseStream",
+              ],
+              resources: ["*"],
+            }),
+          );
+          return role;
+        })();
 
     // LiveKit 資格情報 (api key/secret) は ControlPlaneStack の Secrets Manager から注入する
     // (コードに置かない, ADR 0001 D-10 / 0006 D-3)。実値投入は deploy 時 (スコープ外)。
@@ -215,19 +241,22 @@ export class EventMediaStack extends Stack {
       LIVEKIT_API_SECRET: ecs.Secret.fromSecretsManager(livekitSecret, "apiSecret"),
     };
 
-    // ADR 0010: SFU と Egress を同一 Task に sidecar 同居させるため、SFU の TaskRole に
-    // Egress 用 S3 書き込み権限を統合する。Egress 単独の TaskRole は廃止 (ADR 0010 D-3, D-5)。
-    const sfuTaskRole = new iam.Role(this, "SfuTaskRole", {
-      assumedBy: new iam.ServicePrincipal("ecs-tasks.amazonaws.com"),
-    });
+    // ADR 0015 Phase 3: 共有 SfuTaskRole があればそれを参照、なければ per-event で作成。
     const recordingsBucketName = props.recordingsBucketName ?? "stagecast-recordings";
-    // Egress は録画を S3 に直接 PUT する。出力先プレフィックスのみに絞る (ADR 0006 D-4)。
-    sfuTaskRole.addToPolicy(
-      new iam.PolicyStatement({
-        actions: ["s3:PutObject", "s3:AbortMultipartUpload", "s3:ListMultipartUploadParts"],
-        resources: [`arn:aws:s3:::${recordingsBucketName}/recordings/*`],
-      }),
-    );
+    const sfuTaskRole: iam.IRole = props.sharedSfuTaskRoleArn
+      ? iam.Role.fromRoleArn(this, "SharedSfuTaskRole", props.sharedSfuTaskRoleArn)
+      : (() => {
+          const role = new iam.Role(this, "SfuTaskRole", {
+            assumedBy: new iam.ServicePrincipal("ecs-tasks.amazonaws.com"),
+          });
+          role.addToPolicy(
+            new iam.PolicyStatement({
+              actions: ["s3:PutObject", "s3:AbortMultipartUpload", "s3:ListMultipartUploadParts"],
+              resources: [`arn:aws:s3:::${recordingsBucketName}/recordings/*`],
+            }),
+          );
+          return role;
+        })();
 
     const images = props.images ?? {};
     interface SidecarOptions {
@@ -352,29 +381,30 @@ export class EventMediaStack extends Stack {
     // --- Valkey on Fargate (ADR 0015) ---
     // ElastiCache (起動 5-10 分) を廃止し Fargate コンテナで起動 (1-2 分)。
     // CloudMap DNS でサービスディスカバリ。SFU/Egress/CaptionWorker が DNS 名でアクセスする。
-    const valkeyService = addService(
-      "Valkey",
-      "valkey/valkey:8-alpine",
-      {
-        cpu: 256,
-        memoryLimitMiB: 512,
-        ports: [{ containerPort: 6379, protocol: ecs.Protocol.TCP }],
-        command: [
-          "valkey-server",
-          "--save", "",
-          "--appendonly", "no",
-          "--protected-mode", "no",
-          "--maxmemory", "256mb",
-          "--maxmemory-policy", "allkeys-lru",
-        ],
-        cloudMapOptions: {
-          cloudMapNamespace: namespace,
-          name: "valkey",
-          dnsRecordType: servicediscovery.DnsRecordType.A,
-          dnsTtl: Duration.seconds(5),
-        },
+    const valkeyService = addService("Valkey", "valkey/valkey:8-alpine", {
+      cpu: 256,
+      memoryLimitMiB: 512,
+      ports: [{ containerPort: 6379, protocol: ecs.Protocol.TCP }],
+      command: [
+        "valkey-server",
+        "--save",
+        "",
+        "--appendonly",
+        "no",
+        "--protected-mode",
+        "no",
+        "--maxmemory",
+        "256mb",
+        "--maxmemory-policy",
+        "allkeys-lru",
+      ],
+      cloudMapOptions: {
+        cloudMapNamespace: namespace,
+        name: "valkey",
+        dnsRecordType: servicediscovery.DnsRecordType.A,
+        dnsTtl: Duration.seconds(5),
       },
-    );
+    });
     // VPC 内の他サービスからの 6379/TCP アクセスを許可。
     valkeyService.connections.allowFrom(
       ec2.Peer.ipv4(vpc.vpcCidrBlock),
@@ -403,7 +433,7 @@ export class EventMediaStack extends Stack {
     // (LIVEKIT_WS_URL=ws://localhost:7880)、psrpc は Valkey 経由で共有する。
     // Task は SFU (1 vCPU) + Egress (Chrome ヘッドレス, 1 vCPU) で合計 2 vCPU / 4 GiB に増強。
     const sfu = addService("Sfu", images.sfu ?? "livekit/livekit-server:latest", {
-      serviceName: SFU_SERVICE_NAME,
+      serviceName: sfuServiceName,
       cpu: 2048,
       memoryLimitMiB: 4096,
       taskRole: sfuTaskRole,
@@ -771,7 +801,7 @@ export class EventMediaStack extends Stack {
     // Public IP ベース URL) で接続する。
     new CfnOutput(this, "ClusterName", { value: cluster.clusterName });
     new CfnOutput(this, "SfuServiceName", {
-      value: SFU_SERVICE_NAME,
+      value: sfuServiceName,
       description: "reconcile Lambda が ecs:ListTasks で参照する SFU service 名 (ADR 0008 D-2)",
     });
     new CfnOutput(this, "AlarmTopicArn", { value: alarmTopic.topicArn });

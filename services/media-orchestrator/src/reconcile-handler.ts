@@ -35,12 +35,20 @@ const DEFAULT_MAX_PARALLEL_EVENTS = 10;
 /** LiveKit Server (Fargate task) が listen するシグナリングポート。 */
 const LIVEKIT_SIGNAL_PORT = 7880;
 
-/** LiveKit Server を担う ECS service 名 (event-media-stack.ts SFU_SERVICE_NAME と一致)。 */
-const SFU_SERVICE_NAME = "sfu";
-
-/** ECS Cluster の命名規約 (event-media-stack.ts eventMediaClusterName と一致)。 */
+/**
+ * ECS Cluster 名を解決する (ADR 0015 Phase 3)。
+ * SHARED_CLUSTER_NAME が設定されていれば共有 Cluster を使い、なければ per-event Cluster。
+ */
 function clusterName(eventId: string): string {
-  return `stagecast-event-${eventId}`;
+  return process.env.SHARED_CLUSTER_NAME ?? `stagecast-event-${eventId}`;
+}
+
+/**
+ * SFU サービス名を解決する (ADR 0015 Phase 3)。
+ * 共有 Cluster 時は `sfu-{eventId}` で衝突回避、per-event Cluster 時は固定 `sfu`。
+ */
+function sfuServiceName(eventId: string): string {
+  return process.env.SHARED_CLUSTER_NAME ? `sfu-${eventId}` : "sfu";
 }
 
 import { createMediaPublisher, type MediaResolver, type MediaStore } from "./media-publisher.js";
@@ -98,7 +106,7 @@ async function deps(): Promise<HandlerDeps> {
       const listed = await ecs.send(
         new ListTasksCommand({
           cluster,
-          serviceName: SFU_SERVICE_NAME,
+          serviceName: sfuServiceName(eventId),
           desiredStatus: "RUNNING",
         }),
       );
@@ -316,12 +324,66 @@ function makeExecutor(): ReconcileExecutor {
   };
 }
 
-/** EventBridge スケジュールから呼ばれるエントリ。 */
+/**
+ * ADR 0015 Phase 4: EventBridge Scheduler からのウォームアップペイロード。
+ * scheduled 状態のイベントを warmup に遷移させ、インフラを事前起動する。
+ */
+interface WarmupEvent {
+  warmupEventIds: string[];
+}
+
+function isWarmupEvent(event: unknown): event is WarmupEvent {
+  return (
+    typeof event === "object" &&
+    event !== null &&
+    "warmupEventIds" in event &&
+    Array.isArray((event as WarmupEvent).warmupEventIds)
+  );
+}
+
+/** EventBridge スケジュールまたはウォームアップスケジューラから呼ばれるエントリ。 */
 export async function handler(
-  _event: ScheduledEvent,
+  _event: ScheduledEvent | WarmupEvent,
   _context?: Context,
 ): Promise<{ done: number; errors: number; skipped: number; mediaUpdated: number }> {
   const d = await deps();
+
+  // ADR 0015 Phase 4: ウォームアップスケジューラからの呼び出し時、
+  // イベントを scheduled→warmup に遷移させて liveStatus を立てる (GSI に載せる)。
+  if (isWarmupEvent(_event)) {
+    const tableName = process.env.METADATA_TABLE_NAME;
+    if (tableName) {
+      const { DynamoDBClient } = await import("@aws-sdk/client-dynamodb");
+      const { DynamoDBDocumentClient, UpdateCommand } = await import("@aws-sdk/lib-dynamodb");
+      const dynamo = DynamoDBDocumentClient.from(new DynamoDBClient({}));
+      for (const eventId of _event.warmupEventIds) {
+        try {
+          await dynamo.send(
+            new UpdateCommand({
+              TableName: tableName,
+              Key: { pk: `EVENT#${eventId}`, sk: "META" },
+              UpdateExpression: "SET #st = :warmup, liveStatus = :live, updatedAtMs = :now",
+              ConditionExpression: "#st = :scheduled",
+              ExpressionAttributeNames: { "#st": "status" },
+              ExpressionAttributeValues: {
+                ":warmup": "warmup",
+                ":live": "live",
+                ":scheduled": "scheduled",
+                ":now": Date.now(),
+              },
+            }),
+          );
+          log.info("warmup transition", { eventId, from: "scheduled", to: "warmup" });
+        } catch (err) {
+          log.warn("warmup transition skipped", {
+            eventId,
+            reason: err instanceof Error ? err.message : String(err),
+          });
+        }
+      }
+    }
+  }
+
   const [allDesired, actual] = await Promise.all([d.fetchDesired(), d.fetchActual()]);
 
   // ADR 0008 D-6: 並列イベント数の soft cap を適用する。超過分は警告ログを出して skip。

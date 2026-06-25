@@ -26,12 +26,12 @@ export function eventToItem(event: EventDefinition): Item {
     type: "event",
     gsi1pk: "EVENT",
     gsi1sk: `${event.startsAt}#${event.id}`,
-    // gsi-live (reconcile が live イベントを引く) のキー属性。eventId はソートキー、
-    // liveStatus はパーティションキー。live のときだけ liveStatus を立て、それ以外は
-    // undefined にして DocClient の removeUndefinedValues で消す → sparse index (live のみ索引)。
-    // live→ended は PutItem 全置換で liveStatus が消え、次の reconcile tick で destroy される。
+    // gsi-live (reconcile が live/warmup イベントを引く) のキー属性。eventId はソートキー、
+    // liveStatus はパーティションキー。live または warmup のときだけ liveStatus を立て、
+    // それ以外は undefined にして DocClient の removeUndefinedValues で消す → sparse index。
+    // ADR 0015 Phase 4: warmup 状態でもインフラ起動が必要なので liveStatus を立てる。
     eventId: event.id,
-    liveStatus: event.status === "live" ? "live" : undefined,
+    liveStatus: event.status === "live" || event.status === "warmup" ? "live" : undefined,
     ...event,
   };
 }

@@ -69,6 +69,8 @@ export interface FactoryConfig {
   iceServerProvider?: IceServerProvider;
   /** ADR 0015 Phase 2: live 遷移時に reconcile Lambda を直接起動するコールバック。 */
   onGoLive?: (eventId: string) => Promise<void>;
+  /** ADR 0015 Phase 4: スケジュール事前ウォームアップ。startsAt=string で作成、null で削除。 */
+  onWarmupSchedule?: (eventId: string, startsAt: string | null) => Promise<void>;
   now?: () => number;
   newId?: () => string;
 }
@@ -113,6 +115,7 @@ export function buildControlApi(config: FactoryConfig = {}) {
     now,
     cleanupStorage,
     onGoLive: config.onGoLive,
+    onWarmupSchedule: config.onWarmupSchedule,
   });
   const invites = createInviteService({
     repo: config.inviteRepo ?? dynamo?.inviteRepo ?? new MemoryInviteTokenRepository(),

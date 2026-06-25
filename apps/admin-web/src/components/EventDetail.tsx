@@ -41,7 +41,10 @@ import {
 } from "@stagecast/ui";
 import { Download, ExternalLink, Trash2, Upload } from "@stagecast/ui/icons";
 
-const TRANSITIONS: Record<EventStatus, { label: string; status: EventStatus; variant: "default" | "outline" | "destructive" }[]> = {
+const TRANSITIONS: Record<
+  EventStatus,
+  { label: string; status: EventStatus; variant: "default" | "outline" | "destructive" }[]
+> = {
   draft: [
     { label: "予定にする", status: "scheduled", variant: "outline" },
     { label: "配信開始", status: "live", variant: "default" },
@@ -50,9 +53,11 @@ const TRANSITIONS: Record<EventStatus, { label: string; status: EventStatus; var
     { label: "下書きに戻す", status: "draft", variant: "outline" },
     { label: "配信開始", status: "live", variant: "default" },
   ],
-  live: [
-    { label: "配信終了", status: "ended", variant: "destructive" },
+  warmup: [
+    { label: "配信開始", status: "live", variant: "default" },
+    { label: "下書きに戻す", status: "draft", variant: "outline" },
   ],
+  live: [{ label: "配信終了", status: "ended", variant: "destructive" }],
   ended: [],
 };
 
@@ -135,7 +140,19 @@ export function EventDetail(props: {
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
           <h2 className="text-lg font-semibold text-text-primary">{event.title}</h2>
-          <StatusPill variant={event.status === "scheduled" ? "scheduled" : event.status === "live" ? "live" : event.status === "ended" ? "ended" : "draft"} />
+          <StatusPill
+            variant={
+              event.status === "scheduled"
+                ? "scheduled"
+                : event.status === "warmup"
+                  ? "warmup"
+                  : event.status === "live"
+                    ? "live"
+                    : event.status === "ended"
+                      ? "ended"
+                      : "draft"
+            }
+          />
         </div>
         <div className="flex items-center gap-2">
           <OpenStageButton

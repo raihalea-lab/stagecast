@@ -66,6 +66,8 @@ export function createEventService(deps: {
   now: () => number;
   cleanupStorage?: (eventId: string) => Promise<void>;
   onGoLive?: (eventId: string) => Promise<void>;
+  /** ADR 0015 Phase 4: スケジュール事前ウォームアップ。startsAt=string で作成、null で削除。 */
+  onWarmupSchedule?: (eventId: string, startsAt: string | null) => Promise<void>;
 }) {
   const { repo, newId, now } = deps;
 
@@ -145,10 +147,12 @@ export function createEventService(deps: {
     return next;
   }
 
-  // ライフサイクル遷移 (DESIGN.md 7.1)。許可された遷移のみ受け付ける。
+  // ライフサイクル遷移 (DESIGN.md 7.1, ADR 0015 Phase 4)。許可された遷移のみ受け付ける。
+  // warmup: scheduled→warmup (タイマー自動遷移), warmup→live (Go Live), warmup→draft (キャンセル)
   const allowed: Record<EventStatus, EventStatus[]> = {
     draft: ["scheduled", "live"],
-    scheduled: ["live", "draft"],
+    scheduled: ["live", "draft", "warmup"],
+    warmup: ["live", "draft"],
     live: ["ended"],
     ended: [],
   };
@@ -164,6 +168,13 @@ export function createEventService(deps: {
     // ADR 0015 Phase 2: live 遷移時に reconcile Lambda を直接起動し、EventBridge 検知遅延 (0-60s) をスキップ。
     if (status === "live") {
       deps.onGoLive?.(eventId).catch(() => {});
+    }
+    // ADR 0015 Phase 4: scheduled 遷移時にウォームアップスケジュールを作成。
+    // scheduled 以外への遷移時はスケジュールを削除。
+    if (status === "scheduled") {
+      deps.onWarmupSchedule?.(eventId, e.startsAt).catch(() => {});
+    } else if (e.status === "scheduled") {
+      deps.onWarmupSchedule?.(eventId, null).catch(() => {});
     }
     return next;
   }

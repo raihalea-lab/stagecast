@@ -147,6 +147,46 @@ export async function buildControlApiFromEnv(options: BuildFromEnvOptions = {}):
       }
     : undefined;
 
+  // ADR 0015 Phase 4: EventBridge Scheduler でウォームアップスケジュールを管理。
+  const reconcileFunctionArn = env.RECONCILE_FUNCTION_ARN;
+  const schedulerRoleArn = env.WARMUP_SCHEDULER_ROLE_ARN;
+  const onWarmupSchedule =
+    reconcileFunctionArn && schedulerRoleArn
+      ? async (eventId: string, startsAt: string | null) => {
+          const { SchedulerClient, CreateScheduleCommand, DeleteScheduleCommand } =
+            await import("@aws-sdk/client-scheduler");
+          const client = new SchedulerClient({});
+          const scheduleName = `stagecast-warmup-${eventId}`;
+          if (!startsAt) {
+            try {
+              await client.send(new DeleteScheduleCommand({ Name: scheduleName }));
+            } catch {
+              // スケジュールが存在しなければ無視
+            }
+            return;
+          }
+          const warmupMs = Date.parse(startsAt) - 5 * 60 * 1000;
+          if (warmupMs <= Date.now()) return;
+          const warmupTime = new Date(warmupMs);
+          // EventBridge Scheduler at() は "yyyy-MM-ddTHH:mm:ss" 形式 (UTC、末尾 Z なし)
+          const atExpr = `at(${warmupTime.toISOString().slice(0, 19)})`;
+          await client.send(
+            new CreateScheduleCommand({
+              Name: scheduleName,
+              ScheduleExpression: atExpr,
+              ScheduleExpressionTimezone: "UTC",
+              Target: {
+                Arn: reconcileFunctionArn,
+                RoleArn: schedulerRoleArn,
+                Input: JSON.stringify({ warmupEventIds: [eventId] }),
+              },
+              FlexibleTimeWindow: { Mode: "OFF" },
+              ActionAfterCompletion: "DELETE",
+            }),
+          );
+        }
+      : undefined;
+
   return buildControlApi({
     inviteSecret,
     livekitMinter,
@@ -156,6 +196,7 @@ export async function buildControlApiFromEnv(options: BuildFromEnvOptions = {}):
     streamKeyResolver,
     ...(iceServerProvider ? { iceServerProvider } : {}),
     ...(onGoLive ? { onGoLive } : {}),
+    ...(onWarmupSchedule ? { onWarmupSchedule } : {}),
   });
 }
 

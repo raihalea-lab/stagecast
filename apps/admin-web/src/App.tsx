@@ -445,7 +445,7 @@ export function App(props: {
           )}
         </div>
         <div className="flex gap-1 px-3 pb-2">
-          {(["all", "draft", "scheduled", "live", "ended"] as const).map((s) => (
+          {(["all", "draft", "scheduled", "warmup", "live", "ended"] as const).map((s) => (
             <button
               key={s}
               type="button"
@@ -456,7 +456,17 @@ export function App(props: {
                   : "bg-surface-2 text-text-secondary hover:bg-surface-3"
               }`}
             >
-              {s === "all" ? "すべて" : s === "draft" ? "下書き" : s === "scheduled" ? "予定" : s === "live" ? "配信中" : "終了"}
+              {s === "all"
+                ? "すべて"
+                : s === "draft"
+                  ? "下書き"
+                  : s === "scheduled"
+                    ? "予定"
+                    : s === "warmup"
+                      ? "準備中"
+                      : s === "live"
+                        ? "配信中"
+                        : "終了"}
             </button>
           ))}
         </div>
@@ -607,7 +617,15 @@ export function App(props: {
         {!isSettingsView && selected && (
           <StatusPill
             variant={
-              selected.status === "scheduled" ? "scheduled" : selected.status === "live" ? "live" : selected.status === "ended" ? "ended" : "draft"
+              selected.status === "scheduled"
+                ? "scheduled"
+                : selected.status === "warmup"
+                  ? "warmup"
+                  : selected.status === "live"
+                    ? "live"
+                    : selected.status === "ended"
+                      ? "ended"
+                      : "draft"
             }
           />
         )}

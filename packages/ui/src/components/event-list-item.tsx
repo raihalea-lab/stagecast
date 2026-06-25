@@ -30,6 +30,7 @@ function formatStartsAt(iso: string): string {
 const STATUS_LABEL: Record<EventStatus, string> = {
   draft: "下書き",
   scheduled: "予定",
+  warmup: "準備中",
   live: "配信中",
   ended: "終了",
 };
@@ -37,6 +38,7 @@ const STATUS_LABEL: Record<EventStatus, string> = {
 const STATUS_CLASS: Record<EventStatus, string> = {
   draft: "text-text-tertiary",
   scheduled: "text-preview-500",
+  warmup: "text-amber-500",
   live: "text-tally-400",
   ended: "text-text-tertiary",
 };
