@@ -48,11 +48,7 @@ describe("HttpStageClient.join (ADR 0008 D-3)", () => {
   });
 
   it("503 が続いた後に 200 が返ったらリトライ成功する", async () => {
-    const fetchMock = stubFetch([
-      { status: 503 },
-      { status: 503 },
-      okResponse,
-    ]);
+    const fetchMock = stubFetch([{ status: 503 }, { status: 503 }, okResponse]);
     const client = new HttpStageClient("http://api");
     const sleep = vi.fn(async () => {});
     const onRetry = vi.fn();

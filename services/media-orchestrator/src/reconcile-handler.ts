@@ -43,11 +43,7 @@ function clusterName(eventId: string): string {
   return `stagecast-event-${eventId}`;
 }
 
-import {
-  createMediaPublisher,
-  type MediaResolver,
-  type MediaStore,
-} from "./media-publisher.js";
+import { createMediaPublisher, type MediaResolver, type MediaStore } from "./media-publisher.js";
 import type { EventMediaInfo } from "@stagecast/shared";
 
 /** 環境変数 → 結線。Lambda の cold start で 1 度だけ評価する。 */
@@ -67,14 +63,11 @@ async function deps(): Promise<HandlerDeps> {
   if (!tableName) throw new Error("METADATA_TABLE_NAME is required");
   // 遅延 import: テストや代替ハンドラから読まれても副作用を発生させない。
   const { DynamoDBClient } = await import("@aws-sdk/client-dynamodb");
-  const { DynamoDBDocumentClient, QueryCommand, UpdateCommand } = await import(
-    "@aws-sdk/lib-dynamodb"
-  );
+  const { DynamoDBDocumentClient, QueryCommand, UpdateCommand } =
+    await import("@aws-sdk/lib-dynamodb");
   const { CloudFormationClient, ListStacksCommand, DescribeStacksCommand } =
     await import("@aws-sdk/client-cloudformation");
-  const { ECSClient, ListTasksCommand, DescribeTasksCommand } = await import(
-    "@aws-sdk/client-ecs"
-  );
+  const { ECSClient, ListTasksCommand, DescribeTasksCommand } = await import("@aws-sdk/client-ecs");
   const { EC2Client, DescribeNetworkInterfacesCommand } = await import("@aws-sdk/client-ec2");
   const dynamo = DynamoDBDocumentClient.from(new DynamoDBClient({}));
   const cfn = new CloudFormationClient({});
@@ -111,9 +104,7 @@ async function deps(): Promise<HandlerDeps> {
       );
       const taskArn = listed.taskArns?.[0];
       if (!taskArn) return undefined;
-      const described = await ecs.send(
-        new DescribeTasksCommand({ cluster, tasks: [taskArn] }),
-      );
+      const described = await ecs.send(new DescribeTasksCommand({ cluster, tasks: [taskArn] }));
       const attachment = described.tasks?.[0]?.attachments?.find(
         (a: { type?: string }) => a.type === "ElasticNetworkInterface",
       );
@@ -376,9 +367,7 @@ export async function handler(
   });
 
   // ADR 0008 D-2: live + 既にスタック running の各イベントに対して media を確定させる。
-  const runningIds = new Set(
-    actual.filter((a) => a.kind === "running").map((a) => a.eventId),
-  );
+  const runningIds = new Set(actual.filter((a) => a.kind === "running").map((a) => a.eventId));
   const liveRunning = desired.filter((d) => runningIds.has(d.eventId));
   let mediaUpdated = 0;
   for (const d2 of liveRunning) {

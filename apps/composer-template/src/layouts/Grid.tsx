@@ -13,10 +13,7 @@ export function Grid(props: Props) {
   const { tiles } = props;
   const cols = computeCols(tiles.length);
   return (
-    <div
-      className="grid-layout"
-      style={{ gridTemplateColumns: `repeat(${cols}, 1fr)` }}
-    >
+    <div className="grid-layout" style={{ gridTemplateColumns: `repeat(${cols}, 1fr)` }}>
       {tiles.map((t) => (
         <Tile key={tileKey(t)} tile={t} />
       ))}
