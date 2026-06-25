@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ScheduleXCalendar, useCalendarApp } from "@schedule-x/react";
 import { createViewWeek, createViewMonthGrid } from "@schedule-x/calendar";
 import "@schedule-x/theme-default/dist/index.css";
-import type { Temporal } from "temporal-polyfill";
+import { Temporal } from "temporal-polyfill";
 import {
   Button,
   Card,
@@ -16,11 +16,17 @@ import {
 
 const TWO_HOURS_MS = 2 * 60 * 60 * 1000;
 
-function toCalendarDateTime(iso: string): string {
+function toTemporalZdt(iso: string): Temporal.ZonedDateTime {
   const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return iso;
-  const pad = (n: number) => String(n).padStart(2, "0");
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  const epochMs = d.getTime();
+  if (Number.isNaN(epochMs)) {
+    return Temporal.PlainDateTime.from(iso.replace(" ", "T")).toZonedDateTime(
+      Temporal.Now.timeZoneId(),
+    );
+  }
+  return Temporal.Instant.fromEpochMilliseconds(epochMs).toZonedDateTimeISO(
+    Temporal.Now.timeZoneId(),
+  );
 }
 
 function toDatetimeLocalFromZdt(zdt: Temporal.ZonedDateTime): string {
@@ -66,8 +72,8 @@ const LEGEND_DEFS = {
 interface CalendarEvent {
   id: string;
   title: string;
-  start: string;
-  end: string;
+  start: Temporal.ZonedDateTime;
+  end: Temporal.ZonedDateTime;
   calendarId: string;
 }
 
@@ -170,8 +176,8 @@ export function App(props: { controlApiUrl: string }) {
       return {
         id: e.id,
         title: e.title,
-        start: toCalendarDateTime(e.startsAt),
-        end: toCalendarDateTime(endFallback),
+        start: toTemporalZdt(e.startsAt),
+        end: toTemporalZdt(endFallback),
         calendarId: e.status,
       };
     });
