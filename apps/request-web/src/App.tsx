@@ -111,26 +111,59 @@ interface LocalRequest {
   endsAt: string;
 }
 
+const DAY_START = 7;
+const DAY_END = 23;
+const DAY_SPAN = DAY_END - DAY_START;
+
 function CalendarDisplay(props: {
   events: CalendarEvent[];
   onTimeRangeSelect: (start: string, end: string) => void;
 }) {
   const dragStartRef = useRef<string | null>(null);
   const calRef = useRef<ReturnType<typeof useCalendarApp>>(null);
+  const isDraggingRef = useRef(false);
 
-  const addSelectionBlock = (startDt: string, endDt: string) => {
+  const upsertSelectionBlock = (startDt: string, endDt: string) => {
     const cal = calRef.current;
     if (!cal) return;
-    if (cal.events.get(SELECTION_EVENT_ID)) {
-      cal.events.remove(SELECTION_EVENT_ID);
-    }
-    cal.events.add({
+    const existing = cal.events.get(SELECTION_EVENT_ID);
+    const evt = {
       id: SELECTION_EVENT_ID,
       title: "選択中",
       start: toTemporalZdt(startDt),
       end: toTemporalZdt(endDt),
       calendarId: "selection",
+    };
+    if (existing) {
+      cal.events.update(evt);
+    } else {
+      cal.events.add(evt);
+    }
+  };
+
+  const calcTimeFromY = (
+    clientY: number,
+    startZdt: Temporal.ZonedDateTime,
+    gridBody: HTMLElement,
+  ): string => {
+    const rect = gridBody.getBoundingClientRect();
+    const scrollEl = gridBody.closest(".sx__week-grid") as HTMLElement | null;
+    const scrollTop = scrollEl?.scrollTop ?? 0;
+    const relY = clientY - rect.top + scrollTop;
+    const fraction = Math.max(0, Math.min(1, relY / gridBody.scrollHeight));
+    const totalMin = DAY_START * 60 + fraction * DAY_SPAN * 60;
+    const rounded = Math.round(totalMin / 10) * 10;
+    const h = Math.min(DAY_END, Math.max(DAY_START, Math.floor(rounded / 60)));
+    const m = rounded % 60;
+    const zdt = startZdt.with({
+      hour: h,
+      minute: m,
+      second: 0,
+      millisecond: 0,
+      microsecond: 0,
+      nanosecond: 0,
     });
+    return toDatetimeLocalFromZdt(zdt);
   };
 
   const calendar = useCalendarApp({
@@ -145,7 +178,37 @@ function CalendarDisplay(props: {
     calendars: LEGEND_DEFS,
     callbacks: {
       onMouseDownDateTime(dateTime) {
-        dragStartRef.current = toDatetimeLocalFromZdt(snapTo10Min(dateTime));
+        const snapped = snapTo10Min(dateTime);
+        const startDt = toDatetimeLocalFromZdt(snapped);
+        dragStartRef.current = startDt;
+
+        const gridBody = document.querySelector(
+          ".sx__week-grid__time-grid-body",
+        ) as HTMLElement | null;
+        if (!gridBody) return;
+
+        isDraggingRef.current = true;
+        const initialEnd = toDatetimeLocalFromZdt(snapped.add({ minutes: 30 }));
+        upsertSelectionBlock(startDt, initialEnd);
+
+        const onMove = (e: MouseEvent) => {
+          if (!isDraggingRef.current) return;
+          const currentDt = calcTimeFromY(e.clientY, snapped, gridBody);
+          const [s, en] =
+            startDt < currentDt
+              ? [startDt, currentDt]
+              : [currentDt, startDt];
+          if (s !== en) upsertSelectionBlock(s, en);
+        };
+
+        const onUp = () => {
+          isDraggingRef.current = false;
+          document.removeEventListener("mousemove", onMove);
+          document.removeEventListener("mouseup", onUp);
+        };
+
+        document.addEventListener("mousemove", onMove);
+        document.addEventListener("mouseup", onUp);
       },
       onClickDateTime(dateTime) {
         const clickedDt = toDatetimeLocalFromZdt(snapTo10Min(dateTime));
@@ -156,19 +219,21 @@ function CalendarDisplay(props: {
         let end: string;
         if (dragStart && dragStart !== clickedDt) {
           [start, end] =
-            dragStart < clickedDt ? [dragStart, clickedDt] : [clickedDt, dragStart];
+            dragStart < clickedDt
+              ? [dragStart, clickedDt]
+              : [clickedDt, dragStart];
         } else {
           start = clickedDt;
           end = computeDefaultEndsAt(clickedDt);
         }
-        addSelectionBlock(start, end);
+        upsertSelectionBlock(start, end);
         props.onTimeRangeSelect(start, end);
       },
       onClickDate(date) {
         dragStartRef.current = null;
         const dt = toDatetimeLocalFromDate(date);
         const endDt = computeDefaultEndsAt(dt);
-        addSelectionBlock(dt, endDt);
+        upsertSelectionBlock(dt, endDt);
         props.onTimeRangeSelect(dt, endDt);
       },
     },
