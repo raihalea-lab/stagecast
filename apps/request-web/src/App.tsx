@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import FullCalendar from "@fullcalendar/react";
 import dayGridPlugin from "@fullcalendar/daygrid";
 import timeGridPlugin from "@fullcalendar/timegrid";
@@ -84,10 +84,10 @@ const SELECTION_COLORS = {
 };
 
 const LEGEND_ITEMS = [
-  { label: "Scheduled", color: "#3b82f6" },
-  { label: "Live", color: "#ef4444" },
-  { label: "Ended", color: "#d1d5db" },
-  { label: "Selected", color: "#f59e0b" },
+  { label: "予定", color: "#3b82f6" },
+  { label: "配信中", color: "#ef4444" },
+  { label: "終了", color: "#d1d5db" },
+  { label: "選択中", color: "#f59e0b" },
 ];
 
 interface PublicEvent {
@@ -121,6 +121,19 @@ function CalendarDisplay(props: {
   const [popover, setPopover] = useState<EventPopover | null>(
     null,
   );
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [calHeight, setCalHeight] = useState(600);
+
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el) return;
+    const ro = new ResizeObserver((entries) => {
+      const h = entries[0]?.contentRect.height;
+      if (h && h > 0) setCalHeight(Math.floor(h));
+    });
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
 
   const events = useMemo(() => {
     const items = props.publicEvents.map((e) => ({
@@ -139,7 +152,7 @@ function CalendarDisplay(props: {
     if (props.startsAt && props.endsAt) {
       items.push({
         id: SELECTION_ID,
-        title: "Selected",
+        title: "選択中",
         start: props.startsAt,
         end: props.endsAt,
         editable: true,
@@ -205,7 +218,10 @@ function CalendarDisplay(props: {
         endStr: info.event.end
           ? formatEventTime(info.event.end)
           : "",
-        top: Math.min(rect.bottom + 4, window.innerHeight - 120),
+        top: Math.min(
+          rect.bottom + 4,
+          window.innerHeight - 120,
+        ),
         left: Math.min(rect.left, window.innerWidth - 280),
       });
       info.jsEvent.stopPropagation();
@@ -214,7 +230,10 @@ function CalendarDisplay(props: {
   );
 
   return (
-    <div className="relative w-full flex-1">
+    <div
+      ref={containerRef}
+      className="relative min-h-0 w-full flex-1"
+    >
       <FullCalendar
         plugins={[
           dayGridPlugin,
@@ -238,7 +257,7 @@ function CalendarDisplay(props: {
           minute: "2-digit",
           hour12: false,
         }}
-        height="100%"
+        height={calHeight}
         selectable
         selectMirror
         unselectAuto={false}
@@ -386,12 +405,11 @@ export function App(props: { controlApiUrl: string }) {
   const formatLocalDateTime = (dt: string) => {
     const d = new Date(dt);
     if (Number.isNaN(d.getTime())) return dt;
-    return d.toLocaleString("en-US", {
+    return d.toLocaleString("ja-JP", {
       month: "short",
       day: "numeric",
       hour: "2-digit",
       minute: "2-digit",
-      hour12: false,
     });
   };
 
@@ -399,11 +417,10 @@ export function App(props: { controlApiUrl: string }) {
     <div className="flex h-dvh flex-col bg-surface-0">
       <header className="shrink-0 border-b border-line-1 px-6 py-4">
         <h1 className="text-lg font-semibold text-text-primary">
-          Stagecast Event Request
+          Stagecast イベントリクエスト
         </h1>
         <p className="text-sm text-text-secondary">
-          Click or drag on the calendar to request an event
-          time slot
+          カレンダーの空き時間をクリックまたは週表示でドラッグして、イベントをリクエストできます
         </p>
       </header>
       <div className="flex min-h-0 flex-1 flex-col gap-6 p-6 lg:flex-row">
@@ -427,7 +444,7 @@ export function App(props: { controlApiUrl: string }) {
           </div>
           {publicEvents === null ? (
             <div className="flex flex-1 items-center justify-center text-sm text-text-secondary">
-              Loading...
+              読み込み中…
             </div>
           ) : (
             <CalendarDisplay
@@ -440,14 +457,14 @@ export function App(props: { controlApiUrl: string }) {
           {localRequests.length > 0 && (
             <div className="mt-3 shrink-0 rounded-md border border-amber-200 bg-amber-50 px-4 py-3">
               <p className="mb-2 text-xs font-medium text-amber-800">
-                Submitted Requests
+                送信済みリクエスト
               </p>
               <ul className="flex flex-col gap-1">
                 {localRequests.map((r, i) => (
                   <li key={i} className="text-xs text-amber-700">
-                    {r.title} (
-                    {formatLocalDateTime(r.startsAt)} &ndash;{" "}
-                    {formatLocalDateTime(r.endsAt)})
+                    {r.title}（
+                    {formatLocalDateTime(r.startsAt)} 〜{" "}
+                    {formatLocalDateTime(r.endsAt)}）
                   </li>
                 ))}
               </ul>
@@ -458,14 +475,13 @@ export function App(props: { controlApiUrl: string }) {
           <div className="w-full shrink-0 lg:w-96">
             <Card>
               <CardHeader>
-                <CardTitle>Event Request</CardTitle>
+                <CardTitle>イベントリクエスト</CardTitle>
               </CardHeader>
               <CardContent>
                 {submitted ? (
                   <div className="flex flex-col gap-3">
                     <p className="text-sm text-emerald-600">
-                      Request submitted! Awaiting admin
-                      approval.
+                      リクエストを送信しました！管理者の承認をお待ちください。
                     </p>
                     <Button
                       variant="outline"
@@ -473,7 +489,7 @@ export function App(props: { controlApiUrl: string }) {
                         setSubmitted(false);
                       }}
                     >
-                      Submit Another
+                      続けてリクエスト
                     </Button>
                   </div>
                 ) : (
@@ -487,19 +503,19 @@ export function App(props: { controlApiUrl: string }) {
                       </p>
                     )}
                     <div className="grid gap-1.5">
-                      <Label htmlFor="rw-name">Name *</Label>
+                      <Label htmlFor="rw-name">お名前 *</Label>
                       <Input
                         id="rw-name"
                         value={requesterName}
                         onChange={(e) =>
                           setRequesterName(e.target.value)
                         }
-                        placeholder="Your name"
+                        placeholder="山田太郎"
                       />
                     </div>
                     <div className="grid gap-1.5">
                       <Label htmlFor="rw-contact">
-                        Contact (Email / Slack / X)
+                        連絡先（メール / Slack / X など）
                       </Label>
                       <Input
                         id="rw-contact"
@@ -507,12 +523,12 @@ export function App(props: { controlApiUrl: string }) {
                         onChange={(e) =>
                           setContactInfo(e.target.value)
                         }
-                        placeholder="e.g. user@example.com"
+                        placeholder="例: user@example.com, @slack_id"
                       />
                     </div>
                     <div className="grid gap-1.5">
                       <Label htmlFor="rw-title">
-                        Event Title *
+                        イベントタイトル *
                       </Label>
                       <Input
                         id="rw-title"
@@ -523,7 +539,9 @@ export function App(props: { controlApiUrl: string }) {
                       />
                     </div>
                     <div className="grid gap-1.5">
-                      <Label htmlFor="rw-starts">Start</Label>
+                      <Label htmlFor="rw-starts">
+                        開始日時
+                      </Label>
                       <Input
                         id="rw-starts"
                         type="datetime-local"
@@ -539,7 +557,7 @@ export function App(props: { controlApiUrl: string }) {
                       />
                     </div>
                     <div className="grid gap-1.5">
-                      <Label htmlFor="rw-ends">End</Label>
+                      <Label htmlFor="rw-ends">終了日時</Label>
                       <Input
                         id="rw-ends"
                         type="datetime-local"
@@ -550,9 +568,7 @@ export function App(props: { controlApiUrl: string }) {
                       />
                     </div>
                     <div className="grid gap-1.5">
-                      <Label htmlFor="rw-desc">
-                        Description
-                      </Label>
+                      <Label htmlFor="rw-desc">説明</Label>
                       <textarea
                         id="rw-desc"
                         value={description}
@@ -566,8 +582,8 @@ export function App(props: { controlApiUrl: string }) {
                     </div>
                     <Button type="submit" disabled={submitting}>
                       {submitting
-                        ? "Submitting..."
-                        : "Submit Request"}
+                        ? "送信中…"
+                        : "リクエストを送信"}
                     </Button>
                   </form>
                 )}

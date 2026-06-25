@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import FullCalendar from "@fullcalendar/react";
 import dayGridPlugin from "@fullcalendar/daygrid";
 import timeGridPlugin from "@fullcalendar/timegrid";
@@ -62,11 +62,11 @@ const STATUS_COLORS: Record<
 };
 
 const LEGEND_ITEMS = [
-  { label: "Draft", color: "#9ca3af" },
-  { label: "Scheduled", color: "#3b82f6" },
-  { label: "Live", color: "#ef4444" },
-  { label: "Ended", color: "#d1d5db" },
-  { label: "Request", color: "#f59e0b" },
+  { label: "下書き", color: "#9ca3af" },
+  { label: "予定", color: "#3b82f6" },
+  { label: "配信中", color: "#ef4444" },
+  { label: "終了", color: "#d1d5db" },
+  { label: "リクエスト", color: "#f59e0b" },
 ];
 
 interface EventPopover {
@@ -75,7 +75,7 @@ interface EventPopover {
   endStr: string;
   top: number;
   left: number;
-  isRequest: boolean;
+  eventId: string | null;
 }
 
 export function CalendarView(props: {
@@ -87,6 +87,19 @@ export function CalendarView(props: {
   const [popover, setPopover] = useState<EventPopover | null>(
     null,
   );
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [calHeight, setCalHeight] = useState(500);
+
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el) return;
+    const ro = new ResizeObserver((entries) => {
+      const h = entries[0]?.contentRect.height;
+      if (h && h > 0) setCalHeight(Math.floor(h));
+    });
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
 
   const calendarEvents = useMemo(() => {
     const eventItems = props.events.map((e) => ({
@@ -104,7 +117,7 @@ export function CalendarView(props: {
       .filter((r) => r.status === "pending")
       .map((r) => ({
         id: `req-${r.id}`,
-        title: `[Request] ${r.title}`,
+        title: `[リクエスト] ${r.title}`,
         start: r.startsAt,
         end: r.endsAt,
         ...STATUS_COLORS.request,
@@ -130,7 +143,7 @@ export function CalendarView(props: {
           window.innerHeight - 140,
         ),
         left: Math.min(rect.left, window.innerWidth - 280),
-        isRequest: isReq,
+        eventId: isReq ? null : id,
       });
       info.jsEvent.stopPropagation();
     },
@@ -156,7 +169,10 @@ export function CalendarView(props: {
           JST (UTC+9)
         </span>
       </div>
-      <div className="relative min-h-0 flex-1">
+      <div
+        ref={containerRef}
+        className="relative min-h-0 flex-1"
+      >
         <FullCalendar
           plugins={[
             dayGridPlugin,
@@ -178,7 +194,7 @@ export function CalendarView(props: {
             minute: "2-digit",
             hour12: false,
           }}
-          height="100%"
+          height={calHeight}
           events={calendarEvents}
           eventClick={handleEventClick}
           dateClick={(info: DateClickArg) => {
@@ -220,20 +236,17 @@ export function CalendarView(props: {
                 {popover.startStr} &ndash; {popover.endStr}{" "}
                 JST
               </p>
-              {!popover.isRequest && (
+              {popover.eventId && (
                 <button
                   type="button"
                   className="mt-2 text-xs font-medium text-blue-600 hover:text-blue-800"
                   onClick={() => {
-                    const id =
-                      calendarEvents.find(
-                        (e) => e.title === popover.title,
-                      )?.id ?? "";
+                    const id = popover.eventId!;
                     setPopover(null);
                     props.onEventClick(id);
                   }}
                 >
-                  View Details &rarr;
+                  詳細を見る &rarr;
                 </button>
               )}
             </div>
