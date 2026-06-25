@@ -1,0 +1,18 @@
+import type { UserConfig } from "./lib/user-config";
+
+const config: UserConfig = {
+  // Route53 ホストゾーン名。LiveKit シグナリング TLS 用。
+  // 設定すると *.media.<ドメイン> で Caddy ACME 自動 HTTPS が有効になる。
+  // mediaHostedZoneName: "aws.example.com",
+
+  // Cognito に初期管理者を自動作成（カンマ区切り）。
+  // initialAdmins: "admin@example.com",
+
+  // AWS Budgets 月額上限 (USD)。デフォルト: 50。
+  // budgetMonthlyUsd: 50,
+
+  // コストアラート通知先メールアドレス。
+  // budgetEmail: "ops@example.com",
+};
+
+export default config;

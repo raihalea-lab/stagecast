@@ -35,6 +35,7 @@ import {
   aws_ecr_assets as ecrAssets,
 } from "aws-cdk-lib";
 import type { Construct } from "constructs";
+import type { UserConfig } from "./user-config";
 
 /** 制御層スタックの props。webAssets を渡すと SPA を BucketDeployment で配信する。 */
 export interface ControlPlaneStackProps extends StackProps {
@@ -48,6 +49,7 @@ export interface ControlPlaneStackProps extends StackProps {
     composerWebDir: string;
     requestWebDir?: string;
   };
+  userConfig?: UserConfig;
 }
 
 /**
@@ -70,6 +72,7 @@ export interface ControlPlaneStackProps extends StackProps {
 export class ControlPlaneStack extends Stack {
   constructor(scope: Construct, id: string, props?: ControlPlaneStackProps) {
     super(scope, id, props);
+    const uc = props?.userConfig ?? {};
 
     // --- DynamoDB: メタデータ (オンデマンド課金で非配信時の固定費ゼロ) ---
     const metadataTable = new dynamodb.Table(this, "MetadataTable", {
@@ -190,9 +193,7 @@ export class ControlPlaneStack extends Stack {
     // 親 HostedZone は Route53 で運用者が事前作成し、CDK context で名前を渡す:
     //   cdk deploy -c mediaHostedZoneName=example.com
     // 未指定なら ADR 0008 D-4 の Public IP 直接公開にフォールバック (TLS スタックを構築しない)。
-    const mediaHostedZoneName = this.node.tryGetContext("mediaHostedZoneName") as
-      | string
-      | undefined;
+    const mediaHostedZoneName = uc.mediaHostedZoneName;
     const tlsConfig = mediaHostedZoneName
       ? (() => {
           const mediaDomainName = `media.${mediaHostedZoneName}`;
@@ -306,7 +307,7 @@ export class ControlPlaneStack extends Stack {
     // --- 初期管理者の自動投入 Custom Resource (R6, ADR 0005 D-4 案 A) ---
     // `-c initialAdmins=a@x.com,b@y.com` を渡したときだけ作成する。未指定なら従来どおり
     // 手動 admin-create-user (O4) を使う。冪等なのでスタック更新で再実行されても安全。
-    const initialAdmins = (this.node.tryGetContext("initialAdmins") as string | undefined)
+    const initialAdmins = uc.initialAdmins
       ?.split(",")
       .map((s) => s.trim())
       .filter(Boolean);
@@ -968,9 +969,8 @@ export class ControlPlaneStack extends Stack {
     // context で閾値とメール通知先を指定:
     //   cdk deploy -c budgetMonthlyUsd=50 -c budgetEmail=ops@example.com
     // メール未指定なら OrchestratorAlarmTopic に通知する (運用者が事前に subscribe しておく前提)。
-    const budgetMonthlyUsdRaw = this.node.tryGetContext("budgetMonthlyUsd") as string | undefined;
-    const budgetMonthlyUsd = budgetMonthlyUsdRaw ? Number(budgetMonthlyUsdRaw) : 50;
-    const budgetEmail = this.node.tryGetContext("budgetEmail") as string | undefined;
+    const budgetMonthlyUsd = uc.budgetMonthlyUsd ?? 50;
+    const budgetEmail = uc.budgetEmail;
 
     // Budgets 専用の SNS Topic (Cost アラート)。OrchestratorAlarmTopic と分けることで
     // 受信者が Cost と Ops を別々に subscribe できるようにする。

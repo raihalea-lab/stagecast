@@ -17,6 +17,7 @@ cdk-outputs.json
 .env
 .env.*
 !.env.example
+infra/user-config.ts
 
 # Logs
 *.log

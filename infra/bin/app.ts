@@ -5,6 +5,13 @@ import { App } from "aws-cdk-lib";
 import { ControlPlaneStack } from "../lib/control-plane-stack";
 import { EventMediaStack, eventMediaStackName } from "../lib/event-media-stack";
 import type { CaptionEngineKind } from "@stagecast/shared";
+import type { UserConfig } from "../lib/user-config";
+
+let userConfig: UserConfig = {};
+if (existsSync(join(__dirname, "..", "user-config.ts"))) {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  userConfig = (require("../user-config") as { default: UserConfig }).default;
+}
 
 const app = new App();
 
@@ -31,7 +38,7 @@ const webAssets =
     : undefined;
 
 // 制御層 (常時稼働) は常にデプロイ対象。
-new ControlPlaneStack(app, "StagecastControlPlane", { env, webAssets });
+new ControlPlaneStack(app, "StagecastControlPlane", { env, webAssets, userConfig });
 
 // イベント単位メディアスタックは media-orchestrator が動的に起動する (DESIGN.md 7.1)。
 // `cdk deploy -c eventId=<id> [-c captionEngine=transcribe] [-c customCaptionApi=true]` で
