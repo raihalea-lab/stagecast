@@ -117,6 +117,20 @@ export function createApp(deps: AppDeps) {
       return json(201, await deps.eventRequests.create(body as unknown as CreateEventRequestInput));
     }
 
+    // 公開: pending リクエスト一覧 (タイトル・時間帯のみ、認証不要)
+    if (req.method === "GET" && req.path === "/event-requests/public" && deps.eventRequests) {
+      const all = await deps.eventRequests.list();
+      const pending = all
+        .filter((r) => r.status === "pending")
+        .map((r) => ({
+          id: r.id,
+          title: r.title,
+          startsAt: r.startsAt,
+          endsAt: r.endsAt,
+        }));
+      return json(200, pending);
+    }
+
     // 公開: イベント公開情報 (タイトル・時間帯のみ)
     if (req.method === "GET" && req.path === "/events/public") {
       const all = await events.list();

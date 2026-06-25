@@ -107,7 +107,8 @@ interface PublicEvent {
   status: string;
 }
 
-interface LocalRequest {
+interface PendingRequest {
+  id: string;
   title: string;
   startsAt: string;
   endsAt: string;
@@ -123,7 +124,7 @@ interface EventPopover {
 
 function CalendarDisplay(props: {
   publicEvents: PublicEvent[];
-  localRequests: LocalRequest[];
+  pendingRequests: PendingRequest[];
   startsAt: string;
   endsAt: string;
   onTimeRangeSelect: (start: string, end: string) => void;
@@ -146,9 +147,9 @@ function CalendarDisplay(props: {
       ...(STATUS_COLORS[e.status] ?? STATUS_COLORS.scheduled),
     }));
 
-    props.localRequests.forEach((r, i) => {
+    props.pendingRequests.forEach((r) => {
       items.push({
-        id: `local-req-${i}`,
+        id: `req-${r.id}`,
         title: `[リクエスト中] ${r.title}`,
         start: r.startsAt,
         end: r.endsAt,
@@ -169,7 +170,7 @@ function CalendarDisplay(props: {
     }
 
     return items;
-  }, [props.publicEvents, props.localRequests, props.startsAt, props.endsAt]);
+  }, [props.publicEvents, props.pendingRequests, props.startsAt, props.endsAt]);
 
   const handleSelect = useCallback(
     (info: DateSelectArg) => {
@@ -314,8 +315,8 @@ export function App(props: { controlApiUrl: string }) {
   const [publicEvents, setPublicEvents] = useState<
     PublicEvent[] | null
   >(null);
-  const [localRequests, setLocalRequests] = useState<
-    LocalRequest[]
+  const [pendingRequests, setPendingRequests] = useState<
+    PendingRequest[]
   >([]);
   const [formOpen, setFormOpen] = useState(true);
   const [startsAt, setStartsAt] = useState("");
@@ -328,24 +329,23 @@ export function App(props: { controlApiUrl: string }) {
   const [submitted, setSubmitted] = useState(false);
   const [error, setError] = useState<string>();
 
-  const fetchPublicEvents = useCallback(async () => {
+  const fetchPublicData = useCallback(async () => {
     try {
-      const res = await fetch(
-        `${props.controlApiUrl}/events/public`,
-      );
-      if (res.ok) {
-        setPublicEvents(await res.json());
-        return;
-      }
+      const [eventsRes, requestsRes] = await Promise.all([
+        fetch(`${props.controlApiUrl}/events/public`),
+        fetch(`${props.controlApiUrl}/event-requests/public`),
+      ]);
+      setPublicEvents(eventsRes.ok ? await eventsRes.json() : []);
+      setPendingRequests(requestsRes.ok ? await requestsRes.json() : []);
     } catch {
-      // API未接続
+      setPublicEvents([]);
+      setPendingRequests([]);
     }
-    setPublicEvents([]);
   }, [props.controlApiUrl]);
 
   useEffect(() => {
-    void fetchPublicEvents();
-  }, [fetchPublicEvents]);
+    void fetchPublicData();
+  }, [fetchPublicData]);
 
   const setTimeRange = (start: string, end: string) => {
     setStartsAt(start);
@@ -393,15 +393,12 @@ export function App(props: { controlApiUrl: string }) {
             "送信に失敗しました",
         );
       }
-      setLocalRequests((prev) => [
-        ...prev,
-        { title: title.trim(), startsAt, endsAt },
-      ]);
       setSubmitted(true);
       setStartsAt("");
       setEndsAt("");
       setTitle("");
       setDescription("");
+      void fetchPublicData();
     } catch (err) {
       setError(
         err instanceof Error
@@ -449,7 +446,7 @@ export function App(props: { controlApiUrl: string }) {
           ) : (
             <CalendarDisplay
               publicEvents={publicEvents}
-              localRequests={localRequests}
+              pendingRequests={pendingRequests}
               startsAt={startsAt}
               endsAt={endsAt}
               onTimeRangeSelect={setTimeRange}
