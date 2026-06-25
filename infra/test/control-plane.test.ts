@@ -177,8 +177,8 @@ describe("ControlPlaneStack", () => {
     });
   });
 
-  it("Secrets Manager に invite-token / livekit / youtube / tls-cert の 4 シークレット (T7, ADR D-10, ADR 0016)", () => {
-    template.resourceCountIs("AWS::SecretsManager::Secret", 4);
+  it("Secrets Manager に invite-token / livekit / youtube の 3 シークレット (T7, ADR D-10)", () => {
+    template.resourceCountIs("AWS::SecretsManager::Secret", 3);
     template.hasResourceProperties("AWS::SecretsManager::Secret", {
       Name: "stagecast/invite-token-secret",
     });
@@ -274,7 +274,7 @@ describe("ControlPlaneStack", () => {
   });
 
   it("字幕ワーカー用 ECR リポジトリを持つ (R4, ADR 0005 D-3)", () => {
-    template.resourceCountIs("AWS::ECR::Repository", 1);
+    template.resourceCountIs("AWS::ECR::Repository", 2);
     template.hasResourceProperties("AWS::ECR::Repository", {
       RepositoryName: "stagecast/caption-worker",
       ImageScanningConfiguration: { ScanOnPush: true },
@@ -328,35 +328,35 @@ describe("ControlPlaneStack", () => {
     });
   });
 
-  it("ADR 0016: TLS 証明書を Secrets Manager で管理する", () => {
-    template.resourceCountIs("AWS::CertificateManager::Certificate", 0);
-    template.hasResourceProperties("AWS::SecretsManager::Secret", {
-      Description: Match.stringLikeRegexp("TLS"),
+  it("ADR 0016 D-6: Caddy サイドカー用 ECR リポジトリを持つ", () => {
+    template.resourceCountIs("AWS::ECR::Repository", 2);
+    template.hasResourceProperties("AWS::ECR::Repository", {
+      RepositoryName: "stagecast/caddy-sidecar",
     });
   });
 
-  it("ADR 0016: TlsCertSecretArn / MediaHostedZone* / MediaDomainName を CfnOutput する", () => {
-    template.hasOutput("TlsCertSecretArn", {});
+  it("ADR 0016 D-6: MediaHostedZone* / MediaDomainName を CfnOutput する", () => {
     template.hasOutput("MediaHostedZoneId", {});
     template.hasOutput("MediaHostedZoneName", {});
     template.hasOutput("MediaDomainName", {});
   });
 
-  it("ADR 0016: RenderTemplateFunction に TLS_CERT_SECRET_ARN / MEDIA_DOMAIN_NAME 環境変数を渡す", () => {
+  it("ADR 0016 D-6: RenderTemplateFunction に CADDY_SIDECAR_IMAGE / MEDIA_DOMAIN_NAME 環境変数を渡す", () => {
     const fns = template.findResources("AWS::Lambda::Function");
     const renderFn = Object.values(fns).find((f) => {
       const envText = JSON.stringify(
         (f.Properties as { Environment?: { Variables?: unknown } }).Environment?.Variables ?? {},
       );
-      return envText.includes("CAPTION_WORKER_IMAGE") && envText.includes("TLS_CERT_SECRET_ARN");
+      return envText.includes("CAPTION_WORKER_IMAGE") && envText.includes("CADDY_SIDECAR_IMAGE");
     });
     expect(renderFn).toBeDefined();
     const envText = JSON.stringify(
       (renderFn?.Properties as { Environment?: { Variables?: unknown } }).Environment?.Variables ??
         {},
     );
-    expect(envText).toContain("TLS_CERT_SECRET_ARN");
+    expect(envText).toContain("CADDY_SIDECAR_IMAGE");
     expect(envText).toContain("MEDIA_DOMAIN_NAME");
+    expect(envText).toContain("CERT_BUCKET_NAME");
   });
 
   it("reconcile Lambda は ECS describe-tasks / EC2 describe-network-interfaces を持つ (ADR 0008 D-2)", () => {

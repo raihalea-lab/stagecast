@@ -34,12 +34,16 @@ export function renderEventMediaTemplate(spec: RenderEventMediaSpec): string {
   // ControlPlane の ComposerWebDistribution から reconcile Lambda の env に注入される。
   // 未指定なら LiveKit Egress のデフォルトテンプレート (`http://localhost:7980/`) にフォールバック。
   const composerTemplateUrl = process.env.COMPOSER_TEMPLATE_URL;
-  // ADR 0016 D-2: TLS 証明書を Secrets Manager から参照する。
-  const tlsCertSecretArn = process.env.TLS_CERT_SECRET_ARN;
+  // ADR 0016 D-6: Caddy ACME 自動 HTTPS + certmagic-s3。
+  const caddySidecarImage = process.env.CADDY_SIDECAR_IMAGE;
   const mediaDomainName = process.env.MEDIA_DOMAIN_NAME;
-  const tlsProps = {
-    ...(tlsCertSecretArn ? { tlsCertSecretArn } : {}),
+  const mediaHostedZoneId = process.env.MEDIA_HOSTED_ZONE_ID;
+  const certBucketName = process.env.CERT_BUCKET_NAME;
+  const caddyProps = {
+    ...(caddySidecarImage ? { caddySidecarImage } : {}),
     ...(mediaDomainName ? { mediaDomainName } : {}),
+    ...(mediaHostedZoneId ? { mediaHostedZoneId } : {}),
+    ...(certBucketName ? { certBucketName } : {}),
   };
   // 共有 VPC (ControlPlaneStack の SharedMediaVpc) を ControlPlaneStack から env 経由で受け取る。
   // 揃っていなければ EventMediaStack は per-event VPC を作成 (後方互換)。
@@ -68,7 +72,7 @@ export function renderEventMediaTemplate(spec: RenderEventMediaSpec): string {
     customCaptionApi: spec.customCaptionApi,
     ...(captionWorkerImage ? { images: { captionWorker: captionWorkerImage } } : {}),
     ...(recordingsBucketName ? { recordingsBucketName } : {}),
-    ...tlsProps,
+    ...caddyProps,
     ...sharedVpcProps,
     ...(spec.rtmpUrl ? { rtmpUrl: spec.rtmpUrl } : {}),
     ...(spec.streamKeyRef ? { streamKeyRef: spec.streamKeyRef } : {}),

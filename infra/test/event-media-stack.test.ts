@@ -21,7 +21,7 @@ function synth(customApi = false): Template {
   return Template.fromStack(stack);
 }
 
-/** ADR 0016 D-1: tlsCertSecretArn を渡したときの synth (Caddy サイドカーあり)。 */
+/** ADR 0016 D-6: caddySidecarImage を渡したときの synth (Caddy ACME サイドカーあり)。 */
 function synthWithTls(): Template {
   const app = new App();
   const stack = new EventMediaStack(app, eventMediaStackName("evt-tls"), {
@@ -29,9 +29,11 @@ function synthWithTls(): Template {
     eventId: "evt-tls",
     captionEngine: "transcribe",
     customCaptionApi: false,
-    tlsCertSecretArn:
-      "arn:aws:secretsmanager:ap-northeast-1:111111111111:secret:stagecast/tls-cert-abc123",
+    caddySidecarImage:
+      "111111111111.dkr.ecr.ap-northeast-1.amazonaws.com/stagecast/caddy-sidecar:latest",
     mediaDomainName: "media.aws.example.com",
+    mediaHostedZoneId: "Z1234567890",
+    certBucketName: "stagecast-assets-123",
   });
   return Template.fromStack(stack);
 }
@@ -94,7 +96,7 @@ describe("EventMediaStack (DESIGN.md 7.1/7.3, N-5)", () => {
     expect(portMapped.length).toBe(1);
   });
 
-  it("ADR 0016 D-1: tlsCertSecretArn 未指定時は NLB も Caddy も作らない (後方互換)", () => {
+  it("ADR 0016 D-6: caddySidecarImage 未指定時は NLB も Caddy も作らない (後方互換)", () => {
     template.resourceCountIs("AWS::ElasticLoadBalancingV2::LoadBalancer", 0);
     template.resourceCountIs("AWS::ElasticLoadBalancingV2::Listener", 0);
     template.resourceCountIs("AWS::ElasticLoadBalancingV2::TargetGroup", 0);
@@ -328,7 +330,7 @@ describe("liveKitServerConfig (R1)", () => {
   });
 });
 
-describe("EventMediaStack with TLS (Caddy sidecar, ADR 0016)", () => {
+describe("EventMediaStack with TLS (Caddy ACME sidecar, ADR 0016 D-6)", () => {
   const template = synthWithTls();
 
   it("ADR 0016 D-1: NLB は作らない (Caddy サイドカーで TLS 終端)", () => {
@@ -344,7 +346,7 @@ describe("EventMediaStack with TLS (Caddy sidecar, ADR 0016)", () => {
     );
     expect(withCaddy.length).toBe(1);
     const json = JSON.stringify(withCaddy[0]);
-    expect(json).toContain("caddy:2-alpine");
+    expect(json).toContain("stagecast/caddy-sidecar");
     expect(json).toContain('"Essential":true');
   });
 

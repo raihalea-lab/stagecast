@@ -63,12 +63,12 @@ export interface EventMediaStackProps extends StackProps {
   recordingsBucketName?: string;
   /** LiveKit シグナリング用ドメイン (例: `media.example.com`)。reconcile Lambda が Route53 A レコードを動的に管理する (ADR 0016 D-3)。 */
   mediaDomainName?: string;
-  /**
-   * Secrets Manager に格納したワイルドカード TLS 証明書の ARN (ADR 0016 D-2)。
-   * cert/key を JSON フィールドとして格納: { "cert": "-----BEGIN CERTIFICATE-----...", "key": "-----BEGIN PRIVATE KEY-----..." }
-   * 指定時のみ Caddy TLS サイドカーを SFU Task に追加する。
-   */
-  tlsCertSecretArn?: string;
+  /** Caddy サイドカーのカスタムビルドイメージ (caddy-dns/route53 + certmagic-s3)。 */
+  caddySidecarImage?: string;
+  /** Route53 HostedZone ID (Caddy DNS-01 チャレンジ用)。 */
+  mediaHostedZoneId?: string;
+  /** certmagic-s3 の証明書永続化先バケット名。 */
+  certBucketName?: string;
   /**
    * ECS サービスの初期 desiredCount (ADR 0016 D-4)。
    * 0 で事前プロビジョニング (スタックのみ作成、タスク未起動)。デフォルト 1。
@@ -427,21 +427,6 @@ export class EventMediaStack extends Stack {
     // ADR 0016 D-1: NLB を廃止し Caddy TLS サイドカーで wss:// シグナリングを提供する。
     // ADR 0016 D-3: reconcile Lambda が Route53 A レコードを動的に管理する。
 
-    // ADR 0016 D-2: ワイルドカード TLS 証明書を Secrets Manager から取得し Caddy に注入する。
-    const tlsSecrets: Record<string, ecs.Secret> | undefined = props.tlsCertSecretArn
-      ? (() => {
-          const secret = secretsmanager.Secret.fromSecretCompleteArn(
-            this,
-            "TlsCertSecret",
-            props.tlsCertSecretArn,
-          );
-          return {
-            TLS_CERT: ecs.Secret.fromSecretsManager(secret, "cert"),
-            TLS_KEY: ecs.Secret.fromSecretsManager(secret, "key"),
-          };
-        })()
-      : undefined;
-
     // ADR 0010: SFU と Egress を同一 Task に sidecar 同居。Egress は localhost で SFU と疎通し
     // (LIVEKIT_WS_URL=ws://localhost:7880)、psrpc は Valkey 経由で共有する。
     // Task は SFU (1 vCPU) + Egress (Chrome ヘッドレス, 1 vCPU) で合計 2 vCPU / 4 GiB に増強。
@@ -493,20 +478,25 @@ export class EventMediaStack extends Stack {
           },
           secrets: livekitSecrets,
         },
-        // ADR 0016 D-1: Caddy TLS リバースプロキシ。wss:// シグナリングを NLB なしで提供する。
-        ...(props.tlsCertSecretArn
+        // ADR 0016 D-6: Caddy ACME 自動 HTTPS + certmagic-s3。
+        // カスタムビルド Caddy (caddy-dns/route53 + certmagic-s3) で
+        // Let's Encrypt DNS-01 チャレンジにより証明書を自動取得・S3 に永続化する。
+        ...(props.caddySidecarImage && props.mediaDomainName
           ? [
               {
                 name: "Caddy",
-                image: "caddy:2-alpine",
+                image: props.caddySidecarImage,
                 essential: true,
                 ports: [{ containerPort: 443, protocol: ecs.Protocol.TCP }],
                 entryPoint: ["sh", "-c"],
                 command: [
-                  'printf "%s" "$TLS_CERT" > /tmp/cert.pem && printf "%s" "$TLS_KEY" > /tmp/key.pem && printf \':443 {\\n  tls /tmp/cert.pem /tmp/key.pem\\n  reverse_proxy localhost:7880\\n}\\n\' > /tmp/Caddyfile && exec caddy run --config /tmp/Caddyfile --adapter caddyfile',
+                  `printf '{\\n  storage s3 {\\n    host "s3.%s.amazonaws.com"\\n    bucket "%s"\\n    prefix "caddy-certs/"\\n  }\\n}\\n\\n*.%s {\\n  tls {\\n    dns route53\\n  }\\n  reverse_proxy localhost:7880\\n}\\n' "$AWS_REGION" "$CERT_BUCKET" "$CADDY_DOMAIN" > /tmp/Caddyfile && exec caddy run --config /tmp/Caddyfile --adapter caddyfile`,
                 ],
-                secrets: tlsSecrets,
-                environment: {},
+                environment: {
+                  AWS_REGION: Stack.of(this).region,
+                  CADDY_DOMAIN: props.mediaDomainName,
+                  CERT_BUCKET: props.certBucketName ?? "",
+                },
               },
             ]
           : []),
@@ -550,8 +540,8 @@ export class EventMediaStack extends Stack {
       ec2.Port.udp(LIVEKIT_PORTS.rtcUdp),
       "WebRTC media/UDP (public, ADR 0008 D-4 / ADR 0009 D-2)",
     );
-    // ADR 0016 D-1: Caddy TLS シグナリング用ポート。
-    if (props.tlsCertSecretArn) {
+    // ADR 0016 D-6: Caddy TLS シグナリング用ポート。
+    if (props.caddySidecarImage) {
       sfu.connections.allowFromAnyIpv4(
         ec2.Port.tcp(443),
         "Caddy TLS signaling (public, ADR 0016 D-1)",
