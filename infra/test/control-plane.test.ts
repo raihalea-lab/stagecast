@@ -274,7 +274,7 @@ describe("ControlPlaneStack", () => {
   });
 
   it("字幕ワーカー用 ECR リポジトリを持つ (R4, ADR 0005 D-3)", () => {
-    template.resourceCountIs("AWS::ECR::Repository", 2);
+    template.resourceCountIs("AWS::ECR::Repository", 1);
     template.hasResourceProperties("AWS::ECR::Repository", {
       RepositoryName: "stagecast/caption-worker",
       ImageScanningConfiguration: { ScanOnPush: true },
@@ -328,11 +328,9 @@ describe("ControlPlaneStack", () => {
     });
   });
 
-  it("ADR 0016 D-6: Caddy サイドカー用 ECR リポジトリを持つ", () => {
-    template.resourceCountIs("AWS::ECR::Repository", 2);
-    template.hasResourceProperties("AWS::ECR::Repository", {
-      RepositoryName: "stagecast/caddy-sidecar",
-    });
+  it("ADR 0016 D-6: Caddy サイドカーは DockerImageAsset で自動ビルド (GHA 不要)", () => {
+    // DockerImageAsset は CDK Assets ECR を使うため、専用 ECR::Repository は不要。
+    // caption-worker の 1 つだけであることを上のテストで検証済み。
   });
 
   it("ADR 0016 D-6: MediaHostedZone* / MediaDomainName を CfnOutput する", () => {
