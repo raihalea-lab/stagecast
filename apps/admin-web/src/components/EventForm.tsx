@@ -12,8 +12,12 @@ import {
 import type { CreateEventInput } from "@stagecast/control-api";
 import { Button, Input, Label } from "@stagecast/ui";
 
-export function EventForm(props: { onCreate: (input: CreateEventInput) => void; busy?: boolean }) {
-  const [values, setValues] = useState<EventFormValues>(defaultFormValues());
+export function EventForm(props: {
+  onCreate: (input: CreateEventInput) => void;
+  busy?: boolean;
+  initialStartsAt?: string;
+}) {
+  const [values, setValues] = useState<EventFormValues>(defaultFormValues(props.initialStartsAt));
   const [errors, setErrors] = useState<string[]>([]);
   const [endsAtManual, setEndsAtManual] = useState(false);
 

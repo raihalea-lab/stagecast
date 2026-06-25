@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { ScheduleXCalendar, useCalendarApp } from "@schedule-x/react";
 import { createViewWeek, createViewMonthGrid } from "@schedule-x/calendar";
 import "@schedule-x/theme-default/dist/index.css";
+import type { Temporal } from "temporal-polyfill";
 import {
   Button,
   Card,
@@ -22,8 +23,14 @@ function toCalendarDateTime(iso: string): string {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
 
-function toDatetimeLocal(dateTime: string): string {
-  return dateTime.replace(" ", "T");
+function toDatetimeLocalFromZdt(zdt: Temporal.ZonedDateTime): string {
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${zdt.year}-${pad(zdt.month)}-${pad(zdt.day)}T${pad(zdt.hour)}:${pad(zdt.minute)}`;
+}
+
+function toDatetimeLocalFromDate(pd: Temporal.PlainDate, hour = 9): string {
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${pd.year}-${pad(pd.month)}-${pad(pd.day)}T${pad(hour)}:00`;
 }
 
 function computeDefaultEndsAt(startsAt: string): string {
@@ -34,6 +41,27 @@ function computeDefaultEndsAt(startsAt: string): string {
   const pad = (n: number) => String(n).padStart(2, "0");
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
+
+const CALENDAR_DEFS = {
+  scheduled: {
+    colorName: "scheduled",
+    label: "予定",
+    lightColors: { main: "#3b82f6", container: "#dbeafe", onContainer: "#1e3a5f" },
+    darkColors: { main: "#60a5fa", container: "#1e3a5f", onContainer: "#dbeafe" },
+  },
+  live: {
+    colorName: "live",
+    label: "配信中",
+    lightColors: { main: "#ef4444", container: "#fee2e2", onContainer: "#7f1d1d" },
+    darkColors: { main: "#f87171", container: "#7f1d1d", onContainer: "#fee2e2" },
+  },
+  ended: {
+    colorName: "ended",
+    label: "終了",
+    lightColors: { main: "#d1d5db", container: "#f9fafb", onContainer: "#6b7280" },
+    darkColors: { main: "#4b5563", container: "#1f2937", onContainer: "#d1d5db" },
+  },
+} as const;
 
 interface PublicEvent {
   id: string;
@@ -85,39 +113,28 @@ export function App(props: { controlApiUrl: string }) {
     [publicEvents],
   );
 
+  const openForm = (dt: string) => {
+    setStartsAt(dt);
+    setEndsAt(computeDefaultEndsAt(dt));
+    setFormOpen(true);
+    setSubmitted(false);
+    setError(undefined);
+  };
+
   const calendar = useCalendarApp({
     locale: "ja-JP",
     firstDayOfWeek: 1,
     views: [createViewWeek(), createViewMonthGrid()],
-    defaultView: "week",
+    defaultView: "month-grid",
+    dayBoundaries: { start: "07:00", end: "23:00" },
     events: calendarEvents,
-    calendars: {
-      scheduled: {
-        colorName: "scheduled",
-        label: "予定",
-        lightColors: { main: "#3b82f6", container: "#dbeafe", onContainer: "#1e3a5f" },
-        darkColors: { main: "#60a5fa", container: "#1e3a5f", onContainer: "#dbeafe" },
-      },
-      live: {
-        colorName: "live",
-        label: "配信中",
-        lightColors: { main: "#ef4444", container: "#fee2e2", onContainer: "#7f1d1d" },
-        darkColors: { main: "#f87171", container: "#7f1d1d", onContainer: "#fee2e2" },
-      },
-      ended: {
-        colorName: "ended",
-        label: "終了",
-        lightColors: { main: "#d1d5db", container: "#f9fafb", onContainer: "#6b7280" },
-        darkColors: { main: "#4b5563", container: "#1f2937", onContainer: "#d1d5db" },
-      },
-    },
+    calendars: CALENDAR_DEFS,
     callbacks: {
       onClickDateTime(dateTime) {
-        setStartsAt(toDatetimeLocal(dateTime));
-        setEndsAt(computeDefaultEndsAt(toDatetimeLocal(dateTime)));
-        setFormOpen(true);
-        setSubmitted(false);
-        setError(undefined);
+        openForm(toDatetimeLocalFromZdt(dateTime));
+      },
+      onClickDate(date) {
+        openForm(toDatetimeLocalFromDate(date));
       },
     },
   });
@@ -167,7 +184,18 @@ export function App(props: { controlApiUrl: string }) {
       </header>
       <div className="flex flex-col gap-6 p-6 lg:flex-row">
         <div className="flex-1">
-          <div className="h-[600px] w-full">
+          <div className="flex flex-wrap items-center gap-3 pb-2 text-xs text-text-secondary">
+            {Object.entries(CALENDAR_DEFS).map(([key, cal]) => (
+              <span key={key} className="flex items-center gap-1.5">
+                <span
+                  className="inline-block size-3 rounded-full"
+                  style={{ backgroundColor: cal.lightColors.main }}
+                />
+                {cal.label}
+              </span>
+            ))}
+          </div>
+          <div className="h-[520px] w-full">
             <ScheduleXCalendar calendarApp={calendar} />
           </div>
         </div>

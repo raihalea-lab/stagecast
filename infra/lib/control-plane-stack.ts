@@ -514,6 +514,7 @@ export class ControlPlaneStack extends Stack {
             },
             // R17 / ADR 0012 D-6: admin-web の LivePreview iframe が開く composer-template の URL。
             composerTemplateUrl: `https://${composerWebDistribution.domainName}`,
+            requestWebUrl: `https://${requestWebDistribution.domainName}`,
           }),
         ],
       });

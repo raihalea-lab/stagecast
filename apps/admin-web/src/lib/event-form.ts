@@ -35,11 +35,11 @@ export const ENGINE_OPTIONS: { value: CaptionEngineKind; label: string }[] = [
 
 export const LANGUAGE_OPTIONS = SUPPORTED_LANGUAGES;
 
-export function defaultFormValues(): EventFormValues {
+export function defaultFormValues(startsAt?: string): EventFormValues {
   return {
     title: "",
-    startsAt: "",
-    endsAt: "",
+    startsAt: startsAt ?? "",
+    endsAt: startsAt ? computeDefaultEndsAt(startsAt) : "",
     languages: ["ja", "en"],
     youtubeLanguage: "ja",
     engine: "transcribe",

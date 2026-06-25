@@ -37,6 +37,7 @@ import {
   ArrowDownUp,
   Calendar,
   Check,
+  ExternalLink,
   Inbox,
   LogOut,
   Plus,
@@ -135,6 +136,7 @@ export function App(props: {
   const [selectMode, setSelectMode] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [bulkDeleteOpen, setBulkDeleteOpen] = useState(false);
+  const [prefillStartsAt, setPrefillStartsAt] = useState<string | undefined>();
 
   useEffect(() => {
     applyTheme(theme);
@@ -337,7 +339,13 @@ export function App(props: {
         </span>
       </div>
       <div className="border-b border-line-1 px-3 py-3">
-        <Sheet open={sheetOpen} onOpenChange={setSheetOpen}>
+        <Sheet
+          open={sheetOpen}
+          onOpenChange={(open) => {
+            setSheetOpen(open);
+            if (!open) setPrefillStartsAt(undefined);
+          }}
+        >
           <Button
             variant="outline"
             className="w-full justify-start gap-2"
@@ -352,7 +360,12 @@ export function App(props: {
               <SheetDescription>配信イベントを作成します</SheetDescription>
             </SheetHeader>
             <div className="mt-6">
-              <EventForm onCreate={create} busy={busy} />
+              <EventForm
+                key={prefillStartsAt ?? "new"}
+                onCreate={create}
+                busy={busy}
+                initialStartsAt={prefillStartsAt}
+              />
             </div>
           </SheetContent>
         </Sheet>
@@ -539,6 +552,17 @@ export function App(props: {
             </span>
           )}
         </Button>
+        {props.config?.requestWebUrl && (
+          <a
+            href={props.config.requestWebUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="flex items-center gap-2 rounded-md px-3 py-1.5 text-sm text-text-secondary hover:bg-surface-2 hover:text-text-primary"
+          >
+            <ExternalLink className="size-4" />
+            リクエストカレンダー
+          </a>
+        )}
         <Button
           variant={isSettingsView ? "secondary" : "ghost"}
           size="sm"
@@ -648,6 +672,10 @@ export function App(props: {
                   events={events}
                   requests={eventRequests}
                   onEventClick={(id) => navigate(`/events/${id}`)}
+                  onDateTimeClick={(dateTime) => {
+                    setPrefillStartsAt(dateTime);
+                    setSheetOpen(true);
+                  }}
                 />
               }
             />
