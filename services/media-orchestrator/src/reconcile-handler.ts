@@ -367,10 +367,9 @@ function makeExecutor(): ReconcileExecutor {
                   eventId: spec.eventId,
                   captionEngine: spec.captionEngine,
                   customCaptionApi: spec.customCaptionApi,
-                  // R12: youtube.rtmpUrl と streamKeyRef を RenderTemplateFunction にも伝播させる。
-                  // 現時点では Egress コンテナ起動時に直接使われないが、将来の自動 Egress 起動に備える。
                   ...(spec.rtmpUrl ? { rtmpUrl: spec.rtmpUrl } : {}),
                   ...(spec.streamKeyRef ? { streamKeyRef: spec.streamKeyRef } : {}),
+                  ...(spec.desiredCount !== undefined ? { desiredCount: spec.desiredCount } : {}),
                 }),
               ),
             }),
