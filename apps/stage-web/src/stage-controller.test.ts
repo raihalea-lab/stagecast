@@ -1,9 +1,12 @@
 import { describe, expect, it } from "vitest";
+import { decodeStageMessage } from "@stagecast/shared";
 import { StageController } from "./stage-controller.js";
 import { FakeRoomConnector } from "./lib/room.js";
 import type { JoinResponse, StageClient } from "./api/stage-client.js";
+import type { SpeakerVisibility } from "@stagecast/shared";
 
 class FakeStageClient implements StageClient {
+  readonly visibilityCalls: { eventId: string; speakerId: string; visibility: string }[] = [];
   constructor(private readonly response: JoinResponse) {}
   async join(): Promise<JoinResponse> {
     return this.response;
@@ -15,6 +18,14 @@ class FakeStageClient implements StageClient {
       identity: "preview-fake",
       room: "evt-1",
     };
+  }
+  async setSpeakerVisibility(
+    _inviteToken: string,
+    eventId: string,
+    speakerId: string,
+    visibility: SpeakerVisibility,
+  ): Promise<void> {
+    this.visibilityCalls.push({ eventId, speakerId, visibility });
   }
 }
 
@@ -158,5 +169,57 @@ describe("StageController (DESIGN.md 4.1, F-1, F-3)", () => {
     room.emitDisconnect();
     await ctrl.join("t");
     expect(room.calls.filter((c) => c.startsWith("connect:"))).toHaveLength(2);
+  });
+
+  it("forceMute は force-mute メッセージを DataChannel に送信する (Phase 1)", async () => {
+    const room = new FakeRoomConnector();
+    const ctrl = new StageController(new FakeStageClient(speakerJoin), room);
+    await ctrl.join("token");
+    await ctrl.forceMute("speaker-abc");
+    expect(room.publishedData).toHaveLength(1);
+    const msg = decodeStageMessage(room.publishedData[0]!);
+    expect(msg).toEqual({ type: "force-mute", targetIdentity: "speaker-abc" });
+  });
+
+  it("setSpeakerVisibility は REST API + DataChannel の両方を呼ぶ (Phase 1)", async () => {
+    const client = new FakeStageClient(speakerJoin);
+    const room = new FakeRoomConnector();
+    const ctrl = new StageController(client, room);
+    await ctrl.join("token");
+    await ctrl.setSpeakerVisibility("speaker-1", "standby", "invite-token");
+    expect(client.visibilityCalls).toEqual([
+      { eventId: "evt-1", speakerId: "speaker-1", visibility: "standby" },
+    ]);
+    expect(room.publishedData).toHaveLength(1);
+    const msg = decodeStageMessage(room.publishedData[0]!);
+    expect(msg).toEqual({ type: "visibility-change", speakerId: "speaker-1", visibility: "standby" });
+  });
+
+  it("setSpeakerVisibility で inviteToken なしなら REST API を呼ばず DataChannel のみ (Phase 1)", async () => {
+    const client = new FakeStageClient(speakerJoin);
+    const room = new FakeRoomConnector();
+    const ctrl = new StageController(client, room);
+    await ctrl.join("token");
+    await ctrl.setSpeakerVisibility("speaker-2", "live");
+    expect(client.visibilityCalls).toHaveLength(0);
+    expect(room.publishedData).toHaveLength(1);
+  });
+
+  it("sendChat は chat メッセージを DataChannel に broadcast する (Phase 2)", async () => {
+    const room = new FakeRoomConnector();
+    const ctrl = new StageController(new FakeStageClient(speakerJoin), room);
+    await ctrl.join("token");
+    await ctrl.sendChat("こんにちは", "Alice");
+    expect(room.publishedData).toHaveLength(1);
+    const msg = decodeStageMessage(room.publishedData[0]!);
+    expect(msg).not.toBeNull();
+    expect(msg?.type).toBe("chat");
+    if (msg?.type === "chat") {
+      expect(msg.senderIdentity).toBe("speaker-1");
+      expect(msg.senderName).toBe("Alice");
+      expect(msg.text).toBe("こんにちは");
+      expect(msg.id).toBeTruthy();
+      expect(msg.timestampMs).toBeGreaterThan(0);
+    }
   });
 });

@@ -86,22 +86,21 @@ async function deps(): Promise<HandlerDeps> {
   // 取得できなかった場合は ADR 0008 D-2 の Public IP 取得にフォールバック (後方互換)。
   const resolver: MediaResolver = {
     resolveLivekitUrl: async (eventId) => {
-      // 1) CFN Output から NLB + ACM 構成の per-event ドメインを引く (ADR 0009)
+      // 1) CFN Output から per-event ドメイン名を取得 (ADR 0009)
+      let livekitDomain: string | undefined;
       try {
         const stackName = eventMediaStackName(eventId);
         const stacks = await cfn.send(new DescribeStacksCommand({ StackName: stackName }));
         const outputs = stacks.Stacks?.[0]?.Outputs ?? [];
-        const livekitDomain = outputs.find(
+        livekitDomain = outputs.find(
           (o: { OutputKey?: string }) => o.OutputKey === "LivekitDomainName",
         )?.OutputValue;
-        if (livekitDomain) {
-          return `wss://${livekitDomain}`;
-        }
       } catch {
         // スタック存在しない / Output 未定義 → Public IP fallback に進む。
       }
 
-      // 2) Fallback: ECS task の Public IP を解決する (ADR 0008 D-2)。
+      // 2) ECS task の Public IP を解決する (ADR 0008 D-2)。
+      //    CFN Output がある場合でも Route53 Aレコード UPSERT に IP が必要。
       const cluster = clusterName(eventId);
       const listed = await ecs.send(
         new ListTasksCommand({
@@ -111,7 +110,7 @@ async function deps(): Promise<HandlerDeps> {
         }),
       );
       const taskArn = listed.taskArns?.[0];
-      if (!taskArn) return undefined;
+      if (!taskArn) return livekitDomain ? `wss://${livekitDomain}` : undefined;
       const described = await ecs.send(new DescribeTasksCommand({ cluster, tasks: [taskArn] }));
       const attachment = described.tasks?.[0]?.attachments?.find(
         (a: { type?: string }) => a.type === "ElasticNetworkInterface",
@@ -119,29 +118,34 @@ async function deps(): Promise<HandlerDeps> {
       const eniId = attachment?.details?.find(
         (d: { name?: string }) => d.name === "networkInterfaceId",
       )?.value;
-      if (!eniId) return undefined;
+      if (!eniId) return livekitDomain ? `wss://${livekitDomain}` : undefined;
       const enis = await ec2.send(
         new DescribeNetworkInterfacesCommand({ NetworkInterfaceIds: [eniId] }),
       );
       const publicIp = enis.NetworkInterfaces?.[0]?.Association?.PublicIp;
-      if (!publicIp) return undefined;
+      if (!publicIp) return livekitDomain ? `wss://${livekitDomain}` : undefined;
 
       // 3) ADR 0016 D-3: Route53 A レコードを動的 UPSERT する。
+      //    CFN Output のドメイン名があればそれを使い、なければ MEDIA_DOMAIN_NAME で組み立てる。
       const mediaDomain = process.env.MEDIA_DOMAIN_NAME;
       const zoneId = process.env.MEDIA_HOSTED_ZONE_ID;
-      if (mediaDomain && zoneId) {
-        const recordName = `event-${eventId.slice(0, 8)}.${mediaDomain}`;
-        try {
-          await upsertRoute53ARecord(zoneId, recordName, publicIp);
-          return `wss://${recordName}`;
-        } catch (err) {
-          log.warn("route53 upsert failed, falling back to IP", {
-            eventId,
-            error: String(err),
-          });
+      if (zoneId) {
+        const recordName = livekitDomain ?? (mediaDomain ? `event-${eventId.slice(0, 8)}.${mediaDomain}` : undefined);
+        if (recordName) {
+          try {
+            await upsertRoute53ARecord(zoneId, recordName, publicIp);
+            log.info("route53 upsert", { eventId, recordName, publicIp });
+            return `wss://${recordName}`;
+          } catch (err) {
+            log.warn("route53 upsert failed, falling back to IP", {
+              eventId,
+              error: String(err),
+            });
+          }
         }
       }
 
+      if (livekitDomain) return `wss://${livekitDomain}`;
       return `wss://${publicIp}:${LIVEKIT_SIGNAL_PORT}`;
     },
   };

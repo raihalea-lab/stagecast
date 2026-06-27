@@ -157,6 +157,32 @@ export function createApp(deps: AppDeps) {
       return json(201, result);
     }
 
+    // 公開: 登壇者の表示状態変更 (Phase 1: ステージ管理)。
+    // 招待トークン (moderator/admin) で認証し、PresentationService を呼ぶ。
+    if (
+      req.method === "POST" &&
+      segments[0] === "presentation" &&
+      segments[1] === "speakers" &&
+      segments[2]
+    ) {
+      const inviteToken = String(body.inviteToken ?? "");
+      const verified = await invites.verify(inviteToken);
+      if (!verified.valid) return json(401, { ok: false, reason: verified.reason });
+      if (verified.role !== "moderator") {
+        return json(403, { error: "only moderator or admin can change visibility" });
+      }
+      const eventId = String(body.eventId ?? verified.eventId);
+      if (eventId !== verified.eventId) {
+        return json(403, { error: "eventId mismatch" });
+      }
+      const speakerId = segments[2];
+      const visibility = body.visibility as SpeakerVisibility;
+      if (visibility !== "live" && visibility !== "standby") {
+        return json(400, { error: "visibility must be 'live' or 'standby'" });
+      }
+      return json(200, await presentation.setSpeakerVisibility(eventId, speakerId, visibility));
+    }
+
     // 以降は管理者専用 (Cognito)
     const principal = await requireAdmin(req);
 

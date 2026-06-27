@@ -21,6 +21,8 @@ export interface EventMediaSpec {
   streamKeyRef?: string | undefined;
   /** ECS サービスの初期 desiredCount。0 で事前プロビジョニング (ADR 0016 D-4)。 */
   desiredCount?: number;
+  /** CaptionWorker の初期 desiredCount (ADR 0017)。字幕不要時は 0。未指定時は desiredCount にフォールバック。 */
+  captionDesiredCount?: number;
 }
 
 export type StackStatus = "provisioning" | "running" | "destroying" | "destroyed";

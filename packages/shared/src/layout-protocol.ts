@@ -38,8 +38,73 @@ export interface MuteRequestMessage {
   targetIdentity: string;
 }
 
+/** 強制ミュートメッセージ (admin/moderator → speaker)。受信側は自動的にマイクをオフにする。 */
+export interface ForceMuteMessage {
+  type: "force-mute";
+  /** 強制ミュート先の participant identity。 */
+  targetIdentity: string;
+}
+
+/** 登壇者の表示状態変更メッセージ (admin/moderator → composer-template)。 */
+export interface VisibilityChangeMessage {
+  type: "visibility-change";
+  /** 対象の登壇者 identity。 */
+  speakerId: string;
+  /** 変更後の表示状態。 */
+  visibility: "live" | "standby";
+}
+
+/** バックステージチャットメッセージ (Phase 2)。配信スタッフ間の内部通信。 */
+export interface ChatMessage {
+  type: "chat";
+  /** dedup 用 ID。 */
+  id: string;
+  senderIdentity: string;
+  senderName?: string;
+  text: string;
+  timestampMs: number;
+}
+
+/** バナー（下部テロップ）表示メッセージ (Phase 3)。 */
+export interface BannerShowMessage {
+  type: "banner-show";
+  text: string;
+  subtext?: string;
+  position: "bottom" | "top";
+  autoHideMs?: number;
+}
+
+/** バナー非表示メッセージ (Phase 3)。 */
+export interface BannerHideMessage {
+  type: "banner-hide";
+}
+
+/** オーバーレイ表示メッセージ (Phase 4: QRコード/画像/動画)。 */
+export interface OverlayShowMessage {
+  type: "overlay-show";
+  kind: "qr" | "image" | "video";
+  url: string;
+  position: "top-left" | "top-right" | "bottom-left" | "bottom-right";
+  sizePercent?: number;
+  autoHideMs?: number;
+}
+
+/** オーバーレイ非表示メッセージ (Phase 4)。 */
+export interface OverlayHideMessage {
+  type: "overlay-hide";
+}
+
 /** DataChannel メッセージ共用型。 */
-export type StageMessage = LayoutChangeMessage | MuteRequestMessage;
+export type StageMessage =
+  | LayoutChangeMessage
+  | MuteRequestMessage
+  | ForceMuteMessage
+  | VisibilityChangeMessage
+  | ChatMessage
+  | BannerShowMessage
+  | BannerHideMessage
+  | OverlayShowMessage
+  | OverlayHideMessage;
 
 /** メッセージを Uint8Array にエンコードする (LiveKit publishData の引数型に合わせる)。 */
 export function encodeLayoutMessage(msg: LayoutChangeMessage): Uint8Array {
@@ -86,6 +151,53 @@ export function decodeStageMessage(payload: Uint8Array): StageMessage | null {
       typeof (obj as { targetIdentity?: unknown }).targetIdentity === "string"
     ) {
       return obj as MuteRequestMessage;
+    }
+    if (
+      type === "force-mute" &&
+      typeof (obj as { targetIdentity?: unknown }).targetIdentity === "string"
+    ) {
+      return obj as ForceMuteMessage;
+    }
+    if (
+      type === "visibility-change" &&
+      typeof (obj as { speakerId?: unknown }).speakerId === "string" &&
+      ((obj as { visibility?: unknown }).visibility === "live" ||
+        (obj as { visibility?: unknown }).visibility === "standby")
+    ) {
+      return obj as VisibilityChangeMessage;
+    }
+    if (
+      type === "chat" &&
+      typeof (obj as { id?: unknown }).id === "string" &&
+      typeof (obj as { senderIdentity?: unknown }).senderIdentity === "string" &&
+      typeof (obj as { text?: unknown }).text === "string" &&
+      typeof (obj as { timestampMs?: unknown }).timestampMs === "number"
+    ) {
+      return obj as ChatMessage;
+    }
+    if (
+      type === "banner-show" &&
+      typeof (obj as { text?: unknown }).text === "string" &&
+      ((obj as { position?: unknown }).position === "bottom" ||
+        (obj as { position?: unknown }).position === "top")
+    ) {
+      return obj as BannerShowMessage;
+    }
+    if (type === "banner-hide") {
+      return obj as BannerHideMessage;
+    }
+    const OVERLAY_POSITIONS = ["top-left", "top-right", "bottom-left", "bottom-right"];
+    const OVERLAY_KINDS = ["qr", "image", "video"];
+    if (
+      type === "overlay-show" &&
+      typeof (obj as { url?: unknown }).url === "string" &&
+      OVERLAY_KINDS.includes((obj as { kind?: string }).kind as string) &&
+      OVERLAY_POSITIONS.includes((obj as { position?: string }).position as string)
+    ) {
+      return obj as OverlayShowMessage;
+    }
+    if (type === "overlay-hide") {
+      return obj as OverlayHideMessage;
     }
     return null;
   } catch {
