@@ -14,7 +14,6 @@ import {
   aws_cloudwatch as cloudwatch,
   aws_sns as sns,
   aws_cloudwatch_actions as cwActions,
-  aws_servicediscovery as servicediscovery,
 } from "aws-cdk-lib";
 import type { Construct } from "constructs";
 import type { CaptionEngineKind, CaptionSinkKind } from "@stagecast/shared";
@@ -74,6 +73,12 @@ export interface EventMediaStackProps extends StackProps {
    * 0 で事前プロビジョニング (スタックのみ作成、タスク未起動)。デフォルト 1。
    */
   desiredCount?: number;
+  /**
+   * CaptionWorker の初期 desiredCount (ADR 0017)。
+   * 字幕不要なイベントでは 0 を指定し、必要時に ECS UpdateService で 1 にする。
+   * 未指定時は desiredCount にフォールバック。
+   */
+  captionDesiredCount?: number;
   /**
    * ControlPlaneStack で事前作成した共有 VPC の情報 (R12-followup, N-1)。
    * 指定時はこの VPC を参照し per-event VPC を作らない (イベント起動時間 2-3 分短縮)。
@@ -179,16 +184,10 @@ export class EventMediaStack extends Stack {
         });
     const sfuServiceName = props.sharedClusterName ? `sfu-${props.eventId}` : SFU_SERVICE_NAME;
 
-    // --- 共有状態: Valkey on Fargate (ADR 0015) ---
-    // ADR 0015: ElastiCache (起動 5-10 分) を廃止し、Fargate コンテナで Valkey を起動 (1-2 分)。
-    // 標準 Redis プロトコルのみ使用 (psrpc pub/sub, Streams, GET/SET)。
-    // CloudMap でサービスディスカバリし、SFU/Egress/CaptionWorker が DNS 名でアクセスする。
-    const namespace = new servicediscovery.PrivateDnsNamespace(this, "ServiceDiscovery", {
-      name: `stagecast-${props.eventId}.local`,
-      vpc,
-    });
-    const valkeyDnsName = `valkey.stagecast-${props.eventId}.local`;
-    const valkeyEndpoint = valkeyDnsName;
+    // --- 共有状態: Valkey (ADR 0015 → ADR 0017 sidecar 化) ---
+    // ADR 0017: Valkey を SFU Task の sidecar に統合。全コンテナが localhost:6379 で通信する。
+    // CloudMap サービスディスカバリは不要 (旧 ADR 0015 の DNS 名解決を廃止)。
+    const valkeyEndpoint = "localhost";
 
     // --- メディア/字幕の Fargate サービス群 ---
     const logGroup = new logs.LogGroup(this, "Logs", {
@@ -290,6 +289,8 @@ export class EventMediaStack extends Stack {
       sidecars?: SidecarOptions[];
       /** CloudMap サービスディスカバリ (ADR 0015: Valkey on Fargate)。 */
       cloudMapOptions?: ecs.CloudMapOptions;
+      /** サービス個別の desiredCount (ADR 0017: CaptionWorker on-demand)。 */
+      desiredCount?: number;
     }
     const addService = (
       name: string,
@@ -374,7 +375,7 @@ export class EventMediaStack extends Stack {
       return new ecs.FargateService(this, `${name}Service`, {
         cluster,
         taskDefinition: taskDef,
-        desiredCount: props.desiredCount ?? 1,
+        desiredCount: opts.desiredCount ?? props.desiredCount ?? 1,
         // ephemeral: 破棄を速くするため最小構成。
         minHealthyPercent: 0,
         circuitBreaker: { rollback: false },
@@ -386,40 +387,6 @@ export class EventMediaStack extends Stack {
       });
     };
 
-    // --- Valkey on Fargate (ADR 0015) ---
-    // ElastiCache (起動 5-10 分) を廃止し Fargate コンテナで起動 (1-2 分)。
-    // CloudMap DNS でサービスディスカバリ。SFU/Egress/CaptionWorker が DNS 名でアクセスする。
-    const valkeyService = addService("Valkey", "valkey/valkey:8-alpine", {
-      cpu: 256,
-      memoryLimitMiB: 512,
-      ports: [{ containerPort: 6379, protocol: ecs.Protocol.TCP }],
-      command: [
-        "valkey-server",
-        "--save",
-        "",
-        "--appendonly",
-        "no",
-        "--protected-mode",
-        "no",
-        "--maxmemory",
-        "256mb",
-        "--maxmemory-policy",
-        "allkeys-lru",
-      ],
-      cloudMapOptions: {
-        cloudMapNamespace: namespace,
-        name: "valkey",
-        dnsRecordType: servicediscovery.DnsRecordType.A,
-        dnsTtl: Duration.seconds(5),
-      },
-    });
-    // VPC 内の他サービスからの 6379/TCP アクセスを許可。
-    valkeyService.connections.allowFrom(
-      ec2.Peer.ipv4(vpc.vpcCidrBlock),
-      ec2.Port.tcp(6379),
-      "Valkey port from within VPC (ADR 0015)",
-    );
-
     // SFU(LiveKit): signaling(TCP) + WebRTC(TCP fallback / UDP)。config と Valkey を注入 (R1)。
     // ADR 0008 D-4: Public IP を直接公開し、NLB を廃止。reconcile Lambda が ECS から
     // task の Public IP を引いて events.media.livekitUrl に書き戻す (ADR 0008 D-2)。
@@ -429,11 +396,11 @@ export class EventMediaStack extends Stack {
 
     // ADR 0010: SFU と Egress を同一 Task に sidecar 同居。Egress は localhost で SFU と疎通し
     // (LIVEKIT_WS_URL=ws://localhost:7880)、psrpc は Valkey 経由で共有する。
-    // Task は SFU (1 vCPU) + Egress (Chrome ヘッドレス, 1 vCPU) で合計 2 vCPU / 4 GiB に増強。
+    // ADR 0017: Valkey も sidecar に統合。2 vCPU / 5 GiB (+1 GiB for Valkey)。
     const sfu = addService("Sfu", images.sfu ?? "livekit/livekit-server:latest", {
       serviceName: sfuServiceName,
       cpu: 2048,
-      memoryLimitMiB: 4096,
+      memoryLimitMiB: 5120,
       taskRole: sfuTaskRole,
       ports: [
         { containerPort: LIVEKIT_PORTS.signaling, protocol: ecs.Protocol.TCP },
@@ -464,9 +431,28 @@ export class EventMediaStack extends Stack {
         "-c",
         'NODE_IP=$(wget -qO- --timeout=5 https://ifconfig.io || wget -qO- --timeout=5 https://api.ipify.org) && echo "Resolved NODE_IP=$NODE_IP" && exec /livekit-server --node-ip "$NODE_IP"',
       ],
-      // R12-followup-19: Coturn sidecar 廃止 (R12-followup-14〜18 を撤回)。
-      // TURN は AWS KVS WebRTC に外出ししたので、 SFU TaskDef は Egress sidecar のみ。
+      // ADR 0017: Valkey sidecar 統合。psrpc registry + 字幕バスを localhost で提供。
+      // ADR 0015 の独立 Fargate Service を廃止し、CloudMap DNS を不要にする。
       sidecars: [
+        {
+          name: "Valkey",
+          image: "valkey/valkey:8-alpine",
+          essential: true,
+          ports: [{ containerPort: 6379, protocol: ecs.Protocol.TCP }],
+          command: [
+            "valkey-server",
+            "--save",
+            "",
+            "--appendonly",
+            "no",
+            "--protected-mode",
+            "no",
+            "--maxmemory",
+            "256mb",
+            "--maxmemory-policy",
+            "allkeys-lru",
+          ],
+        },
         {
           name: "Egress",
           image: images.egress ?? "livekit/egress:latest",
@@ -503,24 +489,21 @@ export class EventMediaStack extends Stack {
       ],
     });
 
+    // ADR 0017: CaptionWorker は独立 desiredCount でオンデマンド起動。
+    // 字幕不要なイベントでは captionDesiredCount=0 でタスクを起動しない (コスト -35%)。
+    // Valkey 依存を解消し InProcessCaptionBus を使用する (Valkey は SFU sidecar に移行済み)。
+    const captionDesired = props.captionDesiredCount ?? props.desiredCount ?? 1;
     const captionWorker = addService(
       "CaptionWorker",
       images.captionWorker ?? "public.ecr.aws/docker/library/node:24-alpine",
       {
         taskRole: captionTaskRole,
+        desiredCount: props.captionDesiredCount ?? props.desiredCount,
         ...(props.customCaptionApi ? { ports: [{ containerPort: 8080 }] } : {}),
         // プレースホルダイメージ (node:24-alpine) は引数なしで即終了する。
         // 実 caption-worker イメージが ECR に push されるまで sleep で生かしておく。
         ...(!images.captionWorker ? { command: ["sleep", "infinity"] } : {}),
-        // CAPTION_BUS=valkey で Valkey Streams への常時接続を確立し、
-        // LIVEKIT_URL 未設定時もイベントループを維持してプロセスが即終了しないようにする。
-        // 字幕を Valkey Streams 経由で配信するのは本来の設計でもある (T3, ADR 0002)。
-        ...(images.captionWorker
-          ? {
-              environment: { CAPTION_BUS: "valkey" },
-              secrets: livekitSecrets,
-            }
-          : {}),
+        ...(images.captionWorker ? { secrets: livekitSecrets } : {}),
       },
     );
 
@@ -557,11 +540,11 @@ export class EventMediaStack extends Stack {
     });
 
     // タスク異常: ECS RunningCount が desiredCount を下回る (= タスク落ち) アラーム。
-    // ADR 0010: Egress は SFU の sidecar として同 Task に同居するので独立サービスとしては監視しない
-    // (essential: false で Egress 単独クラッシュは Task 再起動を起こさず、SFU の RunningTaskCount 経由で間接的に検知される)。
+    // ADR 0010: Egress は SFU の sidecar として同 Task に同居するので独立サービスとしては監視しない。
+    // ADR 0017: CaptionWorker は captionDesiredCount=0 時にアラーム不要 (字幕なし配信)。
     const services: { name: string; service: ecs.FargateService }[] = [
       { name: "Sfu", service: sfu },
-      { name: "CaptionWorker", service: captionWorker },
+      ...(captionDesired > 0 ? [{ name: "CaptionWorker", service: captionWorker }] : []),
     ];
     const taskAlarms: cloudwatch.Alarm[] = [];
     for (const { name, service } of services) {

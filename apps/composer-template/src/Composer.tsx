@@ -13,19 +13,21 @@
  * participant 数にはカウントされない (livekit-server-sdk の egress role)。
  * よって tiles = video track を 1 個以上 publish している participant の publication 数。
  */
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   Room,
   RoomEvent,
   type RemoteParticipant,
   type RemoteTrackPublication,
 } from "livekit-client";
-import { decodeLayoutMessage, type LayoutKind } from "@stagecast/shared";
+import { decodeStageMessage, type LayoutKind } from "@stagecast/shared";
 import { Grid } from "./layouts/Grid.js";
 import { Pip } from "./layouts/Pip.js";
 import { ScreenShareMain } from "./layouts/ScreenShareMain.js";
 import { Spotlight } from "./layouts/Spotlight.js";
 import { type VideoTile } from "./layouts/types.js";
+import { Banner, type BannerState } from "./overlays/Banner.js";
+import { Overlay, type OverlayState } from "./overlays/Overlay.js";
 import { WaitingScreen } from "./WaitingScreen.js";
 
 interface Props {
@@ -45,6 +47,16 @@ export function Composer(props: Props) {
   // R16: layout state + focus 指定 (admin-web からの broadcast で更新)。
   const [layout, setLayout] = useState<LayoutKind>(props.initialLayout);
   const [focusIdentity, setFocusIdentity] = useState<string | undefined>(undefined);
+  // Phase 1: live speaker identities (visibility-change で更新)。空 = フィルタなし（全員表示）。
+  const [liveIdentities, setLiveIdentities] = useState<Map<string, "live" | "standby">>(
+    new Map(),
+  );
+  // Phase 3: バナー（下部テロップ）状態。
+  const [bannerState, setBannerState] = useState<BannerState | null>(null);
+  const handleBannerAutoHide = useCallback(() => setBannerState(null), []);
+  // Phase 4: オーバーレイ（QRコード/画像/動画）状態。
+  const [overlayState, setOverlayState] = useState<OverlayState | null>(null);
+  const handleOverlayAutoHide = useCallback(() => setOverlayState(null), []);
 
   useEffect(() => {
     let cancelled = false;
@@ -87,13 +99,40 @@ export function Composer(props: Props) {
       // (adaptiveStream: true の SFU が mute 時に track を自動 unsubscribe するため)。
       .on(RoomEvent.TrackSubscribed, refresh)
       .on(RoomEvent.TrackUnsubscribed, refresh)
-      // R16 / ADR 0012 D-4: admin-web から data channel で layout 切替を受信する。
-      // 全 participant の broadcast を listen し、 不明な payload は無視 (decode が null を返す)。
+      // R16 / ADR 0012 D-4: admin-web から data channel でメッセージを受信する。
       .on(RoomEvent.DataReceived, (payload: Uint8Array, _participant?: RemoteParticipant) => {
-        const msg = decodeLayoutMessage(payload);
-        if (!msg || cancelled) return;
-        setLayout(msg.layout);
-        setFocusIdentity(msg.focusIdentity);
+        if (cancelled) return;
+        const msg = decodeStageMessage(payload);
+        if (!msg) return;
+        if (msg.type === "layout-change") {
+          setLayout(msg.layout);
+          setFocusIdentity(msg.focusIdentity);
+        } else if (msg.type === "visibility-change") {
+          setLiveIdentities((prev) => {
+            const next = new Map(prev);
+            next.set(msg.speakerId, msg.visibility);
+            return next;
+          });
+        } else if (msg.type === "banner-show") {
+          setBannerState({
+            text: msg.text,
+            subtext: msg.subtext,
+            position: msg.position,
+            autoHideMs: msg.autoHideMs,
+          });
+        } else if (msg.type === "banner-hide") {
+          setBannerState(null);
+        } else if (msg.type === "overlay-show") {
+          setOverlayState({
+            kind: msg.kind,
+            url: msg.url,
+            position: msg.position,
+            sizePercent: msg.sizePercent,
+            autoHideMs: msg.autoHideMs,
+          });
+        } else if (msg.type === "overlay-hide") {
+          setOverlayState(null);
+        }
       });
     // LiveKit Egress sidecar 構成 (ADR 0010 D-2) では url が ws://localhost:7880。
     // Chrome の LNA 制限は ADR 0010 D-7 の `insecure: true` で回避済み。
@@ -108,27 +147,42 @@ export function Composer(props: Props) {
     };
   }, [room, props.url, props.token]);
 
+  // Phase 1: visibility state でフィルタ。visibility-change を一度でも受信したらフィルタ有効。
+  const visibleTiles = useMemo(() => {
+    if (liveIdentities.size === 0) return tiles;
+    return tiles.filter((t) => {
+      const vis = liveIdentities.get(t.participant.identity);
+      return vis === undefined || vis === "live";
+    });
+  }, [tiles, liveIdentities]);
+
   const view = useMemo(() => {
     if (state === "error") {
       return (
         <div style={{ color: "#fff", padding: 24 }}>Connection error: {errorMsg ?? "unknown"}</div>
       );
     }
-    if (tiles.length === 0) {
+    if (visibleTiles.length === 0) {
       return <WaitingScreen />;
     }
     switch (layout) {
       case "spotlight":
-        return <Spotlight tiles={tiles} focusIdentity={focusIdentity} />;
+        return <Spotlight tiles={visibleTiles} focusIdentity={focusIdentity} />;
       case "pip":
-        return <Pip tiles={tiles} focusIdentity={focusIdentity} />;
+        return <Pip tiles={visibleTiles} focusIdentity={focusIdentity} />;
       case "screen-share-main":
-        return <ScreenShareMain tiles={tiles} />;
+        return <ScreenShareMain tiles={visibleTiles} />;
       case "grid":
       default:
-        return <Grid tiles={tiles} />;
+        return <Grid tiles={visibleTiles} />;
     }
-  }, [state, errorMsg, tiles, layout, focusIdentity]);
+  }, [state, errorMsg, visibleTiles, layout, focusIdentity]);
 
-  return <div className="composer-root">{view}</div>;
+  return (
+    <div className="composer-root" style={{ position: "relative" }}>
+      {view}
+      <Banner banner={bannerState} onAutoHide={handleBannerAutoHide} />
+      <Overlay overlay={overlayState} onAutoHide={handleOverlayAutoHide} />
+    </div>
+  );
 }

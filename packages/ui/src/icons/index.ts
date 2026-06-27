@@ -32,6 +32,7 @@ export {
   Loader2,
   LogOut,
   Maximize2,
+  MessageCircle,
   Mic,
   MicOff,
   Minimize2,

@@ -10,9 +10,8 @@ describe("render-template-handler (D1)", () => {
     });
     const parsed = JSON.parse(template) as { Resources: Record<string, { Type: string }> };
     const types = Object.values(parsed.Resources).map((r) => r.Type);
-    // ADR 0015: ElastiCache 廃止 → Fargate Valkey + CloudMap。
-    expect(types).toContain("AWS::ServiceDiscovery::PrivateDnsNamespace");
-    // ADR 0015: Valkey + SFU + CaptionWorker = 3 サービス。
-    expect(types.filter((t) => t === "AWS::ECS::Service")).toHaveLength(3);
+    // ADR 0017: Valkey は SFU sidecar に統合、CloudMap は不要。
+    // SFU(+Egress+Valkey sidecar) + CaptionWorker = 2 サービス。
+    expect(types.filter((t) => t === "AWS::ECS::Service")).toHaveLength(2);
   });
 });

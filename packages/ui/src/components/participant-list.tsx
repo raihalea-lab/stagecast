@@ -1,7 +1,13 @@
-import { Mic, MicOff, ScreenShare, Star } from "lucide-react";
+import { Eye, EyeOff, Mic, MicOff, ScreenShare, Star } from "lucide-react";
 import { cn } from "../lib/cn.js";
 import { TallyIndicator } from "./tally-indicator.js";
 import { MonoNumber } from "./mono-number.js";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "../primitives/dropdown-menu.js";
 
 /**
  * 抽象的な participant 情報。 livekit-client への結合を packages/ui に持ち込まないため
@@ -14,6 +20,8 @@ export interface ParticipantInfo {
   isTalking: boolean;
   isMuted: boolean;
   isScreenSharing: boolean;
+  /** 登壇者の表示状態 (Phase 1: ステージ管理)。 */
+  visibility?: "live" | "standby";
 }
 
 export interface ParticipantListProps {
@@ -23,17 +31,26 @@ export interface ParticipantListProps {
   onFocus?: (identity: string) => void;
   /** モデレーター/admin からのミュート要請 (DataChannel)。 */
   onRequestMute?: (identity: string) => void;
+  /** 登壇者の表示状態変更 (Phase 1)。 */
+  onVisibilityChange?: (identity: string, visibility: "live" | "standby") => void;
+  /** 強制ミュート (Phase 1)。 */
+  onForceMute?: (identity: string) => void;
+  /** visibility 制御ボタンを表示するか (admin/moderator 用)。 */
+  showVisibilityControl?: boolean;
   className?: string;
 }
 
 /**
- * Moderator / Admin 向け参加者表。 各行に focus 指定とミュート要請ボタン。
+ * Moderator / Admin 向け参加者表。 各行に focus 指定、ミュート制御、表示状態トグル。
  */
 export function ParticipantList({
   participants,
   focusIdentity,
   onFocus,
   onRequestMute,
+  onVisibilityChange,
+  onForceMute,
+  showVisibilityControl,
   className,
 }: ParticipantListProps) {
   return (
@@ -52,6 +69,7 @@ export function ParticipantList({
       <ul className="divide-y divide-line-1">
         {participants.map((p) => {
           const isFocus = p.identity === focusIdentity;
+          const isOnStage = p.visibility === "live" || p.visibility === undefined;
           return (
             <li key={p.identity} className="flex items-center gap-2 px-3 py-2">
               <TallyIndicator
@@ -61,11 +79,40 @@ export function ParticipantList({
                 label={p.isTalking ? "発話中" : "静音"}
               />
               <span className="flex min-w-0 flex-1 flex-col">
-                <span className="truncate text-sm text-text-primary">{p.name ?? p.identity}</span>
+                <span
+                  className={cn(
+                    "truncate text-sm",
+                    isOnStage ? "text-text-primary" : "text-text-tertiary",
+                  )}
+                >
+                  {p.name ?? p.identity}
+                </span>
                 <span className="font-mono text-[10px] text-text-tertiary">
                   {p.role ?? "speaker"} / {p.identity}
                 </span>
               </span>
+              {showVisibilityControl && p.role === "speaker" && onVisibilityChange && (
+                <button
+                  type="button"
+                  onClick={() =>
+                    onVisibilityChange(p.identity, isOnStage ? "standby" : "live")
+                  }
+                  aria-pressed={isOnStage}
+                  aria-label={isOnStage ? "ステージから下ろす" : "ステージに上げる"}
+                  className={cn(
+                    "rounded p-1 transition-colors duration-fast",
+                    isOnStage
+                      ? "text-preview-500 hover:text-text-primary"
+                      : "text-text-tertiary hover:text-preview-500",
+                  )}
+                >
+                  {isOnStage ? (
+                    <Eye className="size-3.5" />
+                  ) : (
+                    <EyeOff className="size-3.5" />
+                  )}
+                </button>
+              )}
               {p.isScreenSharing && (
                 <ScreenShare className="size-3.5 text-preview-500" aria-label="画面共有中" />
               )}
@@ -86,15 +133,33 @@ export function ParticipantList({
               >
                 <Star className="size-3.5" />
               </button>
-              {onRequestMute && !p.isMuted && (
-                <button
-                  type="button"
-                  onClick={() => onRequestMute(p.identity)}
-                  aria-label="ミュート要請"
-                  className="rounded p-1 text-text-tertiary transition-colors duration-fast hover:text-warning"
-                >
-                  <MicOff className="size-3.5" />
-                </button>
+              {(onRequestMute || onForceMute) && !p.isMuted && (
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <button
+                      type="button"
+                      aria-label="ミュート操作"
+                      className="rounded p-1 text-text-tertiary transition-colors duration-fast hover:text-warning"
+                    >
+                      <MicOff className="size-3.5" />
+                    </button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end">
+                    {onRequestMute && (
+                      <DropdownMenuItem onClick={() => onRequestMute(p.identity)}>
+                        ミュート要請
+                      </DropdownMenuItem>
+                    )}
+                    {onForceMute && (
+                      <DropdownMenuItem
+                        onClick={() => onForceMute(p.identity)}
+                        className="text-error"
+                      >
+                        強制ミュート
+                      </DropdownMenuItem>
+                    )}
+                  </DropdownMenuContent>
+                </DropdownMenu>
               )}
             </li>
           );

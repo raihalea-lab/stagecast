@@ -8,7 +8,7 @@
  * (ADR 0008 D-3)。本クライアントは自動で exponential backoff してリトライし、最終的に
  * 200 もしくは別エラーが返るのを待つ。UI には onRetry で進捗を伝える。
  */
-import type { InvitedRole } from "@stagecast/shared";
+import type { InvitedRole, SpeakerVisibility } from "@stagecast/shared";
 
 /**
  * R12-followup-19 / ADR 0011 案 E: TURN/STUN server。
@@ -70,6 +70,13 @@ export interface StageClient {
    * 入室済みの speaker / moderator が、 入室時と同じ招待トークンを提示して取得する。
    */
   issuePreviewToken(inviteToken: string): Promise<PreviewTokenResponse>;
+  /** 登壇者の表示状態を変更する (Phase 1: ステージ管理)。招待トークンで認証。 */
+  setSpeakerVisibility(
+    inviteToken: string,
+    eventId: string,
+    speakerId: string,
+    visibility: SpeakerVisibility,
+  ): Promise<void>;
 }
 
 /** ADR 0008 D-3: exponential backoff スケジュール (秒)。 */
@@ -134,5 +141,26 @@ export class HttpStageClient implements StageClient {
       throw new Error(`preview-token failed (${res.status}): ${msg}`);
     }
     return (await res.json()) as PreviewTokenResponse;
+  }
+
+  /** Phase 1: 招待トークンで認証して登壇者の表示状態を変更する。 */
+  async setSpeakerVisibility(
+    inviteToken: string,
+    eventId: string,
+    speakerId: string,
+    visibility: SpeakerVisibility,
+  ): Promise<void> {
+    const res = await fetch(
+      `${this.baseUrl}/presentation/speakers/${encodeURIComponent(speakerId)}`,
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ inviteToken, eventId, visibility }),
+      },
+    );
+    if (!res.ok) {
+      const msg = await res.text().catch(() => res.statusText);
+      throw new Error(`setSpeakerVisibility failed (${res.status}): ${msg}`);
+    }
   }
 }
