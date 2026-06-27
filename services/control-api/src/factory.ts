@@ -112,7 +112,7 @@ export function buildControlApi(config: FactoryConfig = {}) {
     config.artifactStore ?? (storeBucket ? new S3ArtifactStore(storeBucket) : undefined);
   const cleanupStorage = cleanupStore
     ? async (eventId: string) => {
-        const prefixes = [`assets/${eventId}/`, `recordings/${eventId}/`, `captions/${eventId}/`];
+        const prefixes = [`recordings/${eventId}/`, `captions/${eventId}/`];
         await Promise.all(prefixes.map((p) => cleanupStore.deletePrefix(p)));
       }
     : undefined;

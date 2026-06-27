@@ -139,18 +139,21 @@ export class LocalControlApiClient implements ControlApiClient {
       { id: string; title: string; startsAt: string; endsAt?: string; status: string }[]
     >("GET", "/events/public", undefined, false);
   }
-  async listAssets(eventId: string, tag?: string): Promise<AssetMetadata[]> {
-    const query = tag ? `?tag=${encodeURIComponent(tag)}` : "";
-    const data = await this.call<{ assets: AssetMetadata[] }>(
-      "GET",
-      `/events/${eventId}/assets${query}`,
-    );
+  async listAssets(tag?: string, search?: string): Promise<AssetMetadata[]> {
+    const params = new URLSearchParams();
+    if (tag) params.set("tag", tag);
+    if (search) params.set("search", search);
+    const query = params.toString() ? `?${params.toString()}` : "";
+    const data = await this.call<{ assets: AssetMetadata[] }>("GET", `/assets${query}`);
     return data.assets;
   }
-  async updateAssetTags(eventId: string, assetId: string, tags: string[]): Promise<AssetMetadata> {
-    return this.call("PATCH", `/events/${eventId}/assets/${assetId}`, { tags });
+  async updateAsset(
+    assetId: string,
+    patch: { tags?: string[]; description?: string },
+  ): Promise<AssetMetadata> {
+    return this.call("PATCH", `/assets/${assetId}`, patch);
   }
-  async deleteAsset(eventId: string, assetId: string): Promise<void> {
-    return this.call("DELETE", `/events/${eventId}/assets/${assetId}`);
+  async deleteAsset(assetId: string): Promise<void> {
+    return this.call("DELETE", `/assets/${assetId}`);
   }
 }

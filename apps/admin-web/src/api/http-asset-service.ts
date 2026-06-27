@@ -12,12 +12,11 @@ export class HttpAssetService implements AssetService {
   ) {}
 
   async upload(
-    eventId: string,
     file: { name: string; contentType: string; bytes: Uint8Array },
     tags?: string[],
   ): Promise<AssetRef> {
     const token = this.getToken();
-    const presignRes = await fetch(`${this.baseUrl}/events/${eventId}/assets/upload-url`, {
+    const presignRes = await fetch(`${this.baseUrl}/assets/upload-url`, {
       method: "POST",
       headers: {
         "content-type": "application/json",

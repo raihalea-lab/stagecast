@@ -25,12 +25,12 @@ describe("admin console end-to-end flow (DESIGN.md 8 章, 7.1)", () => {
     expect(created.caption.customApiEnabled).toBe(true);
 
     // 2) QR 素材をアップロード (S3 相当)
-    const ref = await assets.upload(created.id, {
+    const ref = await assets.upload({
       name: "qr.png",
       contentType: "image/png",
       bytes: new Uint8Array([1, 2, 3]),
     });
-    expect(ref.key).toBe(`assets/${created.id}/qr.png`);
+    expect(ref.key).toContain("assets/library/");
 
     // 3) 設定保存 (イベントに QR を紐づけ)
     const withQr = await client.updateEvent(created.id, { qrAsset: ref });

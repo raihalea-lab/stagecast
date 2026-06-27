@@ -9,11 +9,10 @@ export class InMemoryAssetService implements AssetService {
   readonly stored = new Map<string, { contentType: string; bytes: Uint8Array }>();
 
   async upload(
-    eventId: string,
     file: { name: string; contentType: string; bytes: Uint8Array },
     _tags?: string[],
   ): Promise<AssetRef> {
-    const key = `assets/${eventId}/${file.name}`;
+    const key = `assets/library/${crypto.randomUUID()}-${file.name}`;
     this.stored.set(key, { contentType: file.contentType, bytes: file.bytes });
     return { key, label: file.name, contentType: file.contentType };
   }

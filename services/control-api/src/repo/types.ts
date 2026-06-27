@@ -62,10 +62,11 @@ export interface PresentationRepository {
 
 export interface AssetMetadataRepository {
   put(asset: AssetMetadata): Promise<void>;
-  get(eventId: string, assetId: string): Promise<AssetMetadata | undefined>;
-  listByEvent(eventId: string): Promise<AssetMetadata[]>;
-  delete(eventId: string, assetId: string): Promise<void>;
-  updateTags(eventId: string, assetId: string, tags: string[]): Promise<AssetMetadata>;
+  get(assetId: string): Promise<AssetMetadata | undefined>;
+  list(): Promise<AssetMetadata[]>;
+  delete(assetId: string): Promise<void>;
+  updateTags(assetId: string, tags: string[]): Promise<AssetMetadata>;
+  updateDescription(assetId: string, description: string): Promise<AssetMetadata>;
 }
 
 export interface PresetRepository {
