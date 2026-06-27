@@ -58,6 +58,52 @@ export function Composer(props: Props) {
   const [overlayState, setOverlayState] = useState<OverlayState | null>(null);
   const handleOverlayAutoHide = useCallback(() => setOverlayState(null), []);
 
+  // postMessage ブリッジ: 同一 identity の DataChannel エコー問題を回避
+  useEffect(() => {
+    const handleMessage = (event: MessageEvent) => {
+      const data = event.data as { type?: string } | undefined;
+      if (typeof data !== "object" || !data?.type) return;
+      if (data.type === "layout-change") {
+        const d = data as { layout?: LayoutKind; focusIdentity?: string };
+        if (d.layout) {
+          setLayout(d.layout);
+          setFocusIdentity(d.focusIdentity);
+        }
+      } else if (data.type === "banner-show") {
+        const d = data as { text?: string; subtext?: string; position?: "bottom" | "top"; autoHideMs?: number };
+        if (d.text) {
+          setBannerState({ text: d.text, subtext: d.subtext, position: d.position ?? "bottom", autoHideMs: d.autoHideMs });
+        }
+      } else if (data.type === "banner-hide") {
+        setBannerState(null);
+      } else if (data.type === "overlay-show") {
+        const d = data as { kind?: "qr" | "image" | "video"; url?: string; position?: string; sizePercent?: number; autoHideMs?: number };
+        if (d.url && d.kind) {
+          setOverlayState({
+            kind: d.kind,
+            url: d.url,
+            position: (d.position as OverlayState["position"]) ?? "bottom-right",
+            sizePercent: d.sizePercent,
+            autoHideMs: d.autoHideMs,
+          });
+        }
+      } else if (data.type === "overlay-hide") {
+        setOverlayState(null);
+      } else if (data.type === "visibility-change") {
+        const d = data as { speakerId?: string; visibility?: "live" | "standby" };
+        if (d.speakerId && d.visibility) {
+          setLiveIdentities((prev) => {
+            const next = new Map(prev);
+            next.set(d.speakerId!, d.visibility!);
+            return next;
+          });
+        }
+      }
+    };
+    window.addEventListener("message", handleMessage);
+    return () => window.removeEventListener("message", handleMessage);
+  }, []);
+
   useEffect(() => {
     let cancelled = false;
     const refresh = () => {
