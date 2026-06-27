@@ -96,14 +96,14 @@ export function isValidCaptionSettings(s: CaptionSettings): boolean {
   return s.languages.length > 0 && s.languages.includes(s.youtubeLanguage);
 }
 
-/** S3 に保存されたアセットのメタデータ (Phase 2: アセット管理)。 */
+/** S3 に保存されたアセットのメタデータ。イベントに属さずグローバルライブラリとして管理。 */
 export interface AssetMetadata {
   assetId: string;
-  eventId: string;
   assetKey: string;
   filename: string;
   contentType: string;
   tags: string[];
+  description?: string;
   size?: number;
   createdAt: string;
 }

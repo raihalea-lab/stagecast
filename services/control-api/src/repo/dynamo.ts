@@ -35,6 +35,7 @@ import type {
 } from "./types.js";
 import {
   assetToItem,
+  assetsPk,
   eventPk,
   eventRequestPk,
   eventRequestToItem,
@@ -210,40 +211,47 @@ export class DynamoAssetMetadataRepository implements AssetMetadataRepository {
   async put(asset: AssetMetadata): Promise<void> {
     await this.doc.send(new PutCommand({ TableName: this.table, Item: assetToItem(asset) }));
   }
-  async get(eventId: string, assetId: string): Promise<AssetMetadata | undefined> {
+  async get(assetId: string): Promise<AssetMetadata | undefined> {
     const res = await this.doc.send(
       new GetCommand({
         TableName: this.table,
-        Key: { pk: eventPk(eventId), sk: `ASSET#${assetId}` },
+        Key: { pk: assetsPk(), sk: `ASSET#${assetId}` },
       }),
     );
     return res.Item ? itemToAsset(res.Item) : undefined;
   }
-  async listByEvent(eventId: string): Promise<AssetMetadata[]> {
+  async list(): Promise<AssetMetadata[]> {
     const res = await this.doc.send(
       new QueryCommand({
         TableName: this.table,
         KeyConditionExpression: "pk = :pk AND begins_with(sk, :prefix)",
         ExpressionAttributeValues: {
-          ":pk": eventPk(eventId),
+          ":pk": assetsPk(),
           ":prefix": "ASSET#",
         },
       }),
     );
     return (res.Items ?? []).map(itemToAsset);
   }
-  async delete(eventId: string, assetId: string): Promise<void> {
+  async delete(assetId: string): Promise<void> {
     await this.doc.send(
       new DeleteCommand({
         TableName: this.table,
-        Key: { pk: eventPk(eventId), sk: `ASSET#${assetId}` },
+        Key: { pk: assetsPk(), sk: `ASSET#${assetId}` },
       }),
     );
   }
-  async updateTags(eventId: string, assetId: string, tags: string[]): Promise<AssetMetadata> {
-    const asset = await this.get(eventId, assetId);
+  async updateTags(assetId: string, tags: string[]): Promise<AssetMetadata> {
+    const asset = await this.get(assetId);
     if (!asset) throw new Error(`Asset ${assetId} not found`);
     asset.tags = tags;
+    await this.put(asset);
+    return asset;
+  }
+  async updateDescription(assetId: string, description: string): Promise<AssetMetadata> {
+    const asset = await this.get(assetId);
+    if (!asset) throw new Error(`Asset ${assetId} not found`);
+    asset.description = description;
     await this.put(asset);
     return asset;
   }

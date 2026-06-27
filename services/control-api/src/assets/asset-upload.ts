@@ -34,15 +34,14 @@ export class S3AssetUploadSigner implements AssetUploadSigner {
 
 export function createAssetUploadService(deps: { signer: AssetUploadSigner; newId: () => string }) {
   async function createUploadUrl(
-    eventId: string,
     filename: string,
     contentType: string,
-  ): Promise<PresignedUpload> {
-    // ファイル名衝突を避けつつイベント配下に配置する。
+  ): Promise<PresignedUpload & { assetId: string }> {
+    const assetId = deps.newId();
     const safe = filename.replace(/[^\w.-]/g, "_");
-    const key = `assets/${eventId}/${deps.newId()}-${safe}`;
+    const key = `assets/library/${assetId}-${safe}`;
     const uploadUrl = await deps.signer.presignPut(key, contentType);
-    return { key, uploadUrl };
+    return { assetId, key, uploadUrl };
   }
   return { createUploadUrl };
 }

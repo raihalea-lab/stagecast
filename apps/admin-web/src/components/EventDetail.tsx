@@ -87,12 +87,8 @@ function StatusTransitionBar(props: {
   );
 }
 
-function AssetManagerTab(props: {
-  eventId: string;
-  client: ControlApiClient;
-  assets: AssetService;
-}) {
-  const { eventId, client, assets } = props;
+function AssetManagerTab(props: { client: ControlApiClient; assets: AssetService }) {
+  const { client, assets } = props;
   const [assetList, setAssetList] = useState<AssetMetadata[]>([]);
   const [loaded, setLoaded] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -126,13 +122,13 @@ function AssetManagerTab(props: {
 
   const loadAssets = useCallback(async () => {
     try {
-      const list = await client.listAssets(eventId);
+      const list = await client.listAssets();
       setAssetList(list);
       setLoaded(true);
     } catch (err) {
       setError(toErrorMessage(err));
     }
-  }, [client, eventId]);
+  }, [client]);
 
   useEffect(() => {
     void loadAssets();
@@ -146,7 +142,7 @@ function AssetManagerTab(props: {
         .filter(Boolean);
       for (const file of files) {
         const bytes = new Uint8Array(await file.arrayBuffer());
-        await assets.upload(eventId, { name: file.name, contentType: file.type, bytes }, tags);
+        await assets.upload({ name: file.name, contentType: file.type, bytes }, tags);
       }
       setUploadTags("");
       await loadAssets();
@@ -158,7 +154,7 @@ function AssetManagerTab(props: {
         .split(",")
         .map((t) => t.trim())
         .filter(Boolean);
-      await client.updateAssetTags(eventId, assetId, tags);
+      await client.updateAsset(assetId, { tags });
       setEditingAssetId(undefined);
       setEditTagsInput("");
       await loadAssets();
@@ -166,7 +162,7 @@ function AssetManagerTab(props: {
 
   const handleDelete = (asset: AssetMetadata) =>
     guard(async () => {
-      await client.deleteAsset(eventId, asset.assetId);
+      await client.deleteAsset(asset.assetId);
       setDeleteTarget(undefined);
       await loadAssets();
     })();
@@ -427,7 +423,7 @@ export function EventDetail(props: {
   const uploadQr = (file: File) =>
     guard(async () => {
       const bytes = new Uint8Array(await file.arrayBuffer());
-      const ref = await assets.upload(event.id, {
+      const ref = await assets.upload({
         name: file.name,
         contentType: file.type,
         bytes,
@@ -612,7 +608,7 @@ export function EventDetail(props: {
         </TabsContent>
 
         <TabsContent value="assets" className="pt-4">
-          <AssetManagerTab eventId={event.id} client={client} assets={assets} />
+          <AssetManagerTab client={client} assets={assets} />
         </TabsContent>
 
         <TabsContent value="artifacts" className="space-y-6 pt-4">

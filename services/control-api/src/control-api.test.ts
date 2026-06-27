@@ -473,7 +473,7 @@ describe("control-api integration (in-memory)", () => {
     );
     expect(del.status).toBe(204);
     expect(deletedPrefixes).toEqual(
-      expect.arrayContaining([`assets/${id}/`, `recordings/${id}/`, `captions/${id}/`]),
+      expect.arrayContaining([`recordings/${id}/`, `captions/${id}/`]),
     );
   });
 });

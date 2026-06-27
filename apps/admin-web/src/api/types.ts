@@ -111,9 +111,12 @@ export interface ControlApiClient {
     { id: string; title: string; startsAt: string; endsAt?: string; status: string }[]
   >;
 
-  listAssets(eventId: string, tag?: string): Promise<AssetMetadata[]>;
-  updateAssetTags(eventId: string, assetId: string, tags: string[]): Promise<AssetMetadata>;
-  deleteAsset(eventId: string, assetId: string): Promise<void>;
+  listAssets(tag?: string, search?: string): Promise<AssetMetadata[]>;
+  updateAsset(
+    assetId: string,
+    patch: { tags?: string[]; description?: string },
+  ): Promise<AssetMetadata>;
+  deleteAsset(assetId: string): Promise<void>;
 }
 
 /**
@@ -122,7 +125,6 @@ export interface ControlApiClient {
  */
 export interface AssetService {
   upload(
-    eventId: string,
     file: { name: string; contentType: string; bytes: Uint8Array },
     tags?: string[],
   ): Promise<AssetRef>;

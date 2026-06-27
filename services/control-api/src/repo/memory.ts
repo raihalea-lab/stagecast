@@ -120,30 +120,32 @@ export class MemoryPresentationRepository implements PresentationRepository {
 
 export class MemoryAssetMetadataRepository implements AssetMetadataRepository {
   private readonly store = new Map<string, AssetMetadata>();
-  private key(eventId: string, assetId: string) {
-    return `${eventId}#${assetId}`;
-  }
 
   async put(asset: AssetMetadata): Promise<void> {
-    this.store.set(this.key(asset.eventId, asset.assetId), structuredClone(asset));
+    this.store.set(asset.assetId, structuredClone(asset));
   }
-  async get(eventId: string, assetId: string): Promise<AssetMetadata | undefined> {
-    const a = this.store.get(this.key(eventId, assetId));
+  async get(assetId: string): Promise<AssetMetadata | undefined> {
+    const a = this.store.get(assetId);
     return a ? structuredClone(a) : undefined;
   }
-  async listByEvent(eventId: string): Promise<AssetMetadata[]> {
-    return [...this.store.values()]
-      .filter((a) => a.eventId === eventId)
-      .map((a) => structuredClone(a));
+  async list(): Promise<AssetMetadata[]> {
+    return [...this.store.values()].map((a) => structuredClone(a));
   }
-  async delete(eventId: string, assetId: string): Promise<void> {
-    this.store.delete(this.key(eventId, assetId));
+  async delete(assetId: string): Promise<void> {
+    this.store.delete(assetId);
   }
-  async updateTags(eventId: string, assetId: string, tags: string[]): Promise<AssetMetadata> {
-    const a = await this.get(eventId, assetId);
+  async updateTags(assetId: string, tags: string[]): Promise<AssetMetadata> {
+    const a = await this.get(assetId);
     if (!a) throw new Error(`Asset ${assetId} not found`);
     a.tags = tags;
-    this.store.set(this.key(eventId, assetId), a);
+    this.store.set(assetId, a);
+    return structuredClone(a);
+  }
+  async updateDescription(assetId: string, description: string): Promise<AssetMetadata> {
+    const a = await this.get(assetId);
+    if (!a) throw new Error(`Asset ${assetId} not found`);
+    a.description = description;
+    this.store.set(assetId, a);
     return structuredClone(a);
   }
 }

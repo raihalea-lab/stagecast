@@ -16,16 +16,17 @@ class FakeSigner implements AssetUploadSigner {
 }
 
 describe("asset upload service", () => {
-  it("namespaces the key under the event and sanitizes the filename", async () => {
+  it("namespaces the key under library/ and sanitizes the filename", async () => {
     let n = 0;
     const svc = createAssetUploadService({ signer: new FakeSigner(), newId: () => `id-${++n}` });
-    const out = await svc.createUploadUrl("evt-1", "my slides (v2).pdf", "application/pdf");
-    expect(out.key).toBe("assets/evt-1/id-1-my_slides__v2_.pdf");
-    expect(out.uploadUrl).toContain("assets/evt-1/id-1-my_slides__v2_.pdf");
+    const out = await svc.createUploadUrl("my slides (v2).pdf", "application/pdf");
+    expect(out.key).toBe("assets/library/id-1-my_slides__v2_.pdf");
+    expect(out.assetId).toBe("id-1");
+    expect(out.uploadUrl).toContain("assets/library/id-1-my_slides__v2_.pdf");
   });
 });
 
-describe("POST /events/{id}/assets/upload-url", () => {
+describe("POST /assets/upload-url", () => {
   let app: App;
   beforeEach(() => {
     app = buildControlApi({ inviteSecret: "s", assetSigner: new FakeSigner(), newId: () => "fix" });
@@ -35,19 +36,17 @@ describe("POST /events/{id}/assets/upload-url", () => {
     const res = await app.handle(
       req({
         method: "POST",
-        path: "/events/evt-1/assets/upload-url",
+        path: "/assets/upload-url",
         headers: adminAuth,
         body: { filename: "qr.png", contentType: "image/png" },
       }),
     );
     expect(res.status).toBe(201);
-    expect(res.body).toMatchObject({ key: "assets/evt-1/fix-qr.png" });
+    expect(res.body).toMatchObject({ key: "assets/library/fix-qr.png", assetId: "fix" });
   });
 
   it("requires admin auth", async () => {
-    const res = await app.handle(
-      req({ method: "POST", path: "/events/evt-1/assets/upload-url", body: {} }),
-    );
+    const res = await app.handle(req({ method: "POST", path: "/assets/upload-url", body: {} }));
     expect(res.status).toBe(401);
   });
 
@@ -56,7 +55,7 @@ describe("POST /events/{id}/assets/upload-url", () => {
     const res = await noAssets.handle(
       req({
         method: "POST",
-        path: "/events/evt-1/assets/upload-url",
+        path: "/assets/upload-url",
         headers: adminAuth,
         body: { filename: "x", contentType: "text/plain" },
       }),

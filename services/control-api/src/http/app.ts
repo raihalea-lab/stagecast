@@ -211,7 +211,7 @@ export function createApp(deps: AppDeps) {
       if (verified.role !== "moderator") {
         return json(403, { error: "only moderator can access assets" });
       }
-      const assets_ = await deps.assetMetadataRepo.listByEvent(verified.eventId);
+      const assets_ = await deps.assetMetadataRepo.list();
       return json(200, { assets: assets_ });
     }
 
@@ -275,6 +275,79 @@ export function createApp(deps: AppDeps) {
     // 以降は管理者専用 (Cognito)
     const principal = await requireAdmin(req);
 
+    // /assets (グローバルアセットライブラリ, Cognito 認証)
+    if (segments[0] === "assets") {
+      const assetId = segments[1];
+
+      if (!assetId && req.method === "POST" && segments.length === 1) {
+        // POST /assets/upload-url は下の分岐で処理
+      }
+      if (segments[1] === "upload-url" && req.method === "POST") {
+        if (!assets) throw new ServiceUnavailableError("asset storage not configured");
+        if (!deps.assetMetadataRepo)
+          throw new ServiceUnavailableError("asset metadata not configured");
+        const filename = String(body.filename ?? "asset");
+        const contentType = String(body.contentType ?? "application/octet-stream");
+        const result = await assets.createUploadUrl(filename, contentType);
+        const nowFn = deps.now ?? Date.now;
+        const asset: AssetMetadata = {
+          assetId: result.assetId,
+          assetKey: result.key,
+          filename,
+          contentType,
+          tags: (body.tags as string[]) ?? [],
+          description: body.description as string | undefined,
+          createdAt: new Date(nowFn()).toISOString(),
+        };
+        await deps.assetMetadataRepo.put(asset);
+        return json(201, { ...result, assetId: asset.assetId });
+      }
+      if (!assetId && req.method === "GET") {
+        if (!deps.assetMetadataRepo)
+          throw new ServiceUnavailableError("asset metadata not configured");
+        const allAssets = await deps.assetMetadataRepo.list();
+        const tagFilter = new URLSearchParams(req.path.split("?")[1] ?? "").get("tag");
+        const searchFilter = new URLSearchParams(req.path.split("?")[1] ?? "").get("search");
+        let filtered = tagFilter ? allAssets.filter((a) => a.tags.includes(tagFilter)) : allAssets;
+        if (searchFilter) {
+          const q = searchFilter.toLowerCase();
+          filtered = filtered.filter(
+            (a) =>
+              a.filename.toLowerCase().includes(q) ||
+              (a.description?.toLowerCase().includes(q) ?? false),
+          );
+        }
+        return json(200, { assets: filtered });
+      }
+      if (assetId && req.method === "PATCH") {
+        if (!deps.assetMetadataRepo)
+          throw new ServiceUnavailableError("asset metadata not configured");
+        const tags = body.tags as string[] | undefined;
+        const description = body.description as string | undefined;
+        let updated: AssetMetadata | undefined;
+        if (tags && Array.isArray(tags)) {
+          updated = await deps.assetMetadataRepo.updateTags(assetId, tags);
+        }
+        if (description !== undefined) {
+          updated = await deps.assetMetadataRepo.updateDescription(assetId, description);
+        }
+        if (!updated) {
+          updated = await deps.assetMetadataRepo.get(assetId);
+        }
+        return json(200, updated);
+      }
+      if (assetId && req.method === "DELETE") {
+        if (!deps.assetMetadataRepo)
+          throw new ServiceUnavailableError("asset metadata not configured");
+        const asset = await deps.assetMetadataRepo.get(assetId);
+        if (asset && deps.artifactStore) {
+          await deps.artifactStore.deletePrefix(asset.assetKey);
+        }
+        await deps.assetMetadataRepo.delete(assetId);
+        return json(204, null);
+      }
+    }
+
     // /events
     if (segments[0] === "events") {
       const eventId = segments[1];
@@ -327,58 +400,6 @@ export function createApp(deps: AppDeps) {
             ttlSec: Number(body.ttlSec ?? 60 * 60 * 12),
           }),
         );
-      } else if (
-        segments[2] === "assets" &&
-        segments[3] === "upload-url" &&
-        req.method === "POST"
-      ) {
-        if (!assets) throw new ServiceUnavailableError("asset storage not configured");
-        const filename = String(body.filename ?? "asset");
-        const contentType = String(body.contentType ?? "application/octet-stream");
-        const result = await assets.createUploadUrl(eventId, filename, contentType);
-        if (deps.assetMetadataRepo) {
-          const newId = deps.newId ?? (() => crypto.randomUUID());
-          const nowFn = deps.now ?? Date.now;
-          const asset: AssetMetadata = {
-            assetId: newId(),
-            eventId,
-            assetKey: result.key,
-            filename,
-            contentType,
-            tags: (body.tags as string[]) ?? [],
-            createdAt: new Date(nowFn()).toISOString(),
-          };
-          await deps.assetMetadataRepo.put(asset);
-          return json(201, { ...result, assetId: asset.assetId });
-        }
-        return json(201, result);
-      } else if (segments[2] === "assets" && segments.length === 3 && req.method === "GET") {
-        if (!deps.assetMetadataRepo)
-          throw new ServiceUnavailableError("asset metadata not configured");
-        const allAssets = await deps.assetMetadataRepo.listByEvent(eventId);
-        const tagFilter = new URLSearchParams(req.path.split("?")[1] ?? "").get("tag");
-        const filtered = tagFilter
-          ? allAssets.filter((a) => a.tags.includes(tagFilter))
-          : allAssets;
-        return json(200, { assets: filtered });
-      } else if (segments[2] === "assets" && segments[3] && req.method === "PATCH") {
-        if (!deps.assetMetadataRepo)
-          throw new ServiceUnavailableError("asset metadata not configured");
-        const assetId = segments[3];
-        const tags = body.tags as string[] | undefined;
-        if (!tags || !Array.isArray(tags)) return json(400, { error: "tags array is required" });
-        const updated = await deps.assetMetadataRepo.updateTags(eventId, assetId, tags);
-        return json(200, updated);
-      } else if (segments[2] === "assets" && segments[3] && req.method === "DELETE") {
-        if (!deps.assetMetadataRepo)
-          throw new ServiceUnavailableError("asset metadata not configured");
-        const assetId = segments[3];
-        const asset = await deps.assetMetadataRepo.get(eventId, assetId);
-        if (asset && deps.artifactStore) {
-          await deps.artifactStore.deletePrefix(asset.assetKey);
-        }
-        await deps.assetMetadataRepo.delete(eventId, assetId);
-        return json(204, null);
       } else if (segments[2] === "artifacts" && segments.length === 3 && req.method === "GET") {
         // 配信成果物 (録画 / 確定字幕) のダウンロード URL 一覧 (N1)。
         if (!artifacts) throw new ServiceUnavailableError("asset storage not configured");
