@@ -140,6 +140,7 @@ export function App(props: {
   const [egressState, setEgressState] = useState<EgressState>("idle");
   const [elapsedSec, setElapsedSec] = useState(0);
   const elapsedRef = useRef<ReturnType<typeof setInterval>>(undefined);
+  const previewIframeRef = useRef<HTMLIFrameElement>(null);
 
   useEffect(() => {
     controller.onDisconnected(() => {
@@ -594,6 +595,10 @@ export function App(props: {
           onChange={(next) => {
             setLayout(next);
             void controller.changeLayout(next, focusIdentity);
+            previewIframeRef.current?.contentWindow?.postMessage(
+              { type: "layout-change", layout: next, focusIdentity },
+              "*",
+            );
           }}
           disabled={busy}
         />
@@ -660,6 +665,7 @@ export function App(props: {
                   {props.config?.composerTemplateUrl && adminDirect ? (
                     <div className="overflow-hidden rounded-lg border-2 border-tally-500 shadow-[0_0_12px_rgba(220,38,38,0.25)]">
                       <iframe
+                        ref={previewIframeRef}
                         title="配信プレビュー (composer-template)"
                         src={`${props.config.composerTemplateUrl}?layout=${layout}&token=${encodeURIComponent(adminDirect.livekitToken)}&url=${encodeURIComponent(adminDirect.livekitUrl)}`}
                         className="block w-full bg-black"
@@ -723,24 +729,30 @@ export function App(props: {
                   <CardContent>
                     <ProductionControl
                       onShowBanner={(opts) => {
+                        const msg = { type: "banner-show", text: opts.text, subtext: opts.subtext, position: opts.position, autoHideMs: opts.autoHideMs };
                         void controller.showBanner(opts.text, {
                           subtext: opts.subtext,
                           position: opts.position,
                           autoHideMs: opts.autoHideMs,
                         });
+                        previewIframeRef.current?.contentWindow?.postMessage(msg, "*");
                       }}
                       onHideBanner={() => {
                         void controller.hideBanner();
+                        previewIframeRef.current?.contentWindow?.postMessage({ type: "banner-hide" }, "*");
                       }}
                       onShowOverlay={(opts) => {
+                        const msg = { type: "overlay-show", kind: opts.kind, url: opts.url, position: opts.position, sizePercent: opts.sizePercent, autoHideMs: opts.autoHideMs };
                         void controller.showOverlay(opts.kind, opts.url, {
                           position: opts.position,
                           sizePercent: opts.sizePercent,
                           autoHideMs: opts.autoHideMs,
                         });
+                        previewIframeRef.current?.contentWindow?.postMessage(msg, "*");
                       }}
                       onHideOverlay={() => {
                         void controller.hideOverlay();
+                        previewIframeRef.current?.contentWindow?.postMessage({ type: "overlay-hide" }, "*");
                       }}
                       disabled={busy}
                     />
