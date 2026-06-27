@@ -3,16 +3,20 @@
  * 本番では同じインターフェースの DynamoDB 実装に差し替える。
  */
 import type {
+  AssetMetadata,
   EventDefinition,
   EventRequest,
+  Preset,
   PresentationState,
   SpeakerVisibility,
 } from "@stagecast/shared";
 import type {
+  AssetMetadataRepository,
   EventRepository,
   EventRequestRepository,
   InviteTokenRecord,
   InviteTokenRepository,
+  PresetRepository,
   PresentationRepository,
 } from "./types.js";
 
@@ -111,5 +115,59 @@ export class MemoryPresentationRepository implements PresentationRepository {
     s.slideSource = slide.slideSource;
     s.slidePage = slide.slidePage;
     return structuredClone(s);
+  }
+}
+
+export class MemoryAssetMetadataRepository implements AssetMetadataRepository {
+  private readonly store = new Map<string, AssetMetadata>();
+  private key(eventId: string, assetId: string) {
+    return `${eventId}#${assetId}`;
+  }
+
+  async put(asset: AssetMetadata): Promise<void> {
+    this.store.set(this.key(asset.eventId, asset.assetId), structuredClone(asset));
+  }
+  async get(eventId: string, assetId: string): Promise<AssetMetadata | undefined> {
+    const a = this.store.get(this.key(eventId, assetId));
+    return a ? structuredClone(a) : undefined;
+  }
+  async listByEvent(eventId: string): Promise<AssetMetadata[]> {
+    return [...this.store.values()]
+      .filter((a) => a.eventId === eventId)
+      .map((a) => structuredClone(a));
+  }
+  async delete(eventId: string, assetId: string): Promise<void> {
+    this.store.delete(this.key(eventId, assetId));
+  }
+  async updateTags(eventId: string, assetId: string, tags: string[]): Promise<AssetMetadata> {
+    const a = await this.get(eventId, assetId);
+    if (!a) throw new Error(`Asset ${assetId} not found`);
+    a.tags = tags;
+    this.store.set(this.key(eventId, assetId), a);
+    return structuredClone(a);
+  }
+}
+
+export class MemoryPresetRepository implements PresetRepository {
+  private readonly store = new Map<string, Preset>();
+  private key(eventId: string, presetId: string) {
+    return `${eventId}#${presetId}`;
+  }
+
+  async put(preset: Preset): Promise<void> {
+    this.store.set(this.key(preset.eventId, preset.presetId), structuredClone(preset));
+  }
+  async get(eventId: string, presetId: string): Promise<Preset | undefined> {
+    const p = this.store.get(this.key(eventId, presetId));
+    return p ? structuredClone(p) : undefined;
+  }
+  async listByEvent(eventId: string): Promise<Preset[]> {
+    return [...this.store.values()]
+      .filter((p) => p.eventId === eventId)
+      .map((p) => structuredClone(p))
+      .sort((a, b) => a.sortOrder - b.sortOrder);
+  }
+  async delete(eventId: string, presetId: string): Promise<void> {
+    this.store.delete(this.key(eventId, presetId));
   }
 }

@@ -27,6 +27,26 @@ class FakeStageClient implements StageClient {
   ): Promise<void> {
     this.visibilityCalls.push({ eventId, speakerId, visibility });
   }
+  async listAssets() {
+    return [];
+  }
+  async getAssetDownloadUrl() {
+    return "https://fake-download-url";
+  }
+  async listPresets() {
+    return [];
+  }
+  async createPreset(_t: string, label: string, config: unknown) {
+    return {
+      presetId: "fake-id",
+      eventId: "evt-1",
+      config: config as import("@stagecast/shared").Preset["config"],
+      label,
+      sortOrder: 0,
+      createdAt: new Date().toISOString(),
+    };
+  }
+  async deletePreset() {}
 }
 
 const speakerJoin: JoinResponse = {
@@ -192,7 +212,11 @@ describe("StageController (DESIGN.md 4.1, F-1, F-3)", () => {
     ]);
     expect(room.publishedData).toHaveLength(1);
     const msg = decodeStageMessage(room.publishedData[0]!);
-    expect(msg).toEqual({ type: "visibility-change", speakerId: "speaker-1", visibility: "standby" });
+    expect(msg).toEqual({
+      type: "visibility-change",
+      speakerId: "speaker-1",
+      visibility: "standby",
+    });
   });
 
   it("setSpeakerVisibility で inviteToken なしなら REST API を呼ばず DataChannel のみ (Phase 1)", async () => {

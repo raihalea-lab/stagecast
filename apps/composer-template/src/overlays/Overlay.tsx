@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import QRCode from "qrcode";
 
 export interface OverlayState {
   kind: "qr" | "image" | "video";
@@ -28,6 +29,20 @@ const DEFAULT_SIZE: Record<string, number> = {
 
 export function Overlay({ overlay, onAutoHide }: Props) {
   const [visible, setVisible] = useState(false);
+  const [qrDataUrl, setQrDataUrl] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (overlay?.kind === "qr") {
+      let cancelled = false;
+      QRCode.toDataURL(overlay.url, { width: 512, margin: 2 }).then((url) => {
+        if (!cancelled) setQrDataUrl(url);
+      });
+      return () => {
+        cancelled = true;
+      };
+    }
+    setQrDataUrl(null);
+  }, [overlay?.kind, overlay?.url]);
 
   useEffect(() => {
     if (!overlay) {
@@ -81,6 +96,21 @@ export function Overlay({ overlay, onAutoHide }: Props) {
             background: isFullscreen ? "#000" : "transparent",
           }}
         />
+      ) : overlay.kind === "qr" ? (
+        qrDataUrl && (
+          <img
+            src={qrDataUrl}
+            alt="QR Code"
+            style={{
+              width: "100%",
+              height: "auto",
+              borderRadius: 8,
+              boxShadow: "0 4px 12px rgba(0,0,0,0.3)",
+              background: "#fff",
+              padding: 8,
+            }}
+          />
+        )
       ) : (
         <img
           src={overlay.url}

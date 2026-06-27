@@ -16,7 +16,14 @@ import { parseAdminDirectParams, parseInviteToken } from "./lib/token.js";
 import { DeviceCheck } from "./components/DeviceCheck.js";
 import { PreviewWindow } from "./components/PreviewWindow.js";
 import type { RuntimeConfig } from "./config.js";
-import { decodeStageMessage, type LayoutKind, type StageRole } from "@stagecast/shared";
+import {
+  decodeStageMessage,
+  type AssetMetadata,
+  type EffectConfig,
+  type LayoutKind,
+  type Preset,
+  type StageRole,
+} from "@stagecast/shared";
 import {
   Button,
   Card,
@@ -135,6 +142,8 @@ export function App(props: {
     new Map(),
   );
   const [chatMessages, setChatMessages] = useState<ChatMessageDisplay[]>([]);
+  const [presets, setPresets] = useState<Preset[]>([]);
+  const [stageAssets, setStageAssets] = useState<AssetMetadata[]>([]);
   const [muteNotice, setMuteNotice] = useState<string | undefined>();
   const [roomState, setRoomState] = useState<RoomState>("stopped");
   const [egressState, setEgressState] = useState<EgressState>("idle");
@@ -239,6 +248,67 @@ export function App(props: {
     }
   };
 
+  // プリセット・アセットのロード（セッション確立後）
+  useEffect(() => {
+    if (!session) return;
+    const inviteToken = session.role === "admin" ? "" : token;
+    if (!inviteToken) return;
+    void client
+      .listPresets(inviteToken)
+      .then(setPresets)
+      .catch(() => {});
+    void client
+      .listAssets(inviteToken)
+      .then(setStageAssets)
+      .catch(() => {});
+  }, [session, client, token]);
+
+  const handleCreatePreset = useCallback(
+    (label: string, config: EffectConfig) => {
+      if (!session) return;
+      const inviteToken = token;
+      if (!inviteToken) {
+        // admin 直接接続の場合はローカルのみに追加
+        setPresets((prev) => [
+          ...prev,
+          {
+            presetId: `local-${Date.now()}`,
+            eventId: session.eventId,
+            config,
+            label,
+            sortOrder: prev.length,
+            createdAt: new Date().toISOString(),
+          },
+        ]);
+        return;
+      }
+      void client.createPreset(inviteToken, label, config).then((preset) => {
+        setPresets((prev) => [...prev, preset]);
+      });
+    },
+    [session, client, token],
+  );
+
+  const handleDeletePreset = useCallback(
+    (presetId: string) => {
+      setPresets((prev) => prev.filter((p) => p.presetId !== presetId));
+      const inviteToken = token;
+      if (inviteToken) {
+        void client.deletePreset(inviteToken, presetId).catch(() => {});
+      }
+    },
+    [client, token],
+  );
+
+  const handleResolveAssetUrl = useCallback(
+    async (assetKey: string): Promise<string> => {
+      const inviteToken = token;
+      if (!inviteToken) return "";
+      return client.getAssetDownloadUrl(inviteToken, assetKey);
+    },
+    [client, token],
+  );
+
   const wrap = useCallback(
     (fn: () => Promise<unknown>) => async () => {
       setBusy(true);
@@ -316,10 +386,7 @@ export function App(props: {
                           setSession(controller.currentSession);
                           setMyIdentity(adminDirect.eventId);
                           setRoomState("running");
-                          elapsedRef.current = setInterval(
-                            () => setElapsedSec((s) => s + 1),
-                            1000,
-                          );
+                          elapsedRef.current = setInterval(() => setElapsedSec((s) => s + 1), 1000);
                         })
                         .catch((e: unknown) => {
                           setError(e instanceof Error ? e.message : String(e));
@@ -342,9 +409,7 @@ export function App(props: {
               </>
             )}
             {!error && busy && (
-              <p className="text-sm text-text-secondary">
-                配信サーバに接続しています…
-              </p>
+              <p className="text-sm text-text-secondary">配信サーバに接続しています…</p>
             )}
           </div>
         </StageShell>
@@ -688,83 +753,109 @@ export function App(props: {
           <ResizableHandle withHandle />
           <ResizablePanel defaultSize={35} minSize={20}>
             <aside className="space-y-4 pl-4">
-            <LifecycleControl
-              state={roomState}
-              elapsedSec={elapsedSec}
-              participantCount={participants.length}
-              onEnd={wrap(async () => {
-                await controller.leave();
-                setSession(undefined);
-                setRoomState("stopped");
-                clearInterval(elapsedRef.current);
-              })}
-            />
-            <EgressControl
-              state={egressState}
-              targets={[
-                { kind: "youtube", label: "YouTube Live" },
-                { kind: "s3", label: "S3 録画" },
-              ]}
-              onStart={wrap(async () => {
-                setEgressState("active");
-              })}
-              onStop={wrap(async () => {
-                setEgressState("idle");
-              })}
-            />
-            <Tabs defaultValue="control" className="w-full">
-              <TabsList className="w-full">
-                <TabsTrigger value="control" className="flex-1">コントロール</TabsTrigger>
-                <TabsTrigger value="chat" className="flex-1">チャット</TabsTrigger>
-              </TabsList>
-              <TabsContent value="control" className="space-y-4">
-                {layoutPicker}
-                <Separator />
-                {participantList}
-                <Separator />
-                <Card>
-                  <CardHeader className="pb-3">
-                    <CardTitle className="text-sm">演出</CardTitle>
-                  </CardHeader>
-                  <CardContent>
-                    <ProductionControl
-                      onShowBanner={(opts) => {
-                        const msg = { type: "banner-show", text: opts.text, subtext: opts.subtext, position: opts.position, autoHideMs: opts.autoHideMs };
-                        void controller.showBanner(opts.text, {
-                          subtext: opts.subtext,
-                          position: opts.position,
-                          autoHideMs: opts.autoHideMs,
-                        });
-                        previewIframeRef.current?.contentWindow?.postMessage(msg, "*");
-                      }}
-                      onHideBanner={() => {
-                        void controller.hideBanner();
-                        previewIframeRef.current?.contentWindow?.postMessage({ type: "banner-hide" }, "*");
-                      }}
-                      onShowOverlay={(opts) => {
-                        const msg = { type: "overlay-show", kind: opts.kind, url: opts.url, position: opts.position, sizePercent: opts.sizePercent, autoHideMs: opts.autoHideMs };
-                        void controller.showOverlay(opts.kind, opts.url, {
-                          position: opts.position,
-                          sizePercent: opts.sizePercent,
-                          autoHideMs: opts.autoHideMs,
-                        });
-                        previewIframeRef.current?.contentWindow?.postMessage(msg, "*");
-                      }}
-                      onHideOverlay={() => {
-                        void controller.hideOverlay();
-                        previewIframeRef.current?.contentWindow?.postMessage({ type: "overlay-hide" }, "*");
-                      }}
-                      disabled={busy}
-                    />
-                  </CardContent>
-                </Card>
-                <LiveStats stats={stats} />
-              </TabsContent>
-              <TabsContent value="chat">
-                {chatPanel}
-              </TabsContent>
-            </Tabs>
-          </aside>
+              <LifecycleControl
+                state={roomState}
+                elapsedSec={elapsedSec}
+                participantCount={participants.length}
+                onEnd={wrap(async () => {
+                  await controller.leave();
+                  setSession(undefined);
+                  setRoomState("stopped");
+                  clearInterval(elapsedRef.current);
+                })}
+              />
+              <EgressControl
+                state={egressState}
+                targets={[
+                  { kind: "youtube", label: "YouTube Live" },
+                  { kind: "s3", label: "S3 録画" },
+                ]}
+                onStart={wrap(async () => {
+                  setEgressState("active");
+                })}
+                onStop={wrap(async () => {
+                  setEgressState("idle");
+                })}
+              />
+              <Tabs defaultValue="control" className="w-full">
+                <TabsList className="w-full">
+                  <TabsTrigger value="control" className="flex-1">
+                    コントロール
+                  </TabsTrigger>
+                  <TabsTrigger value="chat" className="flex-1">
+                    チャット
+                  </TabsTrigger>
+                </TabsList>
+                <TabsContent value="control" className="space-y-4">
+                  {layoutPicker}
+                  <Separator />
+                  {participantList}
+                  <Separator />
+                  <Card>
+                    <CardHeader className="pb-3">
+                      <CardTitle className="text-sm">演出</CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                      <ProductionControl
+                        presets={presets}
+                        assets={stageAssets}
+                        onCreatePreset={handleCreatePreset}
+                        onDeletePreset={handleDeletePreset}
+                        onResolveAssetUrl={handleResolveAssetUrl}
+                        onShowBanner={(opts) => {
+                          const msg = {
+                            type: "banner-show",
+                            text: opts.text,
+                            subtext: opts.subtext,
+                            position: opts.position,
+                            autoHideMs: opts.autoHideMs,
+                          };
+                          void controller.showBanner(opts.text, {
+                            subtext: opts.subtext,
+                            position: opts.position,
+                            autoHideMs: opts.autoHideMs,
+                          });
+                          previewIframeRef.current?.contentWindow?.postMessage(msg, "*");
+                        }}
+                        onHideBanner={() => {
+                          void controller.hideBanner();
+                          previewIframeRef.current?.contentWindow?.postMessage(
+                            { type: "banner-hide" },
+                            "*",
+                          );
+                        }}
+                        onShowOverlay={(opts) => {
+                          const msg = {
+                            type: "overlay-show",
+                            kind: opts.kind,
+                            url: opts.url,
+                            position: opts.position,
+                            sizePercent: opts.sizePercent,
+                            autoHideMs: opts.autoHideMs,
+                          };
+                          void controller.showOverlay(opts.kind, opts.url, {
+                            position: opts.position,
+                            sizePercent: opts.sizePercent,
+                            autoHideMs: opts.autoHideMs,
+                          });
+                          previewIframeRef.current?.contentWindow?.postMessage(msg, "*");
+                        }}
+                        onHideOverlay={() => {
+                          void controller.hideOverlay();
+                          previewIframeRef.current?.contentWindow?.postMessage(
+                            { type: "overlay-hide" },
+                            "*",
+                          );
+                        }}
+                        disabled={busy}
+                      />
+                    </CardContent>
+                  </Card>
+                  <LiveStats stats={stats} />
+                </TabsContent>
+                <TabsContent value="chat">{chatPanel}</TabsContent>
+              </Tabs>
+            </aside>
           </ResizablePanel>
         </ResizablePanelGroup>
       </StageShell>
@@ -802,8 +893,12 @@ export function App(props: {
             <aside className="space-y-4 pl-4">
               <Tabs defaultValue="control" className="w-full">
                 <TabsList className="w-full">
-                  <TabsTrigger value="control" className="flex-1">コントロール</TabsTrigger>
-                  <TabsTrigger value="chat" className="flex-1">チャット</TabsTrigger>
+                  <TabsTrigger value="control" className="flex-1">
+                    コントロール
+                  </TabsTrigger>
+                  <TabsTrigger value="chat" className="flex-1">
+                    チャット
+                  </TabsTrigger>
                 </TabsList>
                 <TabsContent value="control" className="space-y-4">
                   {layoutPicker}
@@ -816,6 +911,11 @@ export function App(props: {
                     </CardHeader>
                     <CardContent>
                       <ProductionControl
+                        presets={presets}
+                        assets={stageAssets}
+                        onCreatePreset={handleCreatePreset}
+                        onDeletePreset={handleDeletePreset}
+                        onResolveAssetUrl={handleResolveAssetUrl}
                         onShowBanner={(opts) => {
                           void controller.showBanner(opts.text, {
                             subtext: opts.subtext,
@@ -841,9 +941,7 @@ export function App(props: {
                     </CardContent>
                   </Card>
                 </TabsContent>
-                <TabsContent value="chat">
-                  {chatPanel}
-                </TabsContent>
+                <TabsContent value="chat">{chatPanel}</TabsContent>
               </Tabs>
             </aside>
           </ResizablePanel>

@@ -5,7 +5,13 @@
  * トランスポート固有の変換は adapter (index.ts) 側で行う。これにより外部接続なしの
  * 単体テストが容易になる。
  */
-import type { InvitedRole, SlideSource, SpeakerVisibility } from "@stagecast/shared";
+import type {
+  AssetMetadata,
+  InvitedRole,
+  Preset,
+  SlideSource,
+  SpeakerVisibility,
+} from "@stagecast/shared";
 import type { AdminAuthVerifier, AdminPrincipal } from "../auth/admin-auth.js";
 import { UnauthorizedError } from "../auth/admin-auth.js";
 import {
@@ -24,6 +30,8 @@ import type { EgressService } from "../usecases/egress.js";
 import type { EventRequestService, CreateEventRequestInput } from "../usecases/event-requests.js";
 import type { PreviewTokenService } from "../usecases/preview-token.js";
 import type { SettingsService } from "../usecases/settings.js";
+import type { ArtifactStore } from "../assets/artifact-download.js";
+import type { AssetMetadataRepository, PresetRepository } from "../repo/types.js";
 
 export interface HttpRequest {
   method: string;
@@ -65,6 +73,16 @@ export interface AppDeps {
   previewToken?: PreviewTokenService;
   /** イベントリクエスト (モデレーター向け公開 + 管理者承認)。 */
   eventRequests?: EventRequestService;
+  /** アセットメタデータ管理 (Phase 2)。 */
+  assetMetadataRepo?: AssetMetadataRepository;
+  /** presigned GET URL 生成用 S3 ストア (Phase 3: stage-web アセット参照)。 */
+  artifactStore?: ArtifactStore;
+  /** 演出プリセット管理 (Phase 4)。 */
+  presetRepo?: PresetRepository;
+  /** UUID 生成器。 */
+  newId?: () => string;
+  /** 現在時刻 (ISO 8601 生成用)。 */
+  now?: () => number;
 }
 
 const json = (status: number, body: unknown): HttpResponse => ({ status, body });
@@ -183,6 +201,77 @@ export function createApp(deps: AppDeps) {
       return json(200, await presentation.setSpeakerVisibility(eventId, speakerId, visibility));
     }
 
+    // 公開: stage-web からアセット一覧取得 (invite-token 認証, Phase 3)。
+    if (req.method === "POST" && req.path === "/stage/assets") {
+      if (!deps.assetMetadataRepo)
+        throw new ServiceUnavailableError("asset metadata not configured");
+      const inviteToken = String(body.inviteToken ?? "");
+      const verified = await invites.verify(inviteToken);
+      if (!verified.valid) return json(401, { ok: false, reason: verified.reason });
+      if (verified.role !== "moderator") {
+        return json(403, { error: "only moderator can access assets" });
+      }
+      const assets_ = await deps.assetMetadataRepo.listByEvent(verified.eventId);
+      return json(200, { assets: assets_ });
+    }
+
+    // 公開: stage-web からアセットのダウンロード URL 取得 (invite-token 認証, Phase 3)。
+    if (req.method === "POST" && req.path === "/stage/assets/download-url") {
+      if (!deps.artifactStore) throw new ServiceUnavailableError("asset storage not configured");
+      const inviteToken = String(body.inviteToken ?? "");
+      const verified = await invites.verify(inviteToken);
+      if (!verified.valid) return json(401, { ok: false, reason: verified.reason });
+      if (verified.role !== "moderator") {
+        return json(403, { error: "only moderator can access assets" });
+      }
+      const assetKey = String(body.assetKey ?? "");
+      if (!assetKey) return json(400, { error: "assetKey is required" });
+      const downloadUrl = await deps.artifactStore.presignGet(assetKey);
+      return json(200, { downloadUrl });
+    }
+
+    // 公開: 演出プリセット CRUD (invite-token 認証, Phase 4)。
+    if (segments[0] === "stage" && segments[1] === "presets") {
+      if (!deps.presetRepo) throw new ServiceUnavailableError("preset repo not configured");
+      const inviteToken = String(
+        body.inviteToken ??
+          (req.method === "GET"
+            ? (new URLSearchParams(req.path.split("?")[1] ?? "").get("inviteToken") ?? "")
+            : ""),
+      );
+      const verified = await invites.verify(inviteToken);
+      if (!verified.valid) return json(401, { ok: false, reason: verified.reason });
+      if (verified.role !== "moderator") {
+        return json(403, { error: "only moderator can manage presets" });
+      }
+      const eventId = verified.eventId;
+      const presetId = segments[2];
+
+      if (!presetId && req.method === "POST") {
+        const newId = deps.newId ?? (() => crypto.randomUUID());
+        const nowFn = deps.now ?? Date.now;
+        const existing = await deps.presetRepo.listByEvent(eventId);
+        const preset: Preset = {
+          presetId: newId(),
+          eventId,
+          config: body.config as Preset["config"],
+          label: String(body.label ?? ""),
+          sortOrder: existing.length,
+          createdAt: new Date(nowFn()).toISOString(),
+        };
+        await deps.presetRepo.put(preset);
+        return json(201, { preset });
+      }
+      if (!presetId && (req.method === "GET" || req.method === "POST")) {
+        const presets = await deps.presetRepo.listByEvent(eventId);
+        return json(200, { presets });
+      }
+      if (presetId && req.method === "DELETE") {
+        await deps.presetRepo.delete(eventId, presetId);
+        return json(204, null);
+      }
+    }
+
     // 以降は管理者専用 (Cognito)
     const principal = await requireAdmin(req);
 
@@ -244,14 +333,52 @@ export function createApp(deps: AppDeps) {
         req.method === "POST"
       ) {
         if (!assets) throw new ServiceUnavailableError("asset storage not configured");
-        return json(
-          201,
-          await assets.createUploadUrl(
+        const filename = String(body.filename ?? "asset");
+        const contentType = String(body.contentType ?? "application/octet-stream");
+        const result = await assets.createUploadUrl(eventId, filename, contentType);
+        if (deps.assetMetadataRepo) {
+          const newId = deps.newId ?? (() => crypto.randomUUID());
+          const nowFn = deps.now ?? Date.now;
+          const asset: AssetMetadata = {
+            assetId: newId(),
             eventId,
-            String(body.filename ?? "asset"),
-            String(body.contentType ?? "application/octet-stream"),
-          ),
-        );
+            assetKey: result.key,
+            filename,
+            contentType,
+            tags: (body.tags as string[]) ?? [],
+            createdAt: new Date(nowFn()).toISOString(),
+          };
+          await deps.assetMetadataRepo.put(asset);
+          return json(201, { ...result, assetId: asset.assetId });
+        }
+        return json(201, result);
+      } else if (segments[2] === "assets" && segments.length === 3 && req.method === "GET") {
+        if (!deps.assetMetadataRepo)
+          throw new ServiceUnavailableError("asset metadata not configured");
+        const allAssets = await deps.assetMetadataRepo.listByEvent(eventId);
+        const tagFilter = new URLSearchParams(req.path.split("?")[1] ?? "").get("tag");
+        const filtered = tagFilter
+          ? allAssets.filter((a) => a.tags.includes(tagFilter))
+          : allAssets;
+        return json(200, { assets: filtered });
+      } else if (segments[2] === "assets" && segments[3] && req.method === "PATCH") {
+        if (!deps.assetMetadataRepo)
+          throw new ServiceUnavailableError("asset metadata not configured");
+        const assetId = segments[3];
+        const tags = body.tags as string[] | undefined;
+        if (!tags || !Array.isArray(tags)) return json(400, { error: "tags array is required" });
+        const updated = await deps.assetMetadataRepo.updateTags(eventId, assetId, tags);
+        return json(200, updated);
+      } else if (segments[2] === "assets" && segments[3] && req.method === "DELETE") {
+        if (!deps.assetMetadataRepo)
+          throw new ServiceUnavailableError("asset metadata not configured");
+        const assetId = segments[3];
+        const asset = await deps.assetMetadataRepo.get(eventId, assetId);
+        if (asset && deps.artifactStore) {
+          await deps.artifactStore.deletePrefix(asset.assetKey);
+        }
+        await deps.assetMetadataRepo.delete(eventId, assetId);
+        return json(204, null);
       } else if (segments[2] === "artifacts" && segments.length === 3 && req.method === "GET") {
         // 配信成果物 (録画 / 確定字幕) のダウンロード URL 一覧 (N1)。
         if (!artifacts) throw new ServiceUnavailableError("asset storage not configured");
