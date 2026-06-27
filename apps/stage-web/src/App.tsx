@@ -18,7 +18,6 @@ import { PreviewWindow } from "./components/PreviewWindow.js";
 import type { RuntimeConfig } from "./config.js";
 import { decodeStageMessage, type LayoutKind, type StageRole } from "@stagecast/shared";
 import {
-  BannerControl,
   Button,
   Card,
   CardContent,
@@ -32,13 +31,14 @@ import {
   LayoutPicker,
   LifecycleControl,
   LiveStats,
-  OverlayControl,
   ParticipantList,
+  ProductionControl,
   ReconnectingBanner,
   ResizableHandle,
   ResizablePanel,
   ResizablePanelGroup,
   RoleSwitcher,
+  Separator,
   Sheet,
   SheetContent,
   SheetTrigger,
@@ -710,65 +710,46 @@ export function App(props: {
               <TabsList className="w-full">
                 <TabsTrigger value="control" className="flex-1">コントロール</TabsTrigger>
                 <TabsTrigger value="chat" className="flex-1">チャット</TabsTrigger>
-                <TabsTrigger value="production" className="flex-1">演出</TabsTrigger>
               </TabsList>
               <TabsContent value="control" className="space-y-4">
                 {layoutPicker}
+                <Separator />
                 {participantList}
-                <LiveStats stats={stats} />
-              </TabsContent>
-              <TabsContent value="chat">
-                {chatPanel}
-              </TabsContent>
-              <TabsContent value="production" className="space-y-4">
+                <Separator />
                 <Card>
                   <CardHeader className="pb-3">
-                    <CardTitle className="text-sm">バナー</CardTitle>
+                    <CardTitle className="text-sm">演出</CardTitle>
                   </CardHeader>
                   <CardContent>
-                    <BannerControl
-                      onShow={(opts) => {
+                    <ProductionControl
+                      onShowBanner={(opts) => {
                         void controller.showBanner(opts.text, {
                           subtext: opts.subtext,
                           position: opts.position,
                           autoHideMs: opts.autoHideMs,
                         });
                       }}
-                      onHide={() => {
+                      onHideBanner={() => {
                         void controller.hideBanner();
                       }}
-                      disabled={busy}
-                    />
-                  </CardContent>
-                </Card>
-                <Card>
-                  <CardHeader className="pb-3">
-                    <CardTitle className="text-sm">オーバーレイ</CardTitle>
-                  </CardHeader>
-                  <CardContent>
-                    <OverlayControl
-                      onShow={(opts) => {
-                        void controller.showOverlay(
-                          opts.kind as "qr" | "image" | "video",
-                          opts.url,
-                          {
-                            position: opts.position as
-                              | "top-left"
-                              | "top-right"
-                              | "bottom-left"
-                              | "bottom-right",
-                            sizePercent: opts.sizePercent,
-                            autoHideMs: opts.autoHideMs,
-                          },
-                        );
+                      onShowOverlay={(opts) => {
+                        void controller.showOverlay(opts.kind, opts.url, {
+                          position: opts.position,
+                          sizePercent: opts.sizePercent,
+                          autoHideMs: opts.autoHideMs,
+                        });
                       }}
-                      onHide={() => {
+                      onHideOverlay={() => {
                         void controller.hideOverlay();
                       }}
                       disabled={busy}
                     />
                   </CardContent>
                 </Card>
+                <LiveStats stats={stats} />
+              </TabsContent>
+              <TabsContent value="chat">
+                {chatPanel}
               </TabsContent>
             </Tabs>
           </aside>
@@ -814,7 +795,39 @@ export function App(props: {
                 </TabsList>
                 <TabsContent value="control" className="space-y-4">
                   {layoutPicker}
+                  <Separator />
                   {participantList}
+                  <Separator />
+                  <Card>
+                    <CardHeader className="pb-3">
+                      <CardTitle className="text-sm">演出</CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                      <ProductionControl
+                        onShowBanner={(opts) => {
+                          void controller.showBanner(opts.text, {
+                            subtext: opts.subtext,
+                            position: opts.position,
+                            autoHideMs: opts.autoHideMs,
+                          });
+                        }}
+                        onHideBanner={() => {
+                          void controller.hideBanner();
+                        }}
+                        onShowOverlay={(opts) => {
+                          void controller.showOverlay(opts.kind, opts.url, {
+                            position: opts.position,
+                            sizePercent: opts.sizePercent,
+                            autoHideMs: opts.autoHideMs,
+                          });
+                        }}
+                        onHideOverlay={() => {
+                          void controller.hideOverlay();
+                        }}
+                        disabled={busy}
+                      />
+                    </CardContent>
+                  </Card>
                 </TabsContent>
                 <TabsContent value="chat">
                   {chatPanel}

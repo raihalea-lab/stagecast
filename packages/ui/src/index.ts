@@ -50,3 +50,4 @@ export * from "./components/participant-tile.js";
 export * from "./components/chat-panel.js";
 export * from "./components/banner-control.js";
 export * from "./components/overlay-control.js";
+export * from "./components/production-control.js";
