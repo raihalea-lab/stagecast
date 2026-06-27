@@ -70,11 +70,13 @@ export function ChatPanel({ messages, onSend, currentIdentity, className }: Chat
         </span>
       </div>
 
-      <div ref={listRef} className="flex-1 overflow-y-auto px-3 py-2" style={{ minHeight: 120, maxHeight: 300 }}>
+      <div
+        ref={listRef}
+        className="flex-1 overflow-y-auto px-3 py-2"
+        style={{ minHeight: 120, maxHeight: 300 }}
+      >
         {messages.length === 0 && (
-          <p className="py-4 text-center text-xs text-text-tertiary">
-            メッセージはまだありません
-          </p>
+          <p className="py-4 text-center text-xs text-text-tertiary">メッセージはまだありません</p>
         )}
         {messages.map((m) => {
           const isSelf = m.senderIdentity === currentIdentity;
@@ -84,10 +86,7 @@ export function ChatPanel({ messages, onSend, currentIdentity, className }: Chat
             <div key={m.id} className={cn("mb-3 text-sm", isSelf && "text-right")}>
               <div className={cn("flex items-baseline gap-1.5", isSelf && "justify-end")}>
                 <span
-                  className={cn(
-                    "font-medium text-xs",
-                    ROLE_COLORS[role] ?? "text-text-secondary",
-                  )}
+                  className={cn("font-medium text-xs", ROLE_COLORS[role] ?? "text-text-secondary")}
                 >
                   {isSelf ? `${displayName}（自分）` : displayName}
                 </span>
@@ -106,9 +105,7 @@ export function ChatPanel({ messages, onSend, currentIdentity, className }: Chat
               <p
                 className={cn(
                   "mt-0.5 inline-block rounded-lg px-2.5 py-1.5 text-sm",
-                  isSelf
-                    ? "bg-tally-500/15 text-text-primary"
-                    : "bg-surface-2 text-text-primary",
+                  isSelf ? "bg-tally-500/15 text-text-primary" : "bg-surface-2 text-text-primary",
                 )}
               >
                 {m.text}

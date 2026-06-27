@@ -46,11 +46,7 @@ export function Banner({ banner, onAutoHide }: Props) {
         justifyContent: "center",
         padding: "24px 48px",
         pointerEvents: "none",
-        transform: visible
-          ? "translateY(0)"
-          : isTop
-            ? "translateY(-100%)"
-            : "translateY(100%)",
+        transform: visible ? "translateY(0)" : isTop ? "translateY(-100%)" : "translateY(100%)",
         opacity: visible ? 1 : 0,
         transition: "transform 0.35s ease, opacity 0.35s ease",
       }}

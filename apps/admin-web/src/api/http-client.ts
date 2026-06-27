@@ -3,6 +3,7 @@
  * 認証トークンは Cognito から取得した JWT を Authorization に載せる (F-12)。
  */
 import type {
+  AssetMetadata,
   EventDefinition,
   EventRequest,
   EventStatus,
@@ -129,6 +130,21 @@ export class HttpControlApiClient implements ControlApiClient {
     return this.callPublic<
       { id: string; title: string; startsAt: string; endsAt?: string; status: string }[]
     >("GET", "/events/public");
+  }
+
+  async listAssets(eventId: string, tag?: string): Promise<AssetMetadata[]> {
+    const query = tag ? `?tag=${encodeURIComponent(tag)}` : "";
+    const data = await this.call<{ assets: AssetMetadata[] }>(
+      "GET",
+      `/events/${eventId}/assets${query}`,
+    );
+    return data.assets;
+  }
+  async updateAssetTags(eventId: string, assetId: string, tags: string[]): Promise<AssetMetadata> {
+    return this.call("PATCH", `/events/${eventId}/assets/${assetId}`, { tags });
+  }
+  async deleteAsset(eventId: string, assetId: string): Promise<void> {
+    return this.call("DELETE", `/events/${eventId}/assets/${assetId}`);
   }
 
   private async callPublic<T>(method: string, path: string, body?: unknown): Promise<T> {

@@ -48,9 +48,7 @@ export function Composer(props: Props) {
   const [layout, setLayout] = useState<LayoutKind>(props.initialLayout);
   const [focusIdentity, setFocusIdentity] = useState<string | undefined>(undefined);
   // Phase 1: live speaker identities (visibility-change で更新)。空 = フィルタなし（全員表示）。
-  const [liveIdentities, setLiveIdentities] = useState<Map<string, "live" | "standby">>(
-    new Map(),
-  );
+  const [liveIdentities, setLiveIdentities] = useState<Map<string, "live" | "standby">>(new Map());
   // Phase 3: バナー（下部テロップ）状態。
   const [bannerState, setBannerState] = useState<BannerState | null>(null);
   const handleBannerAutoHide = useCallback(() => setBannerState(null), []);
@@ -70,14 +68,30 @@ export function Composer(props: Props) {
           setFocusIdentity(d.focusIdentity);
         }
       } else if (data.type === "banner-show") {
-        const d = data as { text?: string; subtext?: string; position?: "bottom" | "top"; autoHideMs?: number };
+        const d = data as {
+          text?: string;
+          subtext?: string;
+          position?: "bottom" | "top";
+          autoHideMs?: number;
+        };
         if (d.text) {
-          setBannerState({ text: d.text, subtext: d.subtext, position: d.position ?? "bottom", autoHideMs: d.autoHideMs });
+          setBannerState({
+            text: d.text,
+            subtext: d.subtext,
+            position: d.position ?? "bottom",
+            autoHideMs: d.autoHideMs,
+          });
         }
       } else if (data.type === "banner-hide") {
         setBannerState(null);
       } else if (data.type === "overlay-show") {
-        const d = data as { kind?: "qr" | "image" | "video"; url?: string; position?: string; sizePercent?: number; autoHideMs?: number };
+        const d = data as {
+          kind?: "qr" | "image" | "video";
+          url?: string;
+          position?: string;
+          sizePercent?: number;
+          autoHideMs?: number;
+        };
         if (d.url && d.kind) {
           setOverlayState({
             kind: d.kind,

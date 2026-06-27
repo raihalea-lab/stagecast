@@ -8,16 +8,8 @@ import {
 } from "react-resizable-panels";
 import { cn } from "../lib/cn.js";
 
-export function ResizablePanelGroup({
-  className,
-  ...props
-}: GroupProps) {
-  return (
-    <Group
-      className={cn("flex h-full w-full", className)}
-      {...props}
-    />
-  );
+export function ResizablePanelGroup({ className, ...props }: GroupProps) {
+  return <Group className={cn("flex h-full w-full", className)} {...props} />;
 }
 
 export const ResizablePanel = Panel;
