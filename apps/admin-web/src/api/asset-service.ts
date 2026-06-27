@@ -11,6 +11,7 @@ export class InMemoryAssetService implements AssetService {
   async upload(
     eventId: string,
     file: { name: string; contentType: string; bytes: Uint8Array },
+    _tags?: string[],
   ): Promise<AssetRef> {
     const key = `assets/${eventId}/${file.name}`;
     this.stored.set(key, { contentType: file.contentType, bytes: file.bytes });

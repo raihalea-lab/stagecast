@@ -5,6 +5,7 @@
  * インメモリで呼ぶ実装に差し替える。
  */
 import type {
+  AssetMetadata,
   AssetRef,
   EventDefinition,
   EventRequest,
@@ -109,6 +110,10 @@ export interface ControlApiClient {
   listPublicEvents(): Promise<
     { id: string; title: string; startsAt: string; endsAt?: string; status: string }[]
   >;
+
+  listAssets(eventId: string, tag?: string): Promise<AssetMetadata[]>;
+  updateAssetTags(eventId: string, assetId: string, tags: string[]): Promise<AssetMetadata>;
+  deleteAsset(eventId: string, assetId: string): Promise<void>;
 }
 
 /**
@@ -119,6 +124,7 @@ export interface AssetService {
   upload(
     eventId: string,
     file: { name: string; contentType: string; bytes: Uint8Array },
+    tags?: string[],
   ): Promise<AssetRef>;
 }
 

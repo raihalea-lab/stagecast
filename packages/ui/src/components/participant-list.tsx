@@ -94,9 +94,7 @@ export function ParticipantList({
               {showVisibilityControl && p.role === "speaker" && onVisibilityChange && (
                 <button
                   type="button"
-                  onClick={() =>
-                    onVisibilityChange(p.identity, isOnStage ? "standby" : "live")
-                  }
+                  onClick={() => onVisibilityChange(p.identity, isOnStage ? "standby" : "live")}
                   aria-pressed={isOnStage}
                   aria-label={isOnStage ? "ステージから下ろす" : "ステージに上げる"}
                   className={cn(
@@ -106,11 +104,7 @@ export function ParticipantList({
                       : "text-text-tertiary hover:text-preview-500",
                   )}
                 >
-                  {isOnStage ? (
-                    <Eye className="size-3.5" />
-                  ) : (
-                    <EyeOff className="size-3.5" />
-                  )}
+                  {isOnStage ? <Eye className="size-3.5" /> : <EyeOff className="size-3.5" />}
                 </button>
               )}
               {p.isScreenSharing && (

@@ -130,7 +130,9 @@ async function deps(): Promise<HandlerDeps> {
       const mediaDomain = process.env.MEDIA_DOMAIN_NAME;
       const zoneId = process.env.MEDIA_HOSTED_ZONE_ID;
       if (zoneId) {
-        const recordName = livekitDomain ?? (mediaDomain ? `event-${eventId.slice(0, 8)}.${mediaDomain}` : undefined);
+        const recordName =
+          livekitDomain ??
+          (mediaDomain ? `event-${eventId.slice(0, 8)}.${mediaDomain}` : undefined);
         if (recordName) {
           try {
             await upsertRoute53ARecord(zoneId, recordName, publicIp);

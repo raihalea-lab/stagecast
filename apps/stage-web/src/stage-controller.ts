@@ -243,7 +243,13 @@ export class StageController {
   async sendChat(
     text: string,
     displayName?: string,
-  ): Promise<{ id: string; senderIdentity: string; senderName?: string; text: string; timestampMs: number }> {
+  ): Promise<{
+    id: string;
+    senderIdentity: string;
+    senderName?: string;
+    text: string;
+    timestampMs: number;
+  }> {
     if (!this.session) throw new Error("not joined");
     const identity =
       this.lastJoin && this.lastJoin.ok ? this.lastJoin.identity : this.session.eventId;
