@@ -12,12 +12,12 @@
     "clean": "rm -rf dist *.tsbuildinfo"
   },
   "dependencies": {
-    "@aws-sdk/client-cloudformation": "^3.1068.0",
-    "@aws-sdk/client-dynamodb": "^3.1068.0",
-    "@aws-sdk/client-ec2": "^3.1068.0",
-    "@aws-sdk/client-ecs": "^3.1068.0",
-    "@aws-sdk/client-lambda": "^3.1068.0",
-    "@aws-sdk/lib-dynamodb": "^3.1068.0",
+    "@aws-sdk/client-cloudformation": "^3.1075.0",
+    "@aws-sdk/client-dynamodb": "^3.1075.0",
+    "@aws-sdk/client-ec2": "^3.1075.0",
+    "@aws-sdk/client-ecs": "^3.1075.0",
+    "@aws-sdk/client-lambda": "^3.1075.0",
+    "@aws-sdk/lib-dynamodb": "^3.1075.0",
     "@stagecast/infra": "workspace:*",
     "@stagecast/shared": "workspace:*"
   },
