@@ -23,7 +23,7 @@
     "@stagecast/media-composer": "workspace:*",
     "@stagecast/shared": "workspace:*",
     "aws-jwt-verify": "^5.2.1",
-    "livekit-server-sdk": "^2.15.4"
+    "livekit-server-sdk": "^2.16.0"
   },
   "devDependencies": {
     "@aws-sdk/client-lambda": "^3.1068.0",
