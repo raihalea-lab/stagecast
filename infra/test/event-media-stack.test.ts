@@ -210,6 +210,24 @@ describe("EventMediaStack (DESIGN.md 7.1/7.3, N-5)", () => {
   });
 });
 
+describe("EventMediaStack captionDesiredCount (ADR 0017 D-2)", () => {
+  it("captionDesiredCount=0 なら CaptionWorker Service だけ DesiredCount 0 になる", () => {
+    const app = new App();
+    const stack = new EventMediaStack(app, eventMediaStackName("evt-nocap"), {
+      env: { account: "111111111111", region: "ap-northeast-1" },
+      eventId: "evt-nocap",
+      captionEngine: "transcribe",
+      customCaptionApi: false,
+      captionDesiredCount: 0,
+    });
+    const template = Template.fromStack(stack);
+    const zero = template.findResources("AWS::ECS::Service", { Properties: { DesiredCount: 0 } });
+    const one = template.findResources("AWS::ECS::Service", { Properties: { DesiredCount: 1 } });
+    expect(Object.keys(zero)).toHaveLength(1);
+    expect(Object.keys(one)).toHaveLength(1);
+  });
+});
+
 describe("ECR イメージ判定/ARN 導出 (R4)", () => {
   const uri = "111111111111.dkr.ecr.ap-northeast-1.amazonaws.com/stagecast/caption-worker:latest";
 
