@@ -52,5 +52,8 @@ build/push し、後段で CodeBuild を検討」とし、R4 で `build-caption-
 - 旧 ECR の「直近 10 イメージ保持」ライフサイクルルールは無くなり、CDK Assets ECR には
   ハッシュごとのイメージ (約 420 MB) が溜まる。ECR は $0.10/GB-月なので 10 世代で $0.4/月程度。
   気になったら `cdk gc` で未参照アセットを掃除する。
+- `cdk synth` が `infra/cdk.out/asset.*` に monorepo 全体を staging するので、infra の vitest は
+  `include: ["test/**/*.test.ts"]` で探索範囲を限定する (`infra/vitest.config.ts`)。既定の探索だと
+  staging 内の `*.test.ts` まで実行して 15 分以上かかり、pre-push フックが落ちる。
 - PR 時に Dockerfile をビルドする自動チェック (`build-caption-worker.yml` の pull_request トリガー) も無くなる。
   CI 無効化 + pre-push フックの現行運用では、Dockerfile の破損は `cdk deploy` で初めて分かる。
