@@ -25,6 +25,8 @@ export interface DesiredEvent {
   streamKeyRef?: string | undefined;
   /** scheduled イベント (desiredCount=0 で事前プロビジョニング, ADR 0016 D-5)。 */
   pending?: boolean;
+  /** 字幕有効フラグ (ADR 0017)。false で CaptionWorker を起動しない。未指定は true 扱い。 */
+  captionEnabled?: boolean;
 }
 
 /** CloudFormation 観測時点のスタック状態。 */
@@ -140,13 +142,17 @@ export function findStaleStacks(
 }
 
 function toSpec(d: DesiredEvent): EventMediaSpec {
+  const desiredCount = d.pending ? 0 : 1;
   return {
     eventId: d.eventId,
     captionEngine: d.captionEngine,
     customCaptionApi: d.customCaptionApi,
     rtmpUrl: d.rtmpUrl,
     streamKeyRef: d.streamKeyRef,
-    desiredCount: d.pending ? 0 : 1,
+    desiredCount,
+    // ADR 0017: captionEnabled=false で CaptionWorker を起動しない。
+    // pending 時は全サービス desiredCount=0 なので captionDesiredCount も 0。
+    captionDesiredCount: d.pending ? 0 : (d.captionEnabled ?? true) ? 1 : 0,
   };
 }
 
