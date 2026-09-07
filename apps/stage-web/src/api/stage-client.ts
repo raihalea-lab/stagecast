@@ -192,7 +192,7 @@ export class HttpStageClient implements StageClient {
   }
 
   async listPresets(inviteToken: string): Promise<Preset[]> {
-    const res = await fetch(`${this.baseUrl}/stage/presets`, {
+    const res = await fetch(`${this.baseUrl}/stage/presets/list`, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ inviteToken }),

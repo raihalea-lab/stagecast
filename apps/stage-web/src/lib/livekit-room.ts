@@ -10,6 +10,7 @@ import type { PreferredDevices } from "./devices.js";
 import type {
   ConnectOptions,
   ParticipantSnapshot,
+  PublishDataOptions,
   RoomConnector,
   RoomState,
   SlideMessage,
@@ -88,8 +89,11 @@ export class LiveKitRoomConnector implements RoomConnector {
     const payload = this.encoder.encode(JSON.stringify(message));
     await this.room.localParticipant.publishData(payload, { reliable: true, topic: "slides" });
   }
-  async publishData(payload: Uint8Array): Promise<void> {
-    await this.room.localParticipant.publishData(payload, { reliable: true });
+  async publishData(payload: Uint8Array, opts?: PublishDataOptions): Promise<void> {
+    await this.room.localParticipant.publishData(payload, {
+      reliable: true,
+      ...(opts?.destinationIdentities ? { destinationIdentities: opts.destinationIdentities } : {}),
+    });
   }
   getParticipants(): ParticipantSnapshot[] {
     return this.buildSnapshots();

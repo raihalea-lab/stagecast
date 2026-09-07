@@ -122,6 +122,9 @@ export function App(props: {
   const [token, setToken] = useState(initialToken);
   const [name, setName] = useState("");
   const [session, setSession] = useState<StageSession | undefined>();
+  // admin 直接接続 (ADR 0014 D-4) では ?token= が LiveKit JWT なので招待トークンとして使わない。
+  // ponytail: admin はプリセット/アセットがローカル限定。管理者資格情報で stage ルートを叩けるようにするのが本来の解。
+  const inviteToken = session?.role === "admin" ? "" : token;
   const [myIdentity, setMyIdentity] = useState<string>("");
   const [viewAsRole, setViewAsRole] = useState<StageRole>("admin");
   const [error, setError] = useState<string>();
@@ -250,9 +253,7 @@ export function App(props: {
 
   // プリセット・アセットのロード（セッション確立後）
   useEffect(() => {
-    if (!session) return;
-    const inviteToken = session.role === "admin" ? "" : token;
-    if (!inviteToken) return;
+    if (!session || !inviteToken) return;
     void client
       .listPresets(inviteToken)
       .then(setPresets)
@@ -261,12 +262,11 @@ export function App(props: {
       .listAssets(inviteToken)
       .then(setStageAssets)
       .catch(() => {});
-  }, [session, client, token]);
+  }, [session, client, inviteToken]);
 
   const handleCreatePreset = useCallback(
     (label: string, config: EffectConfig) => {
       if (!session) return;
-      const inviteToken = token;
       if (!inviteToken) {
         // admin 直接接続の場合はローカルのみに追加
         setPresets((prev) => [
@@ -282,31 +282,32 @@ export function App(props: {
         ]);
         return;
       }
-      void client.createPreset(inviteToken, label, config).then((preset) => {
-        setPresets((prev) => [...prev, preset]);
-      });
+      void client
+        .createPreset(inviteToken, label, config)
+        .then((preset) => {
+          setPresets((prev) => [...prev, preset]);
+        })
+        .catch(() => {});
     },
-    [session, client, token],
+    [session, client, inviteToken],
   );
 
   const handleDeletePreset = useCallback(
     (presetId: string) => {
       setPresets((prev) => prev.filter((p) => p.presetId !== presetId));
-      const inviteToken = token;
       if (inviteToken) {
         void client.deletePreset(inviteToken, presetId).catch(() => {});
       }
     },
-    [client, token],
+    [client, inviteToken],
   );
 
   const handleResolveAssetUrl = useCallback(
     async (assetKey: string): Promise<string> => {
-      const inviteToken = token;
       if (!inviteToken) return "";
       return client.getAssetDownloadUrl(inviteToken, assetKey);
     },
-    [client, token],
+    [client, inviteToken],
   );
 
   const wrap = useCallback(

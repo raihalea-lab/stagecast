@@ -158,13 +158,18 @@ export class StageController {
   /** 特定の participant にミュート要請を送る (D8: moderator/admin 用)。 */
   async requestMute(targetIdentity: string): Promise<void> {
     if (!this.session) throw new Error("not joined");
-    await this.room.publishData(encodeStageMessage({ type: "mute-request", targetIdentity }));
+    await this.room.publishData(encodeStageMessage({ type: "mute-request", targetIdentity }), {
+      destinationIdentities: [targetIdentity],
+    });
   }
 
   /** 特定の participant を強制ミュートする (Phase 1)。受信側が自動的にマイクをオフにする。 */
   async forceMute(targetIdentity: string): Promise<void> {
     if (!this.session) throw new Error("not joined");
-    await this.room.publishData(encodeStageMessage({ type: "force-mute", targetIdentity }));
+    // broadcast すると受信者全員が自分をミュートしてしまうため宛先を絞る。
+    await this.room.publishData(encodeStageMessage({ type: "force-mute", targetIdentity }), {
+      destinationIdentities: [targetIdentity],
+    });
   }
 
   /** 登壇者の表示状態を変更する (Phase 1: ステージ管理)。REST API + DataChannel broadcast。 */

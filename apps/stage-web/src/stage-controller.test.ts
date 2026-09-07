@@ -199,6 +199,8 @@ describe("StageController (DESIGN.md 4.1, F-1, F-3)", () => {
     expect(room.publishedData).toHaveLength(1);
     const msg = decodeStageMessage(room.publishedData[0]!);
     expect(msg).toEqual({ type: "force-mute", targetIdentity: "speaker-abc" });
+    // 対象者にだけ届ける (broadcast だと全員が自分をミュートする)。
+    expect(room.publishedDestinations[0]).toEqual(["speaker-abc"]);
   });
 
   it("setSpeakerVisibility は REST API + DataChannel の両方を呼ぶ (Phase 1)", async () => {
