@@ -388,7 +388,8 @@ describe("control-api integration (in-memory)", () => {
     expect(deletedIds.length).toBe(2);
   });
 
-  it("live イベントは自動削除の対象外", async () => {
+  // MAX_EVENTS (1000) 件を順に作るため、vp run -r test の並列負荷下では既定 5s を超えることがある。
+  it("live イベントは自動削除の対象外", { timeout: 30_000 }, async () => {
     const { MemoryEventRepository } = await import("./repo/memory.js");
     const { createEventService, MAX_EVENTS } = await import("./usecases/events.js");
     const memRepo = new MemoryEventRepository();
