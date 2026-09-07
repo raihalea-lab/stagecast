@@ -217,7 +217,8 @@ export function createApp(deps: AppDeps) {
 
     // 公開: stage-web からアセットのダウンロード URL 取得 (invite-token 認証, Phase 3)。
     if (req.method === "POST" && req.path === "/stage/assets/download-url") {
-      if (!deps.artifactStore) throw new ServiceUnavailableError("asset storage not configured");
+      if (!deps.artifactStore || !deps.assetMetadataRepo)
+        throw new ServiceUnavailableError("asset storage not configured");
       const inviteToken = String(body.inviteToken ?? "");
       const verified = await invites.verify(inviteToken);
       if (!verified.valid) return json(401, { ok: false, reason: verified.reason });
@@ -226,19 +227,21 @@ export function createApp(deps: AppDeps) {
       }
       const assetKey = String(body.assetKey ?? "");
       if (!assetKey) return json(400, { error: "assetKey is required" });
+      // ライブラリ登録済みのキーだけ presign する。任意キーを許すと招待トークンだけで
+      // 他イベントの録画・字幕・証明書まで取得できてしまう。
+      // ponytail: 全件 list の線形探索。ライブラリが数百件を超えたら assetKey 引きの get を足す。
+      const known = (await deps.assetMetadataRepo.list()).some((a) => a.assetKey === assetKey);
+      if (!known) return json(404, { error: "asset not found" });
       const downloadUrl = await deps.artifactStore.presignGet(assetKey);
       return json(200, { downloadUrl });
     }
 
     // 公開: 演出プリセット CRUD (invite-token 認証, Phase 4)。
+    // 一覧は POST /stage/presets/list。Lambda adapter は rawPath (query なし) しか渡さないため
+    // GET + query は使えず、作成 (POST /stage/presets) と衝突しないパスに分ける。
     if (segments[0] === "stage" && segments[1] === "presets") {
       if (!deps.presetRepo) throw new ServiceUnavailableError("preset repo not configured");
-      const inviteToken = String(
-        body.inviteToken ??
-          (req.method === "GET"
-            ? (new URLSearchParams(req.path.split("?")[1] ?? "").get("inviteToken") ?? "")
-            : ""),
-      );
+      const inviteToken = String(body.inviteToken ?? "");
       const verified = await invites.verify(inviteToken);
       if (!verified.valid) return json(401, { ok: false, reason: verified.reason });
       if (verified.role !== "moderator") {
@@ -247,24 +250,29 @@ export function createApp(deps: AppDeps) {
       const eventId = verified.eventId;
       const presetId = segments[2];
 
+      if (presetId === "list" && req.method === "POST") {
+        const presets = await deps.presetRepo.listByEvent(eventId);
+        return json(200, { presets });
+      }
       if (!presetId && req.method === "POST") {
+        // config 欠落/不正を永続化すると全クライアントの描画が p.config.kind で落ちるため弾く。
+        const config = body.config as Preset["config"] | undefined;
+        if (!config || typeof config !== "object" || typeof config.kind !== "string") {
+          return json(400, { error: "config.kind is required" });
+        }
         const newId = deps.newId ?? (() => crypto.randomUUID());
         const nowFn = deps.now ?? Date.now;
         const existing = await deps.presetRepo.listByEvent(eventId);
         const preset: Preset = {
           presetId: newId(),
           eventId,
-          config: body.config as Preset["config"],
+          config,
           label: String(body.label ?? ""),
           sortOrder: existing.length,
           createdAt: new Date(nowFn()).toISOString(),
         };
         await deps.presetRepo.put(preset);
         return json(201, { preset });
-      }
-      if (!presetId && (req.method === "GET" || req.method === "POST")) {
-        const presets = await deps.presetRepo.listByEvent(eventId);
-        return json(200, { presets });
       }
       if (presetId && req.method === "DELETE") {
         await deps.presetRepo.delete(eventId, presetId);

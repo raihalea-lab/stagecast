@@ -802,3 +802,82 @@ describe("event requests", () => {
     expect(JSON.stringify(body)).not.toContain("youtube");
   });
 });
+
+describe("stage routes (invite-token 認証, Phase 3/4)", () => {
+  let app: App;
+  let counter: number;
+
+  beforeEach(() => {
+    counter = 0;
+    app = buildControlApi({
+      inviteSecret: "test-secret",
+      now: () => 1_000_000,
+      newId: () => `id-${++counter}`,
+      artifactStore: {
+        async list() {
+          return [];
+        },
+        async presignGet(key) {
+          return `https://signed/${key}`;
+        },
+        async deletePrefix() {},
+      },
+    });
+  });
+
+  async function moderatorToken(): Promise<string> {
+    const eventId = await createEvent(app);
+    const issued = await app.handle(
+      req({
+        method: "POST",
+        path: `/events/${eventId}/invites`,
+        headers: adminAuth,
+        body: { role: "moderator", ttlSec: 3600 },
+      }),
+    );
+    return (issued.body as { token: string }).token;
+  }
+
+  it("プリセット一覧 (POST /stage/presets/list) は作成と衝突せず、空のまま", async () => {
+    const inviteToken = await moderatorToken();
+    const list = () =>
+      app.handle(req({ method: "POST", path: "/stage/presets/list", body: { inviteToken } }));
+    expect((await list()).body).toEqual({ presets: [] });
+    // 一覧を 2 回呼んでもゴミプリセットが作られない (旧実装は POST が作成分岐に吸われた)。
+    expect((await list()).body).toEqual({ presets: [] });
+
+    const created = await app.handle(
+      req({
+        method: "POST",
+        path: "/stage/presets",
+        body: {
+          inviteToken,
+          label: "L",
+          config: { kind: "banner", text: "hi", position: "bottom" },
+        },
+      }),
+    );
+    expect(created.status).toBe(201);
+    expect((await list()).body).toMatchObject({ presets: [{ label: "L" }] });
+  });
+
+  it("config の無いプリセット作成は 400", async () => {
+    const inviteToken = await moderatorToken();
+    const res = await app.handle(
+      req({ method: "POST", path: "/stage/presets", body: { inviteToken, label: "x" } }),
+    );
+    expect(res.status).toBe(400);
+  });
+
+  it("download-url はライブラリ未登録のキーを presign しない", async () => {
+    const inviteToken = await moderatorToken();
+    const res = await app.handle(
+      req({
+        method: "POST",
+        path: "/stage/assets/download-url",
+        body: { inviteToken, assetKey: "recordings/other-event/egress.mp4" },
+      }),
+    );
+    expect(res.status).toBe(404);
+  });
+});

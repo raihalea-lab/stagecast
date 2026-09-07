@@ -556,6 +556,11 @@ export function ProductionControl({
         });
       } else {
         const url = await onResolveAssetUrl(c.assetKey);
+        // URL を解決できない (admin 直接接続など) なら壊れた <img src=""> を放送に出さない。
+        if (!url) {
+          setActivePresetId(null);
+          return;
+        }
         onShowOverlay({
           kind: c.kind,
           url,
@@ -569,13 +574,15 @@ export function ProductionControl({
   );
 
   const handleHide = useCallback(() => {
+    // 表示中プリセットの種別で判定する。タブ切替後に「非表示」を押しても正しい方を消す。
+    const activeKind = presets.find((p) => p.presetId === activePresetId)?.config.kind;
     setActivePresetId(null);
-    if (activeTab === "banner") {
+    if ((activeKind ?? activeTab) === "banner") {
       onHideBanner();
     } else {
       onHideOverlay();
     }
-  }, [activeTab, onHideBanner, onHideOverlay]);
+  }, [presets, activePresetId, activeTab, onHideBanner, onHideOverlay]);
 
   return (
     <div className="space-y-3">
