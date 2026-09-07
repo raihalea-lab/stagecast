@@ -376,6 +376,9 @@ function makeExecutor(): ReconcileExecutor {
                   ...(spec.rtmpUrl ? { rtmpUrl: spec.rtmpUrl } : {}),
                   ...(spec.streamKeyRef ? { streamKeyRef: spec.streamKeyRef } : {}),
                   ...(spec.desiredCount !== undefined ? { desiredCount: spec.desiredCount } : {}),
+                  ...(spec.captionDesiredCount !== undefined
+                    ? { captionDesiredCount: spec.captionDesiredCount }
+                    : {}),
                 }),
               ),
             }),
