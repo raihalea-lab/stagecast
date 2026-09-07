@@ -20,6 +20,8 @@ export interface RenderEventMediaSpec {
   streamKeyRef?: string;
   /** ECS サービスの desiredCount (scaleUp 用)。 */
   desiredCount?: number;
+  /** CaptionWorker の desiredCount (ADR 0017: on-demand)。 */
+  captionDesiredCount?: number;
 }
 
 export function renderEventMediaTemplate(spec: RenderEventMediaSpec): string {
@@ -81,6 +83,9 @@ export function renderEventMediaTemplate(spec: RenderEventMediaSpec): string {
     ...(sharedSfuTaskRoleArn ? { sharedSfuTaskRoleArn } : {}),
     ...(sharedCaptionTaskRoleArn ? { sharedCaptionTaskRoleArn } : {}),
     ...(spec.desiredCount !== undefined ? { desiredCount: spec.desiredCount } : {}),
+    ...(spec.captionDesiredCount !== undefined
+      ? { captionDesiredCount: spec.captionDesiredCount }
+      : {}),
   });
   const assembly = app.synth();
   const template = assembly.getStackByName(stackName).template as unknown;

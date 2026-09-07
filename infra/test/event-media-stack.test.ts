@@ -45,19 +45,19 @@ describe("EventMediaStack (DESIGN.md 7.1/7.3, N-5)", () => {
     expect(eventMediaStackName("evt-a")).toBe("StagecastEventMedia-evt-a");
   });
 
-  it("ADR 0015: Valkey を Fargate コンテナで起動する (ElastiCache 廃止)", () => {
+  it("ADR 0017: Valkey は SFU の sidecar に統合、ElastiCache は不使用", () => {
     template.resourceCountIs("AWS::ElastiCache::ReplicationGroup", 0);
-    // Valkey + SFU + CaptionWorker = 3 サービス
-    template.resourceCountIs("AWS::ECS::Service", 3);
+    // ADR 0017: SFU(+Egress+Valkey sidecar) + CaptionWorker = 2 サービス。
+    template.resourceCountIs("AWS::ECS::Service", 2);
   });
 
-  it("ADR 0015: CloudMap PrivateDnsNamespace でサービスディスカバリする", () => {
-    template.resourceCountIs("AWS::ServiceDiscovery::PrivateDnsNamespace", 1);
-    template.resourceCountIs("AWS::ServiceDiscovery::Service", 1);
+  it("ADR 0017: CloudMap は不要 (Valkey は SFU sidecar で localhost 通信)", () => {
+    template.resourceCountIs("AWS::ServiceDiscovery::PrivateDnsNamespace", 0);
+    template.resourceCountIs("AWS::ServiceDiscovery::Service", 0);
   });
 
-  it("runs SFU(+Egress sidecar)/caption-worker/Valkey as Fargate services", () => {
-    template.resourceCountIs("AWS::ECS::Service", 3);
+  it("runs SFU(+Egress+Valkey sidecar)/caption-worker as Fargate services", () => {
+    template.resourceCountIs("AWS::ECS::Service", 2);
     template.resourceCountIs("AWS::ECS::Cluster", 1);
   });
 
@@ -186,7 +186,7 @@ describe("EventMediaStack (DESIGN.md 7.1/7.3, N-5)", () => {
   });
 
   it("CloudWatch アラーム/メトリクスフィルタ/ダッシュボードを定義する (T9, ADR 0003)", () => {
-    // タスク異常 2 (SFU+CaptionWorker, Egress は ADR 0010 で SFU の sidecar) + 字幕遅延 1 + RTMP 切断 1 + Sink エラー 2 (youtube/custom-api) + 翻訳失敗 1 = 7
+    // タスク異常 2 (SFU+CaptionWorker; captionDesired=1 なので含まれる) + 字幕遅延 1 + RTMP 切断 1 + Sink エラー 2 (youtube/custom-api) + 翻訳失敗 1 = 7
     template.resourceCountIs("AWS::CloudWatch::Alarm", 7);
     template.resourceCountIs("AWS::Logs::MetricFilter", 1);
     template.resourceCountIs("AWS::CloudWatch::Dashboard", 1);
@@ -207,6 +207,24 @@ describe("EventMediaStack (DESIGN.md 7.1/7.3, N-5)", () => {
       Namespace: "Stagecast/CaptionPipeline",
       MetricName: "TranslateErrors",
     });
+  });
+});
+
+describe("EventMediaStack captionDesiredCount (ADR 0017 D-2)", () => {
+  it("captionDesiredCount=0 なら CaptionWorker Service だけ DesiredCount 0 になる", () => {
+    const app = new App();
+    const stack = new EventMediaStack(app, eventMediaStackName("evt-nocap"), {
+      env: { account: "111111111111", region: "ap-northeast-1" },
+      eventId: "evt-nocap",
+      captionEngine: "transcribe",
+      customCaptionApi: false,
+      captionDesiredCount: 0,
+    });
+    const template = Template.fromStack(stack);
+    const zero = template.findResources("AWS::ECS::Service", { Properties: { DesiredCount: 0 } });
+    const one = template.findResources("AWS::ECS::Service", { Properties: { DesiredCount: 1 } });
+    expect(Object.keys(zero)).toHaveLength(1);
+    expect(Object.keys(one)).toHaveLength(1);
   });
 });
 
