@@ -49,5 +49,8 @@ build/push し、後段で CodeBuild を検討」とし、R4 で `build-caption-
 - ADR 0016 で事前作成済み (desiredCount 0) の EventMediaStack は古い URI を保持する。
   次回のテンプレート再レンダリングで新イメージに切り替わる。
 - Docker Desktop の無いマシンからはデプロイできなくなる。Caddy で既に同じ制約があるため新規の制約ではない。
+- 旧 ECR の「直近 10 イメージ保持」ライフサイクルルールは無くなり、CDK Assets ECR には
+  ハッシュごとのイメージ (約 420 MB) が溜まる。ECR は $0.10/GB-月なので 10 世代で $0.4/月程度。
+  気になったら `cdk gc` で未参照アセットを掃除する。
 - PR 時に Dockerfile をビルドする自動チェック (`build-caption-worker.yml` の pull_request トリガー) も無くなる。
   CI 無効化 + pre-push フックの現行運用では、Dockerfile の破損は `cdk deploy` で初めて分かる。
