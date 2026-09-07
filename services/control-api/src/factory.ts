@@ -7,15 +7,19 @@
 import { randomUUID } from "node:crypto";
 import { FakeAdminAuthVerifier, type AdminAuthVerifier } from "./auth/admin-auth.js";
 import {
+  MemoryAssetMetadataRepository,
   MemoryEventRepository,
   MemoryEventRequestRepository,
   MemoryInviteTokenRepository,
+  MemoryPresetRepository,
   MemoryPresentationRepository,
 } from "./repo/memory.js";
 import type {
+  AssetMetadataRepository,
   EventRepository,
   EventRequestRepository,
   InviteTokenRepository,
+  PresetRepository,
   PresentationRepository,
 } from "./repo/types.js";
 import { createEventService } from "./usecases/events.js";
@@ -71,6 +75,10 @@ export interface FactoryConfig {
   onGoLive?: (eventId: string) => Promise<void>;
   /** ADR 0015 Phase 4: スケジュール事前ウォームアップ。startsAt=string で作成、null で削除。 */
   onWarmupSchedule?: (eventId: string, startsAt: string | null) => Promise<void>;
+  /** アセットメタデータリポ。未指定なら DynamoDB or インメモリ。 */
+  assetMetadataRepo?: AssetMetadataRepository;
+  /** プリセットリポ。未指定なら DynamoDB or インメモリ。 */
+  presetRepo?: PresetRepository;
   now?: () => number;
   newId?: () => string;
 }
@@ -104,7 +112,7 @@ export function buildControlApi(config: FactoryConfig = {}) {
     config.artifactStore ?? (storeBucket ? new S3ArtifactStore(storeBucket) : undefined);
   const cleanupStorage = cleanupStore
     ? async (eventId: string) => {
-        const prefixes = [`assets/${eventId}/`, `recordings/${eventId}/`, `captions/${eventId}/`];
+        const prefixes = [`recordings/${eventId}/`, `captions/${eventId}/`];
         await Promise.all(prefixes.map((p) => cleanupStore.deletePrefix(p)));
       }
     : undefined;
@@ -175,6 +183,13 @@ export function buildControlApi(config: FactoryConfig = {}) {
     ? createPreviewTokenService({ events, liveKitMinter })
     : undefined;
 
+  // アセットメタデータ: 注入 > DynamoDB > インメモリ。
+  const assetMetadataRepo =
+    config.assetMetadataRepo ?? dynamo?.assetMetadataRepo ?? new MemoryAssetMetadataRepository();
+
+  // プリセット: 注入 > DynamoDB > インメモリ。
+  const presetRepo = config.presetRepo ?? dynamo?.presetRepo ?? new MemoryPresetRepository();
+
   return createApp({
     auth: config.auth ?? new FakeAdminAuthVerifier(),
     events,
@@ -188,5 +203,10 @@ export function buildControlApi(config: FactoryConfig = {}) {
     adminToken,
     previewToken,
     eventRequests,
+    assetMetadataRepo,
+    artifactStore,
+    presetRepo,
+    newId,
+    now,
   });
 }

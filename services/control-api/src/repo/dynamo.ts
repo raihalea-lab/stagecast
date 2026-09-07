@@ -17,29 +17,38 @@ import {
   QueryCommand,
 } from "@aws-sdk/lib-dynamodb";
 import type {
+  AssetMetadata,
   EventDefinition,
   EventRequest,
+  Preset,
   PresentationState,
   SpeakerVisibility,
 } from "@stagecast/shared";
 import type {
+  AssetMetadataRepository,
   EventRepository,
   EventRequestRepository,
   InviteTokenRecord,
   InviteTokenRepository,
+  PresetRepository,
   PresentationRepository,
 } from "./types.js";
 import {
+  assetToItem,
+  assetsPk,
   eventPk,
   eventRequestPk,
   eventRequestToItem,
   eventToItem,
   invitePk,
   inviteToItem,
+  itemToAsset,
   itemToEvent,
   itemToEventRequest,
   itemToInvite,
+  itemToPreset,
   itemToPresentation,
+  presetToItem,
   presentationToItem,
 } from "./dynamo-mapper.js";
 
@@ -193,6 +202,102 @@ export class DynamoPresentationRepository implements PresentationRepository {
   }
 }
 
+export class DynamoAssetMetadataRepository implements AssetMetadataRepository {
+  constructor(
+    private readonly table: string,
+    private readonly doc = createDocClient(),
+  ) {}
+
+  async put(asset: AssetMetadata): Promise<void> {
+    await this.doc.send(new PutCommand({ TableName: this.table, Item: assetToItem(asset) }));
+  }
+  async get(assetId: string): Promise<AssetMetadata | undefined> {
+    const res = await this.doc.send(
+      new GetCommand({
+        TableName: this.table,
+        Key: { pk: assetsPk(), sk: `ASSET#${assetId}` },
+      }),
+    );
+    return res.Item ? itemToAsset(res.Item) : undefined;
+  }
+  async list(): Promise<AssetMetadata[]> {
+    const res = await this.doc.send(
+      new QueryCommand({
+        TableName: this.table,
+        KeyConditionExpression: "pk = :pk AND begins_with(sk, :prefix)",
+        ExpressionAttributeValues: {
+          ":pk": assetsPk(),
+          ":prefix": "ASSET#",
+        },
+      }),
+    );
+    return (res.Items ?? []).map(itemToAsset);
+  }
+  async delete(assetId: string): Promise<void> {
+    await this.doc.send(
+      new DeleteCommand({
+        TableName: this.table,
+        Key: { pk: assetsPk(), sk: `ASSET#${assetId}` },
+      }),
+    );
+  }
+  async updateTags(assetId: string, tags: string[]): Promise<AssetMetadata> {
+    const asset = await this.get(assetId);
+    if (!asset) throw new Error(`Asset ${assetId} not found`);
+    asset.tags = tags;
+    await this.put(asset);
+    return asset;
+  }
+  async updateDescription(assetId: string, description: string): Promise<AssetMetadata> {
+    const asset = await this.get(assetId);
+    if (!asset) throw new Error(`Asset ${assetId} not found`);
+    asset.description = description;
+    await this.put(asset);
+    return asset;
+  }
+}
+
+export class DynamoPresetRepository implements PresetRepository {
+  constructor(
+    private readonly table: string,
+    private readonly doc = createDocClient(),
+  ) {}
+
+  async put(preset: Preset): Promise<void> {
+    await this.doc.send(new PutCommand({ TableName: this.table, Item: presetToItem(preset) }));
+  }
+  async get(eventId: string, presetId: string): Promise<Preset | undefined> {
+    const res = await this.doc.send(
+      new GetCommand({
+        TableName: this.table,
+        Key: { pk: eventPk(eventId), sk: `PRESET#${presetId}` },
+      }),
+    );
+    return res.Item ? itemToPreset(res.Item) : undefined;
+  }
+  async listByEvent(eventId: string): Promise<Preset[]> {
+    const res = await this.doc.send(
+      new QueryCommand({
+        TableName: this.table,
+        KeyConditionExpression: "pk = :pk AND begins_with(sk, :prefix)",
+        ExpressionAttributeValues: {
+          ":pk": eventPk(eventId),
+          ":prefix": "PRESET#",
+        },
+      }),
+    );
+    return (res.Items ?? []).map(itemToPreset);
+  }
+  async delete(eventId: string, presetId: string): Promise<void> {
+    await this.doc.send(
+      new DeleteCommand({
+        TableName: this.table,
+        Key: { pk: eventPk(eventId), sk: `PRESET#${presetId}` },
+      }),
+    );
+  }
+}
+
 /** DynamoDB 一式のリポジトリを生成する。 */
 export function dynamoRepositories(table: string, client?: DynamoDBClient) {
   const doc = createDocClient(client);
@@ -201,5 +306,7 @@ export function dynamoRepositories(table: string, client?: DynamoDBClient) {
     eventRequestRepo: new DynamoEventRequestRepository(table, doc),
     inviteRepo: new DynamoInviteTokenRepository(table, doc),
     presentationRepo: new DynamoPresentationRepository(table, doc),
+    assetMetadataRepo: new DynamoAssetMetadataRepository(table, doc),
+    presetRepo: new DynamoPresetRepository(table, doc),
   };
 }

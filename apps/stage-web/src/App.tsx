@@ -16,13 +16,21 @@ import { parseAdminDirectParams, parseInviteToken } from "./lib/token.js";
 import { DeviceCheck } from "./components/DeviceCheck.js";
 import { PreviewWindow } from "./components/PreviewWindow.js";
 import type { RuntimeConfig } from "./config.js";
-import { decodeStageMessage, type LayoutKind, type StageRole } from "@stagecast/shared";
+import {
+  decodeStageMessage,
+  type AssetMetadata,
+  type EffectConfig,
+  type LayoutKind,
+  type Preset,
+  type StageRole,
+} from "@stagecast/shared";
 import {
   Button,
   Card,
   CardContent,
   CardHeader,
   CardTitle,
+  ChatPanel,
   ControlBar,
   EgressControl,
   Input,
@@ -31,10 +39,23 @@ import {
   LifecycleControl,
   LiveStats,
   ParticipantList,
+  ProductionControl,
   ReconnectingBanner,
+  ResizableHandle,
+  ResizablePanel,
+  ResizablePanelGroup,
   RoleSwitcher,
+  Separator,
+  Sheet,
+  SheetContent,
+  SheetTrigger,
   StageShell,
   StatusPill,
+  Tabs,
+  TabsContent,
+  TabsList,
+  TabsTrigger,
+  type ChatMessageDisplay,
   type EgressState,
   type LiveStatsData,
   type ParticipantInfo,
@@ -47,13 +68,17 @@ import {
   ChevronLeft,
   ChevronRight,
   LogOut,
+  MessageCircle,
   Mic,
   MicOff,
   Monitor,
   MonitorOff,
 } from "@stagecast/ui/icons";
 
-function toParticipantInfo(s: ParticipantSnapshot): ParticipantInfo {
+function toParticipantInfo(
+  s: ParticipantSnapshot,
+  visibilityMap: Map<string, "live" | "standby">,
+): ParticipantInfo {
   const role = s.identity.startsWith("speaker-")
     ? ("speaker" as const)
     : s.identity.startsWith("moderator-")
@@ -61,7 +86,7 @@ function toParticipantInfo(s: ParticipantSnapshot): ParticipantInfo {
       : s.identity.startsWith("admin-")
         ? ("admin" as const)
         : undefined;
-  return { ...s, role };
+  return { ...s, role, visibility: visibilityMap.get(s.identity) };
 }
 
 const ROLE_LABELS: Record<StageRole, string> = {
@@ -97,6 +122,10 @@ export function App(props: {
   const [token, setToken] = useState(initialToken);
   const [name, setName] = useState("");
   const [session, setSession] = useState<StageSession | undefined>();
+  // admin 直接接続 (ADR 0014 D-4) では ?token= が LiveKit JWT なので招待トークンとして使わない。
+  // ponytail: admin はプリセット/アセットがローカル限定。管理者資格情報で stage ルートを叩けるようにするのが本来の解。
+  const inviteToken = session?.role === "admin" ? "" : token;
+  const [myIdentity, setMyIdentity] = useState<string>("");
   const [viewAsRole, setViewAsRole] = useState<StageRole>("admin");
   const [error, setError] = useState<string>();
   const [prefs, setPrefs] = useState<PreferredDevices>({});
@@ -112,11 +141,18 @@ export function App(props: {
   const [participants, setParticipants] = useState<ParticipantSnapshot[]>([]);
   const [layout, setLayout] = useState<LayoutKind>("grid");
   const [focusIdentity, setFocusIdentity] = useState<string | undefined>();
+  const [speakerVisibility, setSpeakerVisibility] = useState<Map<string, "live" | "standby">>(
+    new Map(),
+  );
+  const [chatMessages, setChatMessages] = useState<ChatMessageDisplay[]>([]);
+  const [presets, setPresets] = useState<Preset[]>([]);
+  const [stageAssets, setStageAssets] = useState<AssetMetadata[]>([]);
   const [muteNotice, setMuteNotice] = useState<string | undefined>();
   const [roomState, setRoomState] = useState<RoomState>("stopped");
   const [egressState, setEgressState] = useState<EgressState>("idle");
   const [elapsedSec, setElapsedSec] = useState(0);
   const elapsedRef = useRef<ReturnType<typeof setInterval>>(undefined);
+  const previewIframeRef = useRef<HTMLIFrameElement>(null);
 
   useEffect(() => {
     controller.onDisconnected(() => {
@@ -135,6 +171,36 @@ export function App(props: {
       if (msg.type === "mute-request") {
         setMuteNotice("モデレーターからミュート要請がありました");
         setTimeout(() => setMuteNotice(undefined), 5000);
+      } else if (msg.type === "force-mute") {
+        void controller.toggleMic(false).then(() => setMic(false));
+        setMuteNotice("管理者によりマイクがミュートされました");
+        setTimeout(() => setMuteNotice(undefined), 5000);
+      } else if (msg.type === "visibility-change") {
+        setSpeakerVisibility((prev) => {
+          const next = new Map(prev);
+          next.set(msg.speakerId, msg.visibility);
+          return next;
+        });
+      } else if (msg.type === "chat") {
+        setChatMessages((prev) => {
+          if (prev.some((m) => m.id === msg.id)) return prev;
+          const role = msg.senderIdentity.startsWith("admin-")
+            ? ("admin" as const)
+            : msg.senderIdentity.startsWith("moderator-")
+              ? ("moderator" as const)
+              : ("speaker" as const);
+          return [
+            ...prev,
+            {
+              id: msg.id,
+              senderIdentity: msg.senderIdentity,
+              senderName: msg.senderName,
+              senderRole: role,
+              text: msg.text,
+              timestampMs: msg.timestampMs,
+            },
+          ];
+        });
       }
     });
   }, [controller]);
@@ -149,6 +215,7 @@ export function App(props: {
       .connectAdmin(adminDirect.livekitUrl, adminDirect.livekitToken, adminDirect.eventId)
       .then(() => {
         setSession(controller.currentSession);
+        setMyIdentity(adminDirect.eventId);
         setRoomState("running");
         elapsedRef.current = setInterval(() => setElapsedSec((s) => s + 1), 1000);
       })
@@ -177,11 +244,71 @@ export function App(props: {
         return;
       }
       setSession(controller.currentSession);
+      setMyIdentity(res.identity);
     } finally {
       setBusy(false);
       setRetryInfo(undefined);
     }
   };
+
+  // プリセット・アセットのロード（セッション確立後）
+  useEffect(() => {
+    if (!session || !inviteToken) return;
+    void client
+      .listPresets(inviteToken)
+      .then(setPresets)
+      .catch(() => {});
+    void client
+      .listAssets(inviteToken)
+      .then(setStageAssets)
+      .catch(() => {});
+  }, [session, client, inviteToken]);
+
+  const handleCreatePreset = useCallback(
+    (label: string, config: EffectConfig) => {
+      if (!session) return;
+      if (!inviteToken) {
+        // admin 直接接続の場合はローカルのみに追加
+        setPresets((prev) => [
+          ...prev,
+          {
+            presetId: `local-${Date.now()}`,
+            eventId: session.eventId,
+            config,
+            label,
+            sortOrder: prev.length,
+            createdAt: new Date().toISOString(),
+          },
+        ]);
+        return;
+      }
+      void client
+        .createPreset(inviteToken, label, config)
+        .then((preset) => {
+          setPresets((prev) => [...prev, preset]);
+        })
+        .catch(() => {});
+    },
+    [session, client, inviteToken],
+  );
+
+  const handleDeletePreset = useCallback(
+    (presetId: string) => {
+      setPresets((prev) => prev.filter((p) => p.presetId !== presetId));
+      if (inviteToken) {
+        void client.deletePreset(inviteToken, presetId).catch(() => {});
+      }
+    },
+    [client, inviteToken],
+  );
+
+  const handleResolveAssetUrl = useCallback(
+    async (assetKey: string): Promise<string> => {
+      if (!inviteToken) return "";
+      return client.getAssetDownloadUrl(inviteToken, assetKey);
+    },
+    [client, inviteToken],
+  );
 
   const wrap = useCallback(
     (fn: () => Promise<unknown>) => async () => {
@@ -199,23 +326,91 @@ export function App(props: {
 
   const tension: TensionState = !session ? "offline" : reconnecting ? "reconnecting" : "live";
 
+  const handleSendChat = useCallback(
+    (text: string) => {
+      void controller.sendChat(text, name || undefined).then((msg) => {
+        setChatMessages((prev) => {
+          if (prev.some((m) => m.id === msg.id)) return prev;
+          const role = msg.senderIdentity.startsWith("admin-")
+            ? ("admin" as const)
+            : msg.senderIdentity.startsWith("moderator-")
+              ? ("moderator" as const)
+              : ("speaker" as const);
+          return [
+            ...prev,
+            {
+              id: msg.id,
+              senderIdentity: msg.senderIdentity,
+              senderName: msg.senderName,
+              senderRole: role,
+              text: msg.text,
+              timestampMs: msg.timestampMs,
+            },
+          ];
+        });
+      });
+    },
+    [controller, name],
+  );
+
   // --- 未入室画面 ---
   if (!session) {
-    // Admin 自動接続中のローディング表示
+    // Admin 自動接続中のローディング / エラー表示
     if (adminDirect) {
       return (
         <StageShell tension={tension}>
           <div className="mx-auto w-full max-w-md space-y-6 pt-8 text-center">
             <h1 className="text-2xl font-bold tracking-tight text-text-primary">
-              管理者として接続中…
+              {error ? "接続に失敗しました" : "管理者として接続中…"}
             </h1>
             {error && (
-              <div
-                role="alert"
-                className="flex items-start gap-3 rounded-md border border-error/40 bg-error/10 px-4 py-3 text-sm text-error"
-              >
-                <span className="flex-1">{error}</span>
-              </div>
+              <>
+                <div
+                  role="alert"
+                  className="flex items-start gap-3 rounded-md border border-error/40 bg-error/10 px-4 py-3 text-sm text-error"
+                >
+                  <span className="flex-1">{error}</span>
+                </div>
+                <div className="flex justify-center gap-3">
+                  <Button
+                    onClick={() => {
+                      setError(undefined);
+                      adminConnectAttempted.current = false;
+                      setBusy(true);
+                      controller
+                        .connectAdmin(
+                          adminDirect.livekitUrl,
+                          adminDirect.livekitToken,
+                          adminDirect.eventId,
+                        )
+                        .then(() => {
+                          setSession(controller.currentSession);
+                          setMyIdentity(adminDirect.eventId);
+                          setRoomState("running");
+                          elapsedRef.current = setInterval(() => setElapsedSec((s) => s + 1), 1000);
+                        })
+                        .catch((e: unknown) => {
+                          setError(e instanceof Error ? e.message : String(e));
+                        })
+                        .finally(() => setBusy(false));
+                    }}
+                    disabled={busy}
+                  >
+                    再試行
+                  </Button>
+                  <Button
+                    variant="outline"
+                    onClick={() => {
+                      window.history.back();
+                    }}
+                  >
+                    戻る
+                  </Button>
+                </div>
+              </>
+            )}
+            {!error && busy && (
+              <p className="text-sm text-text-secondary">配信サーバに接続しています…</p>
             )}
           </div>
         </StageShell>
@@ -297,6 +492,16 @@ export function App(props: {
 
   // --- 入室後 ---
   const effectiveRole = session.role === "admin" ? viewAsRole : session.role;
+  const currentIdentity = myIdentity || session.eventId;
+
+  const chatPanel = (
+    <ChatPanel
+      messages={chatMessages}
+      onSend={handleSendChat}
+      currentIdentity={currentIdentity}
+      className="h-full"
+    />
+  );
 
   const mediaControls = (
     <>
@@ -456,6 +661,10 @@ export function App(props: {
           onChange={(next) => {
             setLayout(next);
             void controller.changeLayout(next, focusIdentity);
+            previewIframeRef.current?.contentWindow?.postMessage(
+              { type: "layout-change", layout: next, focusIdentity },
+              "*",
+            );
           }}
           disabled={busy}
         />
@@ -465,7 +674,7 @@ export function App(props: {
 
   const participantList = (
     <ParticipantList
-      participants={participants.map(toParticipantInfo)}
+      participants={participants.map((p) => toParticipantInfo(p, speakerVisibility))}
       focusIdentity={focusIdentity}
       onFocus={(identity) => {
         const next = identity === focusIdentity ? undefined : identity;
@@ -475,6 +684,13 @@ export function App(props: {
       onRequestMute={(identity) => {
         void controller.requestMute(identity);
       }}
+      onForceMute={(identity) => {
+        void controller.forceMute(identity);
+      }}
+      onVisibilityChange={(identity, visibility) => {
+        void controller.setSpeakerVisibility(identity, visibility, token || undefined);
+      }}
+      showVisibilityControl={effectiveRole === "admin" || effectiveRole === "moderator"}
     />
   );
 
@@ -498,70 +714,151 @@ export function App(props: {
         }
       >
         {statusBanners}
-        <div className="flex gap-4">
-          <div className="min-w-0 flex-1 space-y-4">
-            {/* LivePreview: composer-template iframe */}
-            <Card className="overflow-hidden" aria-label="配信プレビュー">
-              <CardHeader className="flex-row items-center justify-between space-y-0">
-                <div className="flex items-center gap-2">
-                  <CardTitle className="text-base">配信プレビュー</CardTitle>
-                  <StatusPill variant="live" className="text-xs">
-                    ON AIR
-                  </StatusPill>
-                </div>
-              </CardHeader>
-              <CardContent className="pt-0">
-                {props.config?.composerTemplateUrl && adminDirect ? (
-                  <div className="overflow-hidden rounded-lg border-2 border-tally-500 shadow-[0_0_12px_rgba(220,38,38,0.25)]">
-                    <iframe
-                      title="配信プレビュー (composer-template)"
-                      src={`${props.config.composerTemplateUrl}?layout=${layout}&token=${encodeURIComponent(adminDirect.livekitToken)}&url=${encodeURIComponent(adminDirect.livekitUrl)}`}
-                      className="block w-full bg-black"
+        <ResizablePanelGroup orientation="horizontal">
+          <ResizablePanel defaultSize={65} minSize={40}>
+            <div className="space-y-4 pr-4">
+              {/* LivePreview: composer-template iframe */}
+              <Card className="overflow-hidden" aria-label="配信プレビュー">
+                <CardHeader className="flex-row items-center justify-between space-y-0">
+                  <div className="flex items-center gap-2">
+                    <CardTitle className="text-base">配信プレビュー</CardTitle>
+                    <StatusPill variant="live" className="text-xs">
+                      ON AIR
+                    </StatusPill>
+                  </div>
+                </CardHeader>
+                <CardContent className="pt-0">
+                  {props.config?.composerTemplateUrl && adminDirect ? (
+                    <div className="overflow-hidden rounded-lg border-2 border-tally-500 shadow-[0_0_12px_rgba(220,38,38,0.25)]">
+                      <iframe
+                        ref={previewIframeRef}
+                        title="配信プレビュー (composer-template)"
+                        src={`${props.config.composerTemplateUrl}?layout=${layout}&token=${encodeURIComponent(adminDirect.livekitToken)}&url=${encodeURIComponent(adminDirect.livekitUrl)}`}
+                        className="block w-full bg-black"
+                        style={{ aspectRatio: "16/9" }}
+                        allow="autoplay"
+                      />
+                    </div>
+                  ) : (
+                    <div
+                      className="flex items-center justify-center rounded-lg border border-line-2 bg-surface-2 text-sm text-text-tertiary"
                       style={{ aspectRatio: "16/9" }}
-                      allow="autoplay"
-                    />
-                  </div>
-                ) : (
-                  <div
-                    className="flex items-center justify-center rounded-lg border border-line-2 bg-surface-2 text-sm text-text-tertiary"
-                    style={{ aspectRatio: "16/9" }}
-                  >
-                    プレビュー準備中…
-                  </div>
-                )}
-              </CardContent>
-            </Card>
-          </div>
-          <aside className="w-[360px] shrink-0 space-y-4">
-            <LifecycleControl
-              state={roomState}
-              elapsedSec={elapsedSec}
-              participantCount={participants.length}
-              onEnd={wrap(async () => {
-                await controller.leave();
-                setSession(undefined);
-                setRoomState("stopped");
-                clearInterval(elapsedRef.current);
-              })}
-            />
-            <EgressControl
-              state={egressState}
-              targets={[
-                { kind: "youtube", label: "YouTube Live" },
-                { kind: "s3", label: "S3 録画" },
-              ]}
-              onStart={wrap(async () => {
-                setEgressState("active");
-              })}
-              onStop={wrap(async () => {
-                setEgressState("idle");
-              })}
-            />
-            {layoutPicker}
-            {participantList}
-            <LiveStats stats={stats} />
-          </aside>
-        </div>
+                    >
+                      プレビュー準備中…
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+            </div>
+          </ResizablePanel>
+          <ResizableHandle withHandle />
+          <ResizablePanel defaultSize={35} minSize={20}>
+            <aside className="space-y-4 pl-4">
+              <LifecycleControl
+                state={roomState}
+                elapsedSec={elapsedSec}
+                participantCount={participants.length}
+                onEnd={wrap(async () => {
+                  await controller.leave();
+                  setSession(undefined);
+                  setRoomState("stopped");
+                  clearInterval(elapsedRef.current);
+                })}
+              />
+              <EgressControl
+                state={egressState}
+                targets={[
+                  { kind: "youtube", label: "YouTube Live" },
+                  { kind: "s3", label: "S3 録画" },
+                ]}
+                onStart={wrap(async () => {
+                  setEgressState("active");
+                })}
+                onStop={wrap(async () => {
+                  setEgressState("idle");
+                })}
+              />
+              <Tabs defaultValue="control" className="w-full">
+                <TabsList className="w-full">
+                  <TabsTrigger value="control" className="flex-1">
+                    コントロール
+                  </TabsTrigger>
+                  <TabsTrigger value="chat" className="flex-1">
+                    チャット
+                  </TabsTrigger>
+                </TabsList>
+                <TabsContent value="control" className="space-y-4">
+                  {layoutPicker}
+                  <Separator />
+                  {participantList}
+                  <Separator />
+                  <Card>
+                    <CardHeader className="pb-3">
+                      <CardTitle className="text-sm">演出</CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                      <ProductionControl
+                        presets={presets}
+                        assets={stageAssets}
+                        onCreatePreset={handleCreatePreset}
+                        onDeletePreset={handleDeletePreset}
+                        onResolveAssetUrl={handleResolveAssetUrl}
+                        onShowBanner={(opts) => {
+                          const msg = {
+                            type: "banner-show",
+                            text: opts.text,
+                            subtext: opts.subtext,
+                            position: opts.position,
+                            autoHideMs: opts.autoHideMs,
+                          };
+                          void controller.showBanner(opts.text, {
+                            subtext: opts.subtext,
+                            position: opts.position,
+                            autoHideMs: opts.autoHideMs,
+                          });
+                          previewIframeRef.current?.contentWindow?.postMessage(msg, "*");
+                        }}
+                        onHideBanner={() => {
+                          void controller.hideBanner();
+                          previewIframeRef.current?.contentWindow?.postMessage(
+                            { type: "banner-hide" },
+                            "*",
+                          );
+                        }}
+                        onShowOverlay={(opts) => {
+                          const msg = {
+                            type: "overlay-show",
+                            kind: opts.kind,
+                            url: opts.url,
+                            position: opts.position,
+                            sizePercent: opts.sizePercent,
+                            autoHideMs: opts.autoHideMs,
+                          };
+                          void controller.showOverlay(opts.kind, opts.url, {
+                            position: opts.position,
+                            sizePercent: opts.sizePercent,
+                            autoHideMs: opts.autoHideMs,
+                          });
+                          previewIframeRef.current?.contentWindow?.postMessage(msg, "*");
+                        }}
+                        onHideOverlay={() => {
+                          void controller.hideOverlay();
+                          previewIframeRef.current?.contentWindow?.postMessage(
+                            { type: "overlay-hide" },
+                            "*",
+                          );
+                        }}
+                        disabled={busy}
+                      />
+                    </CardContent>
+                  </Card>
+                  <LiveStats stats={stats} />
+                </TabsContent>
+                <TabsContent value="chat">{chatPanel}</TabsContent>
+              </Tabs>
+            </aside>
+          </ResizablePanel>
+        </ResizablePanelGroup>
       </StageShell>
     );
   }
@@ -582,19 +879,74 @@ export function App(props: {
         }
       >
         {statusBanners}
-        <div className="flex gap-4">
-          <div className="min-w-0 flex-1 space-y-4">
-            <PreviewWindow
-              client={client}
-              inviteToken={token}
-              composerTemplateUrl={props.config?.composerTemplateUrl}
-            />
-          </div>
-          <aside className="w-80 shrink-0 space-y-4">
-            {layoutPicker}
-            {participantList}
-          </aside>
-        </div>
+        <ResizablePanelGroup orientation="horizontal">
+          <ResizablePanel defaultSize={65} minSize={40}>
+            <div className="space-y-4 pr-4">
+              <PreviewWindow
+                client={client}
+                inviteToken={token}
+                composerTemplateUrl={props.config?.composerTemplateUrl}
+              />
+            </div>
+          </ResizablePanel>
+          <ResizableHandle withHandle />
+          <ResizablePanel defaultSize={35} minSize={20}>
+            <aside className="space-y-4 pl-4">
+              <Tabs defaultValue="control" className="w-full">
+                <TabsList className="w-full">
+                  <TabsTrigger value="control" className="flex-1">
+                    コントロール
+                  </TabsTrigger>
+                  <TabsTrigger value="chat" className="flex-1">
+                    チャット
+                  </TabsTrigger>
+                </TabsList>
+                <TabsContent value="control" className="space-y-4">
+                  {layoutPicker}
+                  <Separator />
+                  {participantList}
+                  <Separator />
+                  <Card>
+                    <CardHeader className="pb-3">
+                      <CardTitle className="text-sm">演出</CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                      <ProductionControl
+                        presets={presets}
+                        assets={stageAssets}
+                        onCreatePreset={handleCreatePreset}
+                        onDeletePreset={handleDeletePreset}
+                        onResolveAssetUrl={handleResolveAssetUrl}
+                        onShowBanner={(opts) => {
+                          void controller.showBanner(opts.text, {
+                            subtext: opts.subtext,
+                            position: opts.position,
+                            autoHideMs: opts.autoHideMs,
+                          });
+                        }}
+                        onHideBanner={() => {
+                          void controller.hideBanner();
+                        }}
+                        onShowOverlay={(opts) => {
+                          void controller.showOverlay(opts.kind, opts.url, {
+                            position: opts.position,
+                            sizePercent: opts.sizePercent,
+                            autoHideMs: opts.autoHideMs,
+                          });
+                        }}
+                        onHideOverlay={() => {
+                          void controller.hideOverlay();
+                        }}
+                        disabled={busy}
+                      />
+                    </CardContent>
+                  </Card>
+                </TabsContent>
+                <TabsContent value="chat">{chatPanel}</TabsContent>
+              </Tabs>
+            </aside>
+          </ResizablePanel>
+        </ResizablePanelGroup>
       </StageShell>
     );
   }
@@ -609,6 +961,17 @@ export function App(props: {
           {mediaControls}
           {slideControls}
           <div className="flex-1" />
+          <Sheet>
+            <SheetTrigger asChild>
+              <Button variant="outline" size="sm">
+                <MessageCircle className="size-4" />
+                <span className="ml-1.5">チャット</span>
+              </Button>
+            </SheetTrigger>
+            <SheetContent side="right" className="w-80 p-0">
+              {chatPanel}
+            </SheetContent>
+          </Sheet>
           {leaveButton}
         </ControlBar>
       }

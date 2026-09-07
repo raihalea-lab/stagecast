@@ -157,6 +157,20 @@ describe("ControlPlaneStack", () => {
       RouteKey: "POST /preview-token",
       AuthorizationType: "NONE",
     });
+    // 演出/ステージ管理ルートも招待トークン認証なので JWT をバイパスする。
+    for (const routeKey of [
+      "POST /presentation/speakers/{speakerId}",
+      "POST /stage/assets",
+      "POST /stage/assets/download-url",
+      "POST /stage/presets",
+      "POST /stage/presets/list",
+      "DELETE /stage/presets/{presetId}",
+    ]) {
+      template.hasResourceProperties("AWS::ApiGatewayV2::Route", {
+        RouteKey: routeKey,
+        AuthorizationType: "NONE",
+      });
+    }
   });
 
   it("OPTIONS preflight は NONE 認証で登録 ($default JWT をバイパス、Lambda が 204 返却)", () => {

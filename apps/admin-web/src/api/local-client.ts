@@ -7,6 +7,7 @@
  */
 import { buildControlApi, type App } from "@stagecast/control-api";
 import type {
+  AssetMetadata,
   EventDefinition,
   EventRequest,
   EventStatus,
@@ -137,5 +138,22 @@ export class LocalControlApiClient implements ControlApiClient {
     return this.call<
       { id: string; title: string; startsAt: string; endsAt?: string; status: string }[]
     >("GET", "/events/public", undefined, false);
+  }
+  async listAssets(tag?: string, search?: string): Promise<AssetMetadata[]> {
+    const params = new URLSearchParams();
+    if (tag) params.set("tag", tag);
+    if (search) params.set("search", search);
+    const query = params.toString() ? `?${params.toString()}` : "";
+    const data = await this.call<{ assets: AssetMetadata[] }>("GET", `/assets${query}`);
+    return data.assets;
+  }
+  async updateAsset(
+    assetId: string,
+    patch: { tags?: string[]; description?: string },
+  ): Promise<AssetMetadata> {
+    return this.call("PATCH", `/assets/${assetId}`, patch);
+  }
+  async deleteAsset(assetId: string): Promise<void> {
+    return this.call("DELETE", `/assets/${assetId}`);
   }
 }

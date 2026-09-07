@@ -6,7 +6,12 @@
  *
  * D8: moderator/admin 用に layout 変更・ミュート要請・参加者追跡を追加。
  */
-import { encodeStageMessage, type LayoutKind, type StageRole } from "@stagecast/shared";
+import {
+  encodeStageMessage,
+  type LayoutKind,
+  type SpeakerVisibility,
+  type StageRole,
+} from "@stagecast/shared";
 import type { JoinOptions, JoinResponse, StageClient } from "./api/stage-client.js";
 import type { PreferredDevices } from "./lib/devices.js";
 import type { ParticipantSnapshot, RoomConnector } from "./lib/room.js";
@@ -153,7 +158,116 @@ export class StageController {
   /** 特定の participant にミュート要請を送る (D8: moderator/admin 用)。 */
   async requestMute(targetIdentity: string): Promise<void> {
     if (!this.session) throw new Error("not joined");
-    await this.room.publishData(encodeStageMessage({ type: "mute-request", targetIdentity }));
+    await this.room.publishData(encodeStageMessage({ type: "mute-request", targetIdentity }), {
+      destinationIdentities: [targetIdentity],
+    });
+  }
+
+  /** 特定の participant を強制ミュートする (Phase 1)。受信側が自動的にマイクをオフにする。 */
+  async forceMute(targetIdentity: string): Promise<void> {
+    if (!this.session) throw new Error("not joined");
+    // broadcast すると受信者全員が自分をミュートしてしまうため宛先を絞る。
+    await this.room.publishData(encodeStageMessage({ type: "force-mute", targetIdentity }), {
+      destinationIdentities: [targetIdentity],
+    });
+  }
+
+  /** 登壇者の表示状態を変更する (Phase 1: ステージ管理)。REST API + DataChannel broadcast。 */
+  async setSpeakerVisibility(
+    speakerId: string,
+    visibility: SpeakerVisibility,
+    inviteToken?: string,
+  ): Promise<void> {
+    if (!this.session) throw new Error("not joined");
+    if (inviteToken) {
+      await this.client.setSpeakerVisibility(
+        inviteToken,
+        this.session.eventId,
+        speakerId,
+        visibility,
+      );
+    }
+    await this.room.publishData(
+      encodeStageMessage({ type: "visibility-change", speakerId, visibility }),
+    );
+  }
+
+  /** バナー表示を DataChannel で broadcast する (Phase 3)。 */
+  async showBanner(
+    text: string,
+    opts?: { subtext?: string; position?: "bottom" | "top"; autoHideMs?: number },
+  ): Promise<void> {
+    if (!this.session) throw new Error("not joined");
+    await this.room.publishData(
+      encodeStageMessage({
+        type: "banner-show",
+        text,
+        subtext: opts?.subtext,
+        position: opts?.position ?? "bottom",
+        autoHideMs: opts?.autoHideMs,
+      }),
+    );
+  }
+
+  /** バナー非表示を DataChannel で broadcast する (Phase 3)。 */
+  async hideBanner(): Promise<void> {
+    if (!this.session) throw new Error("not joined");
+    await this.room.publishData(encodeStageMessage({ type: "banner-hide" }));
+  }
+
+  /** オーバーレイ表示を DataChannel で broadcast する (Phase 4)。 */
+  async showOverlay(
+    kind: "qr" | "image" | "video",
+    url: string,
+    opts?: {
+      position?: "top-left" | "top-right" | "bottom-left" | "bottom-right";
+      sizePercent?: number;
+      autoHideMs?: number;
+    },
+  ): Promise<void> {
+    if (!this.session) throw new Error("not joined");
+    await this.room.publishData(
+      encodeStageMessage({
+        type: "overlay-show",
+        kind,
+        url,
+        position: opts?.position ?? "bottom-right",
+        sizePercent: opts?.sizePercent,
+        autoHideMs: opts?.autoHideMs,
+      }),
+    );
+  }
+
+  /** オーバーレイ非表示を DataChannel で broadcast する (Phase 4)。 */
+  async hideOverlay(): Promise<void> {
+    if (!this.session) throw new Error("not joined");
+    await this.room.publishData(encodeStageMessage({ type: "overlay-hide" }));
+  }
+
+  /** チャットメッセージを DataChannel で broadcast する (Phase 2)。送信したメッセージを返す。 */
+  async sendChat(
+    text: string,
+    displayName?: string,
+  ): Promise<{
+    id: string;
+    senderIdentity: string;
+    senderName?: string;
+    text: string;
+    timestampMs: number;
+  }> {
+    if (!this.session) throw new Error("not joined");
+    const identity =
+      this.lastJoin && this.lastJoin.ok ? this.lastJoin.identity : this.session.eventId;
+    const msg = {
+      type: "chat" as const,
+      id: crypto.randomUUID(),
+      senderIdentity: identity,
+      senderName: displayName,
+      text,
+      timestampMs: Date.now(),
+    };
+    await this.room.publishData(encodeStageMessage(msg));
+    return msg;
   }
 
   /** 現在の参加者スナップショットを取得する (D8)。 */

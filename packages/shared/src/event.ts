@@ -95,3 +95,60 @@ export interface EventDefinition {
 export function isValidCaptionSettings(s: CaptionSettings): boolean {
   return s.languages.length > 0 && s.languages.includes(s.youtubeLanguage);
 }
+
+/** S3 に保存されたアセットのメタデータ。イベントに属さずグローバルライブラリとして管理。 */
+export interface AssetMetadata {
+  assetId: string;
+  assetKey: string;
+  filename: string;
+  contentType: string;
+  tags: string[];
+  description?: string;
+  size?: number;
+  createdAt: string;
+}
+
+export type OverlayPosition = "top-left" | "top-right" | "bottom-left" | "bottom-right";
+
+/** 演出プリセットの設定 (discriminated union)。 */
+export type EffectConfig =
+  | {
+      kind: "banner";
+      text: string;
+      subtext?: string;
+      position: "bottom" | "top";
+      autoHideMs?: number;
+    }
+  | {
+      kind: "qr";
+      url: string;
+      position: OverlayPosition;
+      sizePercent?: number;
+      autoHideMs?: number;
+    }
+  | {
+      kind: "image";
+      assetKey: string;
+      label: string;
+      position: OverlayPosition;
+      sizePercent?: number;
+      autoHideMs?: number;
+    }
+  | {
+      kind: "video";
+      assetKey: string;
+      label: string;
+      position: OverlayPosition;
+      sizePercent?: number;
+      autoHideMs?: number;
+    };
+
+/** 永続化される演出プリセット (Phase 4)。 */
+export interface Preset {
+  presetId: string;
+  eventId: string;
+  config: EffectConfig;
+  label: string;
+  sortOrder: number;
+  createdAt: string;
+}

@@ -8,7 +8,7 @@
  * (ADR 0008 D-3)。本クライアントは自動で exponential backoff してリトライし、最終的に
  * 200 もしくは別エラーが返るのを待つ。UI には onRetry で進捗を伝える。
  */
-import type { InvitedRole } from "@stagecast/shared";
+import type { AssetMetadata, InvitedRole, Preset, SpeakerVisibility } from "@stagecast/shared";
 
 /**
  * R12-followup-19 / ADR 0011 案 E: TURN/STUN server。
@@ -65,11 +65,18 @@ export interface PreviewTokenResponse {
 
 export interface StageClient {
   join(token: string, displayName?: string, options?: JoinOptions): Promise<JoinResponse>;
-  /**
-   * 登壇者ビュー右下小窓プレビュー用の viewer-role token を発行する (R17-Phase3, ADR 0012 D-6)。
-   * 入室済みの speaker / moderator が、 入室時と同じ招待トークンを提示して取得する。
-   */
   issuePreviewToken(inviteToken: string): Promise<PreviewTokenResponse>;
+  setSpeakerVisibility(
+    inviteToken: string,
+    eventId: string,
+    speakerId: string,
+    visibility: SpeakerVisibility,
+  ): Promise<void>;
+  listAssets(inviteToken: string): Promise<AssetMetadata[]>;
+  getAssetDownloadUrl(inviteToken: string, assetKey: string): Promise<string>;
+  listPresets(inviteToken: string): Promise<Preset[]>;
+  createPreset(inviteToken: string, label: string, config: Preset["config"]): Promise<Preset>;
+  deletePreset(inviteToken: string, presetId: string): Promise<void>;
 }
 
 /** ADR 0008 D-3: exponential backoff スケジュール (秒)。 */
@@ -134,5 +141,97 @@ export class HttpStageClient implements StageClient {
       throw new Error(`preview-token failed (${res.status}): ${msg}`);
     }
     return (await res.json()) as PreviewTokenResponse;
+  }
+
+  async setSpeakerVisibility(
+    inviteToken: string,
+    eventId: string,
+    speakerId: string,
+    visibility: SpeakerVisibility,
+  ): Promise<void> {
+    const res = await fetch(
+      `${this.baseUrl}/presentation/speakers/${encodeURIComponent(speakerId)}`,
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ inviteToken, eventId, visibility }),
+      },
+    );
+    if (!res.ok) {
+      const msg = await res.text().catch(() => res.statusText);
+      throw new Error(`setSpeakerVisibility failed (${res.status}): ${msg}`);
+    }
+  }
+
+  async listAssets(inviteToken: string): Promise<AssetMetadata[]> {
+    const res = await fetch(`${this.baseUrl}/stage/assets`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ inviteToken }),
+    });
+    if (!res.ok) {
+      const msg = await res.text().catch(() => res.statusText);
+      throw new Error(`listAssets failed (${res.status}): ${msg}`);
+    }
+    const data = (await res.json()) as { assets: AssetMetadata[] };
+    return data.assets;
+  }
+
+  async getAssetDownloadUrl(inviteToken: string, assetKey: string): Promise<string> {
+    const res = await fetch(`${this.baseUrl}/stage/assets/download-url`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ inviteToken, assetKey }),
+    });
+    if (!res.ok) {
+      const msg = await res.text().catch(() => res.statusText);
+      throw new Error(`getAssetDownloadUrl failed (${res.status}): ${msg}`);
+    }
+    const data = (await res.json()) as { downloadUrl: string };
+    return data.downloadUrl;
+  }
+
+  async listPresets(inviteToken: string): Promise<Preset[]> {
+    const res = await fetch(`${this.baseUrl}/stage/presets/list`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ inviteToken }),
+    });
+    if (!res.ok) {
+      const msg = await res.text().catch(() => res.statusText);
+      throw new Error(`listPresets failed (${res.status}): ${msg}`);
+    }
+    const data = (await res.json()) as { presets: Preset[] };
+    return data.presets;
+  }
+
+  async createPreset(
+    inviteToken: string,
+    label: string,
+    config: Preset["config"],
+  ): Promise<Preset> {
+    const res = await fetch(`${this.baseUrl}/stage/presets`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ inviteToken, label, config }),
+    });
+    if (!res.ok) {
+      const msg = await res.text().catch(() => res.statusText);
+      throw new Error(`createPreset failed (${res.status}): ${msg}`);
+    }
+    const data = (await res.json()) as { preset: Preset };
+    return data.preset;
+  }
+
+  async deletePreset(inviteToken: string, presetId: string): Promise<void> {
+    const res = await fetch(`${this.baseUrl}/stage/presets/${encodeURIComponent(presetId)}`, {
+      method: "DELETE",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ inviteToken }),
+    });
+    if (!res.ok) {
+      const msg = await res.text().catch(() => res.statusText);
+      throw new Error(`deletePreset failed (${res.status}): ${msg}`);
+    }
   }
 }
