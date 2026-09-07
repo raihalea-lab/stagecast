@@ -145,6 +145,29 @@ describe("executePlan (T4)", () => {
   });
 });
 
+describe("toSpec (ADR 0017 D-2)", () => {
+  it("captionEnabled=false なら captionDesiredCount=0、未指定なら 1", async () => {
+    const specs: EventMediaSpec[] = [];
+    const executor: ReconcileExecutor = {
+      provision: async (spec) => {
+        specs.push(spec);
+      },
+      destroy: async () => {},
+    };
+    const plan = planReconcile(
+      [
+        { ...desired("nocap"), captionEnabled: false },
+        desired("cap"),
+        { ...desired("pend"), pending: true },
+      ],
+      [],
+    );
+    await executePlan(plan, executor);
+    const byId = Object.fromEntries(specs.map((s) => [s.eventId, s.captionDesiredCount]));
+    expect(byId).toEqual({ nocap: 0, cap: 1, pend: 0 });
+  });
+});
+
 describe("enforceMaxParallel (ADR 0008 D-6)", () => {
   it("desired が上限以下なら全件 allowed (skipped 空)", () => {
     const r = enforceMaxParallel([desired("a"), desired("b")], [], 3);
