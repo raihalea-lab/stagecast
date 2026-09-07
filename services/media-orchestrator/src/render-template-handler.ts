@@ -19,6 +19,7 @@ export interface RenderRequest {
   rtmpUrl?: string;
   streamKeyRef?: string;
   desiredCount?: number;
+  captionDesiredCount?: number;
 }
 
 export async function handler(event: RenderRequest): Promise<{ template: string }> {
@@ -29,6 +30,9 @@ export async function handler(event: RenderRequest): Promise<{ template: string 
     ...(event.rtmpUrl ? { rtmpUrl: event.rtmpUrl } : {}),
     ...(event.streamKeyRef ? { streamKeyRef: event.streamKeyRef } : {}),
     ...(event.desiredCount !== undefined ? { desiredCount: event.desiredCount } : {}),
+    ...(event.captionDesiredCount !== undefined
+      ? { captionDesiredCount: event.captionDesiredCount }
+      : {}),
   });
   return { template };
 }

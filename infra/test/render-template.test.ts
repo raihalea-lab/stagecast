@@ -12,10 +12,9 @@ describe("renderEventMediaTemplate (DESIGN.md 7.1)", () => {
     const types = Object.values(template.Resources).map((r) => r.Type);
 
     // メディアスタックの要となるリソースが含まれること
-    // ADR 0015: ElastiCache 廃止 → Fargate Valkey + CloudMap。
-    expect(types).toContain("AWS::ServiceDiscovery::PrivateDnsNamespace");
-    // ADR 0015: Valkey + SFU + CaptionWorker = 3 サービス。
-    expect(types.filter((t) => t === "AWS::ECS::Service")).toHaveLength(3);
+    // ADR 0017: Valkey は SFU sidecar に統合、CloudMap は不要。
+    // SFU(+Egress+Valkey sidecar) + CaptionWorker = 2 サービス。
+    expect(types.filter((t) => t === "AWS::ECS::Service")).toHaveLength(2);
     expect(types).toContain("AWS::ECS::Cluster");
     expect(types).toContain("AWS::EC2::VPC");
   });
