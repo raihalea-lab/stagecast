@@ -4,8 +4,8 @@
  * 配信操作 (Layout / Egress / Lifecycle) は stage-web に移管 (ADR 0014 D-2)。
  * admin-web は OpenStageButton で stage-web を開くだけ。
  */
-import { useState } from "react";
-import type { EventDefinition, EventStatus, InvitedRole } from "@stagecast/shared";
+import { useCallback, useEffect, useState } from "react";
+import type { AssetMetadata, EventDefinition, EventStatus, InvitedRole } from "@stagecast/shared";
 import type {
   Artifact,
   ArtifactService,
@@ -39,7 +39,7 @@ import {
   TabsList,
   TabsTrigger,
 } from "@stagecast/ui";
-import { Download, ExternalLink, Trash2, Upload } from "@stagecast/ui/icons";
+import { Download, ExternalLink, File, Image, Tag, Trash2, Upload, X } from "@stagecast/ui/icons";
 
 const TRANSITIONS: Record<
   EventStatus,
@@ -87,6 +87,309 @@ function StatusTransitionBar(props: {
   );
 }
 
+function AssetManagerTab(props: { client: ControlApiClient; assets: AssetService }) {
+  const { client, assets } = props;
+  const [assetList, setAssetList] = useState<AssetMetadata[]>([]);
+  const [loaded, setLoaded] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | undefined>();
+  const [tagFilter, setTagFilter] = useState<string | undefined>();
+  const [uploadTags, setUploadTags] = useState("");
+  const [editingAssetId, setEditingAssetId] = useState<string | undefined>();
+  const [editTagsInput, setEditTagsInput] = useState("");
+  const [deleteTarget, setDeleteTarget] = useState<AssetMetadata | undefined>();
+
+  const allTags = Array.from(new Set(assetList.flatMap((a) => a.tags))).sort();
+
+  const filteredAssets = tagFilter
+    ? assetList.filter((a) => a.tags.includes(tagFilter))
+    : assetList;
+
+  const guard = useCallback(
+    (fn: () => Promise<void>) => async () => {
+      setError(undefined);
+      setBusy(true);
+      try {
+        await fn();
+      } catch (err) {
+        setError(toErrorMessage(err));
+      } finally {
+        setBusy(false);
+      }
+    },
+    [],
+  );
+
+  const loadAssets = useCallback(async () => {
+    try {
+      const list = await client.listAssets();
+      setAssetList(list);
+      setLoaded(true);
+    } catch (err) {
+      setError(toErrorMessage(err));
+    }
+  }, [client]);
+
+  useEffect(() => {
+    void loadAssets();
+  }, [loadAssets]);
+
+  const handleUpload = (files: FileList) =>
+    guard(async () => {
+      const tags = uploadTags
+        .split(",")
+        .map((t) => t.trim())
+        .filter(Boolean);
+      for (const file of files) {
+        const bytes = new Uint8Array(await file.arrayBuffer());
+        await assets.upload({ name: file.name, contentType: file.type, bytes }, tags);
+      }
+      setUploadTags("");
+      await loadAssets();
+    })();
+
+  const handleUpdateTags = (assetId: string) =>
+    guard(async () => {
+      const tags = editTagsInput
+        .split(",")
+        .map((t) => t.trim())
+        .filter(Boolean);
+      await client.updateAsset(assetId, { tags });
+      setEditingAssetId(undefined);
+      setEditTagsInput("");
+      await loadAssets();
+    })();
+
+  const handleDelete = (asset: AssetMetadata) =>
+    guard(async () => {
+      await client.deleteAsset(asset.assetId);
+      setDeleteTarget(undefined);
+      await loadAssets();
+    })();
+
+  const iconForType = (contentType: string) => {
+    if (contentType.startsWith("image/")) return <Image className="size-4 text-tally-500" />;
+    if (contentType.startsWith("video/")) return <File className="size-4 text-amber-500" />;
+    return <File className="size-4 text-text-tertiary" />;
+  };
+
+  return (
+    <div className="space-y-6">
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2 text-base">
+            <Upload className="size-4" />
+            アセットをアップロード
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="grid gap-2">
+            <Label htmlFor="asset-tags">タグ (カンマ区切り)</Label>
+            <Input
+              id="asset-tags"
+              placeholder="例: ロゴ, 背景, スポンサー"
+              value={uploadTags}
+              onChange={(e) => setUploadTags(e.target.value)}
+              disabled={busy}
+            />
+          </div>
+          <div className="grid gap-2">
+            <Label htmlFor="asset-upload">ファイル選択</Label>
+            <Input
+              id="asset-upload"
+              type="file"
+              accept="image/*,video/*"
+              multiple
+              disabled={busy}
+              onChange={(e) =>
+                e.target.files && e.target.files.length > 0 && handleUpload(e.target.files)
+              }
+            />
+          </div>
+        </CardContent>
+      </Card>
+
+      {error && (
+        <div
+          role="alert"
+          className="flex items-start gap-3 rounded-md border border-error/40 bg-error/10 px-4 py-3 text-sm text-error"
+        >
+          <span className="flex-1">{error}</span>
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            aria-label="閉じる"
+            onClick={() => setError(undefined)}
+          >
+            ×
+          </Button>
+        </div>
+      )}
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2 text-base">
+            <Tag className="size-4" />
+            アセット一覧
+            <span className="text-sm font-normal text-text-secondary">
+              ({filteredAssets.length}件)
+            </span>
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          {allTags.length > 0 && (
+            <div className="flex flex-wrap items-center gap-1.5">
+              <span className="text-xs text-text-secondary">タグ:</span>
+              <button
+                type="button"
+                onClick={() => setTagFilter(undefined)}
+                className={`rounded-full px-2.5 py-0.5 text-xs font-medium transition-colors ${
+                  !tagFilter
+                    ? "bg-text-primary text-surface-0"
+                    : "bg-surface-2 text-text-secondary hover:bg-surface-3"
+                }`}
+              >
+                すべて
+              </button>
+              {allTags.map((tag) => (
+                <button
+                  key={tag}
+                  type="button"
+                  onClick={() => setTagFilter(tagFilter === tag ? undefined : tag)}
+                  className={`rounded-full px-2.5 py-0.5 text-xs font-medium transition-colors ${
+                    tagFilter === tag
+                      ? "bg-tally-500 text-white"
+                      : "bg-surface-2 text-text-secondary hover:bg-surface-3"
+                  }`}
+                >
+                  {tag}
+                </button>
+              ))}
+            </div>
+          )}
+
+          {!loaded ? (
+            <p className="text-sm text-text-secondary">読み込み中…</p>
+          ) : filteredAssets.length === 0 ? (
+            <EmptyState
+              title="アセットなし"
+              description="上のフォームからファイルをアップロードしてください"
+              icon={<Upload />}
+            />
+          ) : (
+            <ul className="space-y-2">
+              {filteredAssets.map((asset) => (
+                <li key={asset.assetId} className="rounded-md border border-line-1 px-3 py-2.5">
+                  <div className="flex items-center gap-3">
+                    {iconForType(asset.contentType)}
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate text-sm font-medium text-text-primary">
+                        {asset.filename}
+                      </p>
+                      <p className="text-xs text-text-tertiary">{asset.contentType}</p>
+                    </div>
+                    <div className="flex items-center gap-1">
+                      <Button
+                        variant="ghost"
+                        size="icon-sm"
+                        aria-label="タグを編集"
+                        onClick={() => {
+                          setEditingAssetId(asset.assetId);
+                          setEditTagsInput(asset.tags.join(", "));
+                        }}
+                      >
+                        <Tag className="size-3.5" />
+                      </Button>
+                      <AlertDialog
+                        open={deleteTarget?.assetId === asset.assetId}
+                        onOpenChange={(open) => {
+                          if (!open) setDeleteTarget(undefined);
+                        }}
+                      >
+                        <AlertDialogTrigger asChild>
+                          <Button
+                            variant="ghost"
+                            size="icon-sm"
+                            aria-label="アセットを削除"
+                            onClick={() => setDeleteTarget(asset)}
+                            disabled={busy}
+                          >
+                            <Trash2 className="size-3.5 text-error" />
+                          </Button>
+                        </AlertDialogTrigger>
+                        <AlertDialogContent>
+                          <AlertDialogHeader>
+                            <AlertDialogTitle>アセットを削除しますか？</AlertDialogTitle>
+                            <AlertDialogDescription>
+                              「{asset.filename}」を削除します。S3
+                              上のファイルも削除されます。この操作は取り消せません。
+                            </AlertDialogDescription>
+                          </AlertDialogHeader>
+                          <AlertDialogFooter>
+                            <AlertDialogCancel>キャンセル</AlertDialogCancel>
+                            <AlertDialogAction
+                              className="bg-error text-error-foreground hover:bg-error/90"
+                              onClick={() => handleDelete(asset)}
+                            >
+                              削除する
+                            </AlertDialogAction>
+                          </AlertDialogFooter>
+                        </AlertDialogContent>
+                      </AlertDialog>
+                    </div>
+                  </div>
+                  {asset.tags.length > 0 && editingAssetId !== asset.assetId && (
+                    <div className="mt-1.5 flex flex-wrap gap-1">
+                      {asset.tags.map((tag) => (
+                        <span
+                          key={tag}
+                          className="rounded-full bg-surface-2 px-2 py-0.5 text-[10px] font-medium text-text-secondary"
+                        >
+                          {tag}
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                  {editingAssetId === asset.assetId && (
+                    <div className="mt-2 flex items-center gap-2">
+                      <Input
+                        value={editTagsInput}
+                        onChange={(e) => setEditTagsInput(e.target.value)}
+                        placeholder="タグ (カンマ区切り)"
+                        className="h-8 text-xs"
+                        disabled={busy}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") handleUpdateTags(asset.assetId);
+                          if (e.key === "Escape") setEditingAssetId(undefined);
+                        }}
+                      />
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => handleUpdateTags(asset.assetId)}
+                        disabled={busy}
+                      >
+                        保存
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="icon-sm"
+                        onClick={() => setEditingAssetId(undefined)}
+                      >
+                        <X className="size-3.5" />
+                      </Button>
+                    </div>
+                  )}
+                </li>
+              ))}
+            </ul>
+          )}
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
 export function EventDetail(props: {
   event: EventDefinition;
   client: ControlApiClient;
@@ -120,7 +423,7 @@ export function EventDetail(props: {
   const uploadQr = (file: File) =>
     guard(async () => {
       const bytes = new Uint8Array(await file.arrayBuffer());
-      const ref = await assets.upload(event.id, {
+      const ref = await assets.upload({
         name: file.name,
         contentType: file.type,
         bytes,
@@ -225,6 +528,7 @@ export function EventDetail(props: {
       <Tabs defaultValue="setup">
         <TabsList>
           <TabsTrigger value="setup">Setup</TabsTrigger>
+          <TabsTrigger value="assets">Assets</TabsTrigger>
           <TabsTrigger value="artifacts">Artifacts</TabsTrigger>
         </TabsList>
 
@@ -301,6 +605,10 @@ export function EventDetail(props: {
               )}
             </CardContent>
           </Card>
+        </TabsContent>
+
+        <TabsContent value="assets" className="pt-4">
+          <AssetManagerTab client={client} assets={assets} />
         </TabsContent>
 
         <TabsContent value="artifacts" className="space-y-6 pt-4">

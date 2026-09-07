@@ -38,6 +38,7 @@ import {
   Calendar,
   Check,
   ExternalLink,
+  Image,
   Inbox,
   LogOut,
   Plus,
@@ -54,6 +55,7 @@ import { CalendarView } from "./components/CalendarView.js";
 import { EventForm } from "./components/EventForm.js";
 import { EventDetail } from "./components/EventDetail.js";
 import { EventRequestList } from "./components/EventRequestList.js";
+import { AssetLibrary } from "./components/AssetLibrary.js";
 import { SettingsPage } from "./components/SettingsPage.js";
 import { CognitoAuthClient, cognitoConfig } from "./auth/cognito.js";
 import type { RuntimeConfig } from "./config.js";
@@ -326,6 +328,7 @@ export function App(props: {
   const isSettingsView = location.pathname === "/settings";
   const isCalendarView = location.pathname === "/calendar";
   const isRequestsView = location.pathname === "/event-requests";
+  const isLibraryView = location.pathname === "/library";
   const selectedId = location.pathname.match(/^\/events\/(.+)/)?.[1];
   const selected = events.find((e) => e.id === selectedId);
   const pendingRequestCount = eventRequests.filter((r) => r.status === "pending").length;
@@ -375,7 +378,7 @@ export function App(props: {
           type="button"
           onClick={() => navigate("/events")}
           className={`flex items-center gap-1 rounded-md px-2 py-1 text-xs font-medium transition-colors ${
-            !isCalendarView && !isRequestsView && !isSettingsView
+            !isCalendarView && !isRequestsView && !isSettingsView && !isLibraryView
               ? "bg-surface-2 text-text-primary"
               : "text-text-secondary hover:bg-surface-2"
           }`}
@@ -549,6 +552,15 @@ export function App(props: {
       </nav>
       <div className="mt-auto flex flex-col gap-2 border-t border-line-1 p-3">
         <Button
+          variant={isLibraryView ? "secondary" : "ghost"}
+          size="sm"
+          onClick={() => navigate("/library")}
+          className="justify-start gap-2"
+        >
+          <Image className="size-4" />
+          アセットライブラリ
+        </Button>
+        <Button
           variant={isRequestsView ? "secondary" : "ghost"}
           size="sm"
           onClick={() => navigate("/event-requests")}
@@ -600,11 +612,13 @@ export function App(props: {
         <span>
           {isSettingsView
             ? "運用設定"
-            : isCalendarView
-              ? "カレンダー"
-              : isRequestsView
-                ? "リクエスト管理"
-                : "イベント"}
+            : isLibraryView
+              ? "アセットライブラリ"
+              : isCalendarView
+                ? "カレンダー"
+                : isRequestsView
+                  ? "リクエスト管理"
+                  : "イベント"}
         </span>
         {!isSettingsView && selected && (
           <>
@@ -709,6 +723,7 @@ export function App(props: {
                 />
               }
             />
+            <Route path="/library" element={<AssetLibrary client={client} assets={assets} />} />
             <Route path="/settings" element={<SettingsPage client={client} />} />
             <Route path="*" element={<Navigate to="/events" replace />} />
           </Routes>

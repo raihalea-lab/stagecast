@@ -8,8 +8,16 @@
  *  - イベント:      pk=`EVENT#{id}`,   sk=`META`         GSI1: gsi1pk=`EVENT`, gsi1sk=`{startsAt}#{id}`
  *  - 発表状態:      pk=`EVENT#{id}`,   sk=`PRESENTATION`
  *  - 招待トークン:  pk=`INVITE#{jti}`, sk=`META`         GSI1: gsi1pk=`INVITE#{eventId}`, gsi1sk=`{jti}`
+ *  - アセット:      pk=`ASSETS`,          sk=`ASSET#{assetId}`  (グローバルライブラリ)
+ *  - プリセット:    pk=`EVENT#{eventId}`, sk=`PRESET#{presetId}`
  */
-import type { EventDefinition, EventRequest, PresentationState } from "@stagecast/shared";
+import type {
+  AssetMetadata,
+  EventDefinition,
+  EventRequest,
+  Preset,
+  PresentationState,
+} from "@stagecast/shared";
 import type { InviteTokenRecord } from "./types.js";
 
 export type Item = Record<string, unknown>;
@@ -127,5 +135,51 @@ export function itemToPresentation(item: Item): PresentationState {
     speakers: (item.speakers as PresentationState["speakers"]) ?? [],
     slideSource: item.slideSource as PresentationState["slideSource"],
     slidePage: item.slidePage as number | undefined,
+  };
+}
+
+// --- アセットメタデータ（グローバルライブラリ） ---
+export const assetsPk = (): string => "ASSETS";
+
+export function assetToItem(asset: AssetMetadata): Item {
+  return {
+    pk: assetsPk(),
+    sk: `ASSET#${asset.assetId}`,
+    type: "asset",
+    ...asset,
+  };
+}
+
+export function itemToAsset(item: Item): AssetMetadata {
+  return {
+    assetId: item.assetId as string,
+    assetKey: item.assetKey as string,
+    filename: item.filename as string,
+    contentType: item.contentType as string,
+    tags: (item.tags as string[]) ?? [],
+    description: item.description as string | undefined,
+    size: item.size as number | undefined,
+    createdAt: item.createdAt as string,
+  };
+}
+
+// --- 演出プリセット ---
+export function presetToItem(preset: Preset): Item {
+  return {
+    pk: eventPk(preset.eventId),
+    sk: `PRESET#${preset.presetId}`,
+    type: "preset",
+    ...preset,
+  };
+}
+
+export function itemToPreset(item: Item): Preset {
+  return {
+    presetId: item.presetId as string,
+    eventId: item.eventId as string,
+    config: item.config as Preset["config"],
+    label: item.label as string,
+    sortOrder: (item.sortOrder as number) ?? 0,
+    createdAt: item.createdAt as string,
   };
 }

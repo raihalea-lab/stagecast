@@ -534,6 +534,14 @@ export class ControlPlaneStack extends Stack {
       "POST /invites/verify",
       "POST /join",
       "POST /preview-token",
+      // stage-web の演出/ステージ管理ルート (招待トークン認証, Phase 1〜4)。
+      // ワイルドカードにすると将来の管理者パスまで JWT を素通りするので個別に列挙する。
+      "POST /presentation/speakers/{speakerId}",
+      "POST /stage/assets",
+      "POST /stage/assets/download-url",
+      "POST /stage/presets",
+      "POST /stage/presets/list",
+      "DELETE /stage/presets/{presetId}",
       "POST /event-requests",
       "GET /events/public",
       "OPTIONS /{proxy+}",

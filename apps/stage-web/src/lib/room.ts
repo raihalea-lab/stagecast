@@ -37,6 +37,11 @@ export interface ParticipantSnapshot {
   isScreenSharing: boolean;
 }
 
+/** publishData の宛先指定。未指定なら room 全体に broadcast する。 */
+export interface PublishDataOptions {
+  destinationIdentities?: string[];
+}
+
 export interface RoomConnector {
   readonly state: RoomState;
   connect(url: string, token: string, options?: ConnectOptions): Promise<void>;
@@ -46,7 +51,7 @@ export interface RoomConnector {
   setScreenShareEnabled(enabled: boolean): Promise<void>;
   sendSlide(message: SlideMessage): Promise<void>;
   /** 汎用データ送信 (layout-change / mute-request 等, D8)。 */
-  publishData(payload: Uint8Array): Promise<void>;
+  publishData(payload: Uint8Array, opts?: PublishDataOptions): Promise<void>;
   /** 現在の参加者スナップショットを取得する (D8)。 */
   getParticipants(): ParticipantSnapshot[];
   /** 参加者情報が変化したときに呼ばれるハンドラを登録する (D8)。 */
@@ -137,8 +142,10 @@ export class FakeRoomConnector implements RoomConnector {
   async sendSlide(message: SlideMessage): Promise<void> {
     this.slides.push(message);
   }
-  async publishData(payload: Uint8Array): Promise<void> {
+  publishedDestinations: (string[] | undefined)[] = [];
+  async publishData(payload: Uint8Array, opts?: PublishDataOptions): Promise<void> {
     this.publishedData.push(payload);
+    this.publishedDestinations.push(opts?.destinationIdentities);
     this.calls.push("publishData");
   }
   getParticipants(): ParticipantSnapshot[] {

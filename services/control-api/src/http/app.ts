@@ -5,7 +5,13 @@
  * トランスポート固有の変換は adapter (index.ts) 側で行う。これにより外部接続なしの
  * 単体テストが容易になる。
  */
-import type { InvitedRole, SlideSource, SpeakerVisibility } from "@stagecast/shared";
+import type {
+  AssetMetadata,
+  InvitedRole,
+  Preset,
+  SlideSource,
+  SpeakerVisibility,
+} from "@stagecast/shared";
 import type { AdminAuthVerifier, AdminPrincipal } from "../auth/admin-auth.js";
 import { UnauthorizedError } from "../auth/admin-auth.js";
 import {
@@ -24,6 +30,8 @@ import type { EgressService } from "../usecases/egress.js";
 import type { EventRequestService, CreateEventRequestInput } from "../usecases/event-requests.js";
 import type { PreviewTokenService } from "../usecases/preview-token.js";
 import type { SettingsService } from "../usecases/settings.js";
+import type { ArtifactStore } from "../assets/artifact-download.js";
+import type { AssetMetadataRepository, PresetRepository } from "../repo/types.js";
 
 export interface HttpRequest {
   method: string;
@@ -65,6 +73,16 @@ export interface AppDeps {
   previewToken?: PreviewTokenService;
   /** イベントリクエスト (モデレーター向け公開 + 管理者承認)。 */
   eventRequests?: EventRequestService;
+  /** アセットメタデータ管理 (Phase 2)。 */
+  assetMetadataRepo?: AssetMetadataRepository;
+  /** presigned GET URL 生成用 S3 ストア (Phase 3: stage-web アセット参照)。 */
+  artifactStore?: ArtifactStore;
+  /** 演出プリセット管理 (Phase 4)。 */
+  presetRepo?: PresetRepository;
+  /** UUID 生成器。 */
+  newId?: () => string;
+  /** 現在時刻 (ISO 8601 生成用)。 */
+  now?: () => number;
 }
 
 const json = (status: number, body: unknown): HttpResponse => ({ status, body });
@@ -157,8 +175,186 @@ export function createApp(deps: AppDeps) {
       return json(201, result);
     }
 
+    // 公開: 登壇者の表示状態変更 (Phase 1: ステージ管理)。
+    // 招待トークン (moderator/admin) で認証し、PresentationService を呼ぶ。
+    if (
+      req.method === "POST" &&
+      segments[0] === "presentation" &&
+      segments[1] === "speakers" &&
+      segments[2]
+    ) {
+      const inviteToken = String(body.inviteToken ?? "");
+      const verified = await invites.verify(inviteToken);
+      if (!verified.valid) return json(401, { ok: false, reason: verified.reason });
+      if (verified.role !== "moderator") {
+        return json(403, { error: "only moderator or admin can change visibility" });
+      }
+      const eventId = String(body.eventId ?? verified.eventId);
+      if (eventId !== verified.eventId) {
+        return json(403, { error: "eventId mismatch" });
+      }
+      const speakerId = segments[2];
+      const visibility = body.visibility as SpeakerVisibility;
+      if (visibility !== "live" && visibility !== "standby") {
+        return json(400, { error: "visibility must be 'live' or 'standby'" });
+      }
+      return json(200, await presentation.setSpeakerVisibility(eventId, speakerId, visibility));
+    }
+
+    // 公開: stage-web からアセット一覧取得 (invite-token 認証, Phase 3)。
+    if (req.method === "POST" && req.path === "/stage/assets") {
+      if (!deps.assetMetadataRepo)
+        throw new ServiceUnavailableError("asset metadata not configured");
+      const inviteToken = String(body.inviteToken ?? "");
+      const verified = await invites.verify(inviteToken);
+      if (!verified.valid) return json(401, { ok: false, reason: verified.reason });
+      if (verified.role !== "moderator") {
+        return json(403, { error: "only moderator can access assets" });
+      }
+      const assets_ = await deps.assetMetadataRepo.list();
+      return json(200, { assets: assets_ });
+    }
+
+    // 公開: stage-web からアセットのダウンロード URL 取得 (invite-token 認証, Phase 3)。
+    if (req.method === "POST" && req.path === "/stage/assets/download-url") {
+      if (!deps.artifactStore || !deps.assetMetadataRepo)
+        throw new ServiceUnavailableError("asset storage not configured");
+      const inviteToken = String(body.inviteToken ?? "");
+      const verified = await invites.verify(inviteToken);
+      if (!verified.valid) return json(401, { ok: false, reason: verified.reason });
+      if (verified.role !== "moderator") {
+        return json(403, { error: "only moderator can access assets" });
+      }
+      const assetKey = String(body.assetKey ?? "");
+      if (!assetKey) return json(400, { error: "assetKey is required" });
+      // ライブラリ登録済みのキーだけ presign する。任意キーを許すと招待トークンだけで
+      // 他イベントの録画・字幕・証明書まで取得できてしまう。
+      // ponytail: 全件 list の線形探索。ライブラリが数百件を超えたら assetKey 引きの get を足す。
+      const known = (await deps.assetMetadataRepo.list()).some((a) => a.assetKey === assetKey);
+      if (!known) return json(404, { error: "asset not found" });
+      const downloadUrl = await deps.artifactStore.presignGet(assetKey);
+      return json(200, { downloadUrl });
+    }
+
+    // 公開: 演出プリセット CRUD (invite-token 認証, Phase 4)。
+    // 一覧は POST /stage/presets/list。Lambda adapter は rawPath (query なし) しか渡さないため
+    // GET + query は使えず、作成 (POST /stage/presets) と衝突しないパスに分ける。
+    if (segments[0] === "stage" && segments[1] === "presets") {
+      if (!deps.presetRepo) throw new ServiceUnavailableError("preset repo not configured");
+      const inviteToken = String(body.inviteToken ?? "");
+      const verified = await invites.verify(inviteToken);
+      if (!verified.valid) return json(401, { ok: false, reason: verified.reason });
+      if (verified.role !== "moderator") {
+        return json(403, { error: "only moderator can manage presets" });
+      }
+      const eventId = verified.eventId;
+      const presetId = segments[2];
+
+      if (presetId === "list" && req.method === "POST") {
+        const presets = await deps.presetRepo.listByEvent(eventId);
+        return json(200, { presets });
+      }
+      if (!presetId && req.method === "POST") {
+        // config 欠落/不正を永続化すると全クライアントの描画が p.config.kind で落ちるため弾く。
+        const config = body.config as Preset["config"] | undefined;
+        if (!config || typeof config !== "object" || typeof config.kind !== "string") {
+          return json(400, { error: "config.kind is required" });
+        }
+        const newId = deps.newId ?? (() => crypto.randomUUID());
+        const nowFn = deps.now ?? Date.now;
+        const existing = await deps.presetRepo.listByEvent(eventId);
+        const preset: Preset = {
+          presetId: newId(),
+          eventId,
+          config,
+          label: String(body.label ?? ""),
+          sortOrder: existing.length,
+          createdAt: new Date(nowFn()).toISOString(),
+        };
+        await deps.presetRepo.put(preset);
+        return json(201, { preset });
+      }
+      if (presetId && req.method === "DELETE") {
+        await deps.presetRepo.delete(eventId, presetId);
+        return json(204, null);
+      }
+    }
+
     // 以降は管理者専用 (Cognito)
     const principal = await requireAdmin(req);
+
+    // /assets (グローバルアセットライブラリ, Cognito 認証)
+    if (segments[0] === "assets") {
+      const assetId = segments[1];
+
+      if (!assetId && req.method === "POST" && segments.length === 1) {
+        // POST /assets/upload-url は下の分岐で処理
+      }
+      if (segments[1] === "upload-url" && req.method === "POST") {
+        if (!assets) throw new ServiceUnavailableError("asset storage not configured");
+        if (!deps.assetMetadataRepo)
+          throw new ServiceUnavailableError("asset metadata not configured");
+        const filename = String(body.filename ?? "asset");
+        const contentType = String(body.contentType ?? "application/octet-stream");
+        const result = await assets.createUploadUrl(filename, contentType);
+        const nowFn = deps.now ?? Date.now;
+        const asset: AssetMetadata = {
+          assetId: result.assetId,
+          assetKey: result.key,
+          filename,
+          contentType,
+          tags: (body.tags as string[]) ?? [],
+          description: body.description as string | undefined,
+          createdAt: new Date(nowFn()).toISOString(),
+        };
+        await deps.assetMetadataRepo.put(asset);
+        return json(201, { ...result, assetId: asset.assetId });
+      }
+      if (!assetId && req.method === "GET") {
+        if (!deps.assetMetadataRepo)
+          throw new ServiceUnavailableError("asset metadata not configured");
+        const allAssets = await deps.assetMetadataRepo.list();
+        const tagFilter = new URLSearchParams(req.path.split("?")[1] ?? "").get("tag");
+        const searchFilter = new URLSearchParams(req.path.split("?")[1] ?? "").get("search");
+        let filtered = tagFilter ? allAssets.filter((a) => a.tags.includes(tagFilter)) : allAssets;
+        if (searchFilter) {
+          const q = searchFilter.toLowerCase();
+          filtered = filtered.filter(
+            (a) =>
+              a.filename.toLowerCase().includes(q) ||
+              (a.description?.toLowerCase().includes(q) ?? false),
+          );
+        }
+        return json(200, { assets: filtered });
+      }
+      if (assetId && req.method === "PATCH") {
+        if (!deps.assetMetadataRepo)
+          throw new ServiceUnavailableError("asset metadata not configured");
+        const tags = body.tags as string[] | undefined;
+        const description = body.description as string | undefined;
+        let updated: AssetMetadata | undefined;
+        if (tags && Array.isArray(tags)) {
+          updated = await deps.assetMetadataRepo.updateTags(assetId, tags);
+        }
+        if (description !== undefined) {
+          updated = await deps.assetMetadataRepo.updateDescription(assetId, description);
+        }
+        if (!updated) {
+          updated = await deps.assetMetadataRepo.get(assetId);
+        }
+        return json(200, updated);
+      }
+      if (assetId && req.method === "DELETE") {
+        if (!deps.assetMetadataRepo)
+          throw new ServiceUnavailableError("asset metadata not configured");
+        const asset = await deps.assetMetadataRepo.get(assetId);
+        if (asset && deps.artifactStore) {
+          await deps.artifactStore.deletePrefix(asset.assetKey);
+        }
+        await deps.assetMetadataRepo.delete(assetId);
+        return json(204, null);
+      }
+    }
 
     // /events
     if (segments[0] === "events") {
@@ -211,20 +407,6 @@ export function createApp(deps: AppDeps) {
             role: body.role as InvitedRole,
             ttlSec: Number(body.ttlSec ?? 60 * 60 * 12),
           }),
-        );
-      } else if (
-        segments[2] === "assets" &&
-        segments[3] === "upload-url" &&
-        req.method === "POST"
-      ) {
-        if (!assets) throw new ServiceUnavailableError("asset storage not configured");
-        return json(
-          201,
-          await assets.createUploadUrl(
-            eventId,
-            String(body.filename ?? "asset"),
-            String(body.contentType ?? "application/octet-stream"),
-          ),
         );
       } else if (segments[2] === "artifacts" && segments.length === 3 && req.method === "GET") {
         // 配信成果物 (録画 / 確定字幕) のダウンロード URL 一覧 (N1)。
