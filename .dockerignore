@@ -8,3 +8,10 @@
 .github
 **/.vite
 **/coverage
+# ローカル開発環境の生成物。devenv/direnv は /nix/store への symlink を含み、
+# CDK DockerImageAsset の走査 (ADR 0019) が終わらなくなる。秘密情報の .env も持ち込まない。
+.devenv
+.direnv
+.claude
+.env
+.env.*

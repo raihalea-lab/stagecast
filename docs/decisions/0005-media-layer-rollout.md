@@ -76,6 +76,7 @@ ADR 0001 D-6 で「SFU は LiveKit (Fargate)」と決めた。本 ADR でも維�
   (再起動時に必ず新版を引く)。
 - **ビルド/push**: 当面は GitHub Actions の `deploy.yml` 内 (環境 dev のみ)、後段で
   AWS CodeBuild に切替検討。
+  → **ADR 0019 で CDK DockerImageAsset に移行** (GHA ワークフローと専用 ECR は廃止)。
 - **イメージサイズ目標**: 250 MB 未満 (alpine + Node 24 + AWS SDK 同梱なし)。
 
 ### D-4. Cognito 管理者ユーザーの初期投入: 手動 → CDK Custom Resource
