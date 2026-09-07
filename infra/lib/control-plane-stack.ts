@@ -9,7 +9,6 @@ import {
   SecretValue,
   custom_resources as cr,
   aws_s3 as s3,
-  aws_ecr as ecr,
   aws_cloudfront as cloudfront,
   aws_cloudfront_origins as origins,
   aws_dynamodb as dynamodb,
@@ -117,20 +116,18 @@ export class ControlPlaneStack extends Stack {
       ],
     });
 
-    // --- ECR: 字幕ワーカーのコンテナイメージ置き場 (R4, ADR 0005 D-3) ---
-    // EventMediaStack の caption-worker が pull する。常時稼働ではないが、レジストリ自体は
-    // 制御層に常設して GHA build/push の宛先を固定する (イメージ実体はイベント時のみ pull)。
-    const captionWorkerRepo = new ecr.Repository(this, "CaptionWorkerRepo", {
-      repositoryName: "stagecast/caption-worker",
-      imageScanOnPush: true,
-      imageTagMutability: ecr.TagMutability.MUTABLE, // `latest` を上書きするため
-      // スタック削除時にレジストリも消す。emptyOnDelete でイメージが残っていても削除可能にする。
-      removalPolicy: RemovalPolicy.DESTROY,
-      emptyOnDelete: true,
-      lifecycleRules: [
-        // 直近 10 イメージのみ保持してストレージ費を抑える。
-        { description: "keep last 10 images", maxImageCount: 10 },
-      ],
+    // --- 字幕ワーカーのコンテナイメージ (R4, ADR 0019) ---
+    // ADR 0005 D-3 の GHA build/push + 専用 ECR は廃止し、Caddy と同じく DockerImageAsset で
+    // cdk deploy 時にビルド・push する。Dockerfile は pnpm workspace のため monorepo ルートを
+    // コンテキストに取る (.dockerignore で node_modules/dist は除外)。
+    // ponytail: ルート配下のどのファイルが変わってもハッシュが変わり再ビルドされる。
+    // 気になったら exclude を apps/*/src や infra/lib まで広げる (package.json は install に必要なので残す)。
+    const captionWorkerAsset = new ecrAssets.DockerImageAsset(this, "CaptionWorkerImage", {
+      directory: path.join(__dirname, "../.."),
+      file: "services/caption-pipeline/Dockerfile",
+      // EventMediaStack の Fargate は ARM64 (event-media-stack.ts)。ビルド機に依存させない。
+      platform: ecrAssets.Platform.LINUX_ARM64,
+      exclude: ["docs", "**/*.md"],
     });
 
     // ADR 0016 D-6: Caddy + caddy-dns/route53 + certmagic-s3 のカスタムイメージ。
@@ -647,9 +644,9 @@ export class ControlPlaneStack extends Stack {
     });
     new CfnOutput(this, "MetadataTableName", { value: metadataTable.tableName });
     new CfnOutput(this, "AssetsBucketName", { value: assetsBucket.bucketName });
-    new CfnOutput(this, "CaptionWorkerRepoUri", {
-      value: captionWorkerRepo.repositoryUri,
-      description: "字幕ワーカーイメージの ECR リポジトリ URI (GHA build/push の宛先)",
+    new CfnOutput(this, "CaptionWorkerImageUri", {
+      value: captionWorkerAsset.imageUri,
+      description: "字幕ワーカーイメージ URI (cdk deploy 時に DockerImageAsset でビルド, ADR 0019)",
     });
     new CfnOutput(this, "AdminWebBucketName", { value: adminWebBucket.bucketName });
     new CfnOutput(this, "StageWebBucketName", { value: stageWebBucket.bucketName });
@@ -773,8 +770,8 @@ export class ControlPlaneStack extends Stack {
       environment: {
         CDK_DEFAULT_ACCOUNT: this.account,
         CDK_DEFAULT_REGION: this.region,
-        // EventMediaStack の caption-worker イメージに使う (R4)。
-        CAPTION_WORKER_IMAGE: `${captionWorkerRepo.repositoryUri}:latest`,
+        // EventMediaStack の caption-worker イメージに使う (R4, ADR 0019: ハッシュタグで確定)。
+        CAPTION_WORKER_IMAGE: captionWorkerAsset.imageUri,
         // Egress 録画の出力先 (制御層の成果物バケットを共用)。未設定だと EventMediaStack 既定の
         // ハードコード名にフォールバックし、実在しないバケットを参照してしまう (ADR 0006 D-4)。
         RECORDINGS_BUCKET_NAME: assetsBucket.bucketName,

@@ -287,16 +287,9 @@ describe("ControlPlaneStack", () => {
     template.hasResourceProperties("AWS::ECS::Cluster", { ClusterName: "stagecast-media" });
   });
 
-  it("字幕ワーカー用 ECR リポジトリを持つ (R4, ADR 0005 D-3)", () => {
-    template.resourceCountIs("AWS::ECR::Repository", 1);
-    template.hasResourceProperties("AWS::ECR::Repository", {
-      RepositoryName: "stagecast/caption-worker",
-      ImageScanningConfiguration: { ScanOnPush: true },
-      // 直近 10 イメージのみ保持。
-      LifecyclePolicy: {
-        LifecyclePolicyText: Match.stringLikeRegexp('"countNumber":10'),
-      },
-    });
+  it("ADR 0019: 字幕ワーカーは DockerImageAsset でビルドし、専用 ECR リポジトリを持たない", () => {
+    template.resourceCountIs("AWS::ECR::Repository", 0);
+    template.hasOutput("CaptionWorkerImageUri", {});
   });
 
   // CAPTION_WORKER_IMAGE は ECR にイメージ push 後に RenderTemplate Lambda に渡す (R4)。
@@ -343,8 +336,7 @@ describe("ControlPlaneStack", () => {
   });
 
   it("ADR 0016 D-6: Caddy サイドカーは DockerImageAsset で自動ビルド (GHA 不要)", () => {
-    // DockerImageAsset は CDK Assets ECR を使うため、専用 ECR::Repository は不要。
-    // caption-worker の 1 つだけであることを上のテストで検証済み。
+    // DockerImageAsset は CDK Assets ECR を使うため、専用 ECR::Repository は不要 (上のテストで 0 件を検証)。
   });
 
   it("ADR 0016 D-6: MediaHostedZone* / MediaDomainName を CfnOutput する", () => {
@@ -368,6 +360,8 @@ describe("ControlPlaneStack", () => {
     );
     expect(envText).toContain("CADDY_SIDECAR_IMAGE");
     expect(envText).toContain("MEDIA_DOMAIN_NAME");
+    // ADR 0019: CAPTION_WORKER_IMAGE は DockerImageAsset のハッシュタグ URI で、mutable な :latest ではない。
+    expect(envText).not.toContain(":latest");
     expect(envText).toContain("CERT_BUCKET_NAME");
   });
 
