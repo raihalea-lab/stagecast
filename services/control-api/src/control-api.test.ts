@@ -355,7 +355,8 @@ describe("control-api integration (in-memory)", () => {
     expect(res.status).toBe(404);
   });
 
-  it("上限超過時に startsAt が古いイベントから自動削除される", async () => {
+  // 上と同じく MAX_EVENTS+2 件を順に作るので、並列負荷下では既定 5s に収まらない。
+  it("上限超過時に startsAt が古いイベントから自動削除される", { timeout: 30_000 }, async () => {
     // MAX_EVENTS=1000 だと大量に作る必要があるので、小さい上限でテストする。
     // createEventService を直接使ってテスト。
     const { MemoryEventRepository } = await import("./repo/memory.js");
@@ -388,7 +389,8 @@ describe("control-api integration (in-memory)", () => {
     expect(deletedIds.length).toBe(2);
   });
 
-  it("live イベントは自動削除の対象外", async () => {
+  // MAX_EVENTS (1000) 件を順に作るため、vp run -r test の並列負荷下では既定 5s を超えることがある。
+  it("live イベントは自動削除の対象外", { timeout: 30_000 }, async () => {
     const { MemoryEventRepository } = await import("./repo/memory.js");
     const { createEventService, MAX_EVENTS } = await import("./usecases/events.js");
     const memRepo = new MemoryEventRepository();
