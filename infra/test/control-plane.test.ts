@@ -288,7 +288,13 @@ describe("ControlPlaneStack", () => {
   });
 
   it("ADR 0019: 字幕ワーカーは DockerImageAsset でビルドし、専用 ECR リポジトリを持たない", () => {
-    template.resourceCountIs("AWS::ECR::Repository", 0);
+    // 全 ECR::Repository を 0 件で見ると、無関係なリポジトリを足したときに落ちる。
+    // 「字幕ワーカー専用リポジトリが無い」ことだけを見る。
+    template.resourcePropertiesCountIs(
+      "AWS::ECR::Repository",
+      { RepositoryName: "stagecast/caption-worker" },
+      0,
+    );
     template.hasOutput("CaptionWorkerImageUri", {});
   });
 
@@ -360,9 +366,12 @@ describe("ControlPlaneStack", () => {
     );
     expect(envText).toContain("CADDY_SIDECAR_IMAGE");
     expect(envText).toContain("MEDIA_DOMAIN_NAME");
-    // ADR 0019: CAPTION_WORKER_IMAGE は DockerImageAsset のハッシュタグ URI で、mutable な :latest ではない。
-    expect(envText).not.toContain(":latest");
     expect(envText).toContain("CERT_BUCKET_NAME");
+    // ADR 0019: CAPTION_WORKER_IMAGE は DockerImageAsset のハッシュタグ URI で、mutable な :latest ではない。
+    // env 全体を見ると他の変数が :latest を使ったときに巻き込まれるので、この変数の値だけを見る。
+    const vars = (renderFn?.Properties as { Environment?: { Variables?: Record<string, unknown> } })
+      .Environment?.Variables;
+    expect(JSON.stringify(vars?.CAPTION_WORKER_IMAGE)).not.toContain(":latest");
   });
 
   it("reconcile Lambda は ECS describe-tasks / EC2 describe-network-interfaces を持つ (ADR 0008 D-2)", () => {
