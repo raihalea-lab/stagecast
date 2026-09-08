@@ -119,7 +119,7 @@ vp add -D some-pkg --filter @stagecast/admin-web   # admin-web に dev 依存を
 aws sso login    # または aws login
 
 # CDK bootstrap (アカウント x リージョンごとに 1 回)
-vp run --filter @stagecast/infra cdk -- bootstrap aws://<account>/<region>
+vp run --filter @stagecast/infra cdk bootstrap aws://<account>/<region>
 ```
 
 ### ローカルから手動デプロイ
@@ -133,10 +133,10 @@ API URL / Cognito 設定はビルド時に焼き込まず、ブラウザが起�
 vp run -r build
 
 # 2. 差分確認 (SPA 配信リソースも含まれる)
-vp run --filter @stagecast/infra cdk -- diff StagecastControlPlane
+vp run --filter @stagecast/infra cdk diff StagecastControlPlane
 
 # 3. 制御層 + SPA をデプロイ (control-api / Secrets / Cognito / reconcile + admin/stage の配信)
-vp run --filter @stagecast/infra cdk -- deploy StagecastControlPlane \
+vp run --filter @stagecast/infra cdk deploy StagecastControlPlane \
   --require-approval never \
   --outputs-file infra/cdk-outputs.json
 
