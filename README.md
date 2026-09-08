@@ -138,7 +138,7 @@ vp run --filter @stagecast/infra cdk diff StagecastControlPlane
 # 3. 制御層 + SPA をデプロイ (control-api / Secrets / Cognito / reconcile + admin/stage の配信)
 vp run --filter @stagecast/infra cdk deploy StagecastControlPlane \
   --require-approval never \
-  --outputs-file infra/cdk-outputs.json
+  --outputs-file cdk-outputs.json
 
 # 4. シークレットを実値で更新 (LiveKit / YouTube)
 aws secretsmanager update-secret --secret-id stagecast/livekit \
