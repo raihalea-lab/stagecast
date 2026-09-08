@@ -2,8 +2,9 @@
 #
 # 字幕ワーカー (services/caption-pipeline) のコンテナイメージ (R4, ADR 0005 D-3)。
 # ビルドコンテキストは monorepo ルート (pnpm workspace のため)。ControlPlaneStack の
-# DockerImageAsset が cdk deploy 時にビルド・push する (ADR 0019)。手元で試すとき:
-#   docker build -f services/caption-pipeline/Dockerfile -t caption-worker .
+# DockerImageAsset が cdk deploy 時にビルド・push する (ADR 0019)。
+# 手元で試すとき (Fargate に合わせて ARM64 でビルドする):
+#   docker build --platform linux/arm64 -f services/caption-pipeline/Dockerfile -t caption-worker .
 #
 # alpine ではなく slim(glibc) を採用する理由: @livekit/rtc-node 等のネイティブ依存の
 # prebuilt バイナリは glibc 向けが安定して提供されるため (musl 互換は不安定)。
