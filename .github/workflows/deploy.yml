@@ -57,14 +57,14 @@ jobs:
         run: vp run -r build
 
       - name: CDK diff (制御層 + SPA 配信)
-        run: vp run --filter @stagecast/infra cdk -- diff StagecastControlPlane
+        run: vp run --filter @stagecast/infra cdk diff StagecastControlPlane
 
       - name: CDK deploy (制御層 + SPA 配信)
         if: ${{ env.DRY_RUN == 'false' }}
         run: |
-          vp run --filter @stagecast/infra cdk -- deploy StagecastControlPlane \
+          vp run --filter @stagecast/infra cdk deploy StagecastControlPlane \
             --require-approval never \
-            --outputs-file infra/cdk-outputs.json
+            --outputs-file cdk-outputs.json
 
       - name: Summary
         run: |
@@ -72,7 +72,7 @@ jobs:
           echo "- environment: ${{ github.event.inputs.environment }}" >> $GITHUB_STEP_SUMMARY
           echo "- dry-run: ${{ env.DRY_RUN }}" >> $GITHUB_STEP_SUMMARY
           if [ "${{ env.DRY_RUN }}" = "false" ]; then
-            out=infra/cdk-outputs.json
+            out=infra/cdk-outputs.json  # ワークフローは repo ルートで jq するのでこちらは infra/ 付き
             echo "- admin-web: $(jq -r '.StagecastControlPlane.AdminWebUrl' $out)" >> $GITHUB_STEP_SUMMARY
             echo "- stage-web: $(jq -r '.StagecastControlPlane.StageWebUrl' $out)" >> $GITHUB_STEP_SUMMARY
             echo "- control-api: $(jq -r '.StagecastControlPlane.ControlApiEndpoint' $out)" >> $GITHUB_STEP_SUMMARY
