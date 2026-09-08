@@ -143,7 +143,7 @@ R12-followup-1〜22 で **stage-web から SFU への WebRTC 接続** が完了 
 
 **手順** (所要 ~30 分):
 
-1. **再デプロイ**: `vp run --filter @stagecast/infra cdk -- deploy StagecastControlPlane`
+1. **再デプロイ**: `vp run --filter @stagecast/infra cdk deploy StagecastControlPlane`
    - SharedMediaVpc 配下なので EventMediaStack 自体は新規イベント作成時に reconcile が立ち上げる
 2. **新規イベント作成 → live 遷移**: admin-web で配信用イベントを作って status を `live` に
 3. **SFU 起動ログを確認** (CloudWatch Logs / log group `/aws/ecs/stagecast-event-XXX/sfu`):
@@ -220,8 +220,8 @@ R12-followup-1〜22 で **stage-web から SFU への WebRTC 接続** が完了 
 - [ ] AWS アカウント (dev / staging / prod) の用意。最低でも dev は確保する
 - [ ] 各アカウント × 主要リージョン (ap-northeast-1, us-east-1) で `cdk bootstrap`
   ```bash
-  vp run --filter @stagecast/infra cdk -- bootstrap aws://<account>/ap-northeast-1
-  vp run --filter @stagecast/infra cdk -- bootstrap aws://<account>/us-east-1   # Bedrock 用
+  vp run --filter @stagecast/infra cdk bootstrap aws://<account>/ap-northeast-1
+  vp run --filter @stagecast/infra cdk bootstrap aws://<account>/us-east-1   # Bedrock 用
   ```
 - [ ] Bedrock のモデルアクセス申請 (`us.anthropic.claude-sonnet-4-5-...`) を us-east-1 で実施
 - [x] **AWS Budgets でアカウント全体に月額アラート設定済み (2026-06-20)** — CDK で実装 (デフォルト 30 USD、80% で WARN・100% 予測で CRITICAL、専用 SNS Topic `CostAlarmTopic`)。`-c budgetEmail=foo@example.com -c budgetMonthlyUsd=50` で変更可能
