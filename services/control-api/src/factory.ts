@@ -38,6 +38,7 @@ import { DefaultLiveKitTokenMinter, type LiveKitTokenMinter } from "./auth/livek
 import { dynamoRepositories } from "./repo/dynamo.js";
 import {
   createAssetUploadService,
+  createDeckUploadService,
   S3AssetUploadSigner,
   type AssetUploadSigner,
 } from "./assets/asset-upload.js";
@@ -149,6 +150,8 @@ export function buildControlApi(config: FactoryConfig = {}) {
   const assetSigner =
     config.assetSigner ?? (assetsBucket ? new S3AssetUploadSigner(assetsBucket) : undefined);
   const assets = assetSigner ? createAssetUploadService({ signer: assetSigner, newId }) : undefined;
+  // 事前アップロードスライド (PDF) のデッキ用アップロード (F-3, DESIGN.md 5.2)。
+  const decks = assetSigner ? createDeckUploadService({ signer: assetSigner, newId }) : undefined;
 
   // 成果物ダウンロード: 注入 > ASSETS_BUCKET_NAME から S3 実装 > 無効 (503)。
   const artifactStore =
@@ -197,6 +200,7 @@ export function buildControlApi(config: FactoryConfig = {}) {
     presentation,
     join,
     assets,
+    decks,
     artifacts,
     settings: config.settings,
     egress,

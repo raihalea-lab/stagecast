@@ -128,22 +128,29 @@ export class StageController {
     this.deck = { page: 1, totalPages: Math.max(1, totalPages) };
   }
 
+  /** 事前アップロードスライド (PDF) のデッキ URL を composer に通知する (F-3, 5.2)。 */
+  async setDeckUrl(url: string): Promise<void> {
+    this.requirePublish();
+    this.deck = { page: 1, totalPages: this.deck.totalPages };
+    await this.room.publishData(encodeStageMessage({ type: "slide-deck", url }));
+  }
+
   async slideNext(): Promise<number> {
     this.requirePublish();
     this.deck = nextPage(this.deck);
-    await this.room.sendSlide({ type: "slide", page: this.deck.page });
+    await this.room.sendSlide({ type: "slide-page", page: this.deck.page });
     return this.deck.page;
   }
   async slidePrev(): Promise<number> {
     this.requirePublish();
     this.deck = prevPage(this.deck);
-    await this.room.sendSlide({ type: "slide", page: this.deck.page });
+    await this.room.sendSlide({ type: "slide-page", page: this.deck.page });
     return this.deck.page;
   }
   async slideGoTo(page: number): Promise<number> {
     this.requirePublish();
     this.deck = goToPage(this.deck, page);
-    await this.room.sendSlide({ type: "slide", page: this.deck.page });
+    await this.room.sendSlide({ type: "slide-page", page: this.deck.page });
     return this.deck.page;
   }
 

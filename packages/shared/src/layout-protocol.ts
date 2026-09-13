@@ -94,6 +94,27 @@ export interface OverlayHideMessage {
   type: "overlay-hide";
 }
 
+/** 事前アップロードスライドのデッキ読み込みメッセージ (F-3, DESIGN.md 5.2)。 */
+export interface SlideDeckMessage {
+  type: "slide-deck";
+  /** 署名付き GET URL (PDF の取得先)。 */
+  url: string;
+}
+
+/** 事前アップロードスライドのページ送りメッセージ (F-3, DESIGN.md 5.2)。 */
+export interface SlidePageMessage {
+  type: "slide-page";
+  /** 表示ページ番号 (1 始まり)。 */
+  page: number;
+}
+
+/** 事前アップロードスライドの総ページ数通知メッセージ (F-3, DESIGN.md 5.2)。 */
+export interface SlideTotalMessage {
+  type: "slide-total";
+  /** 総ページ数 (pdf.js が返す値)。 */
+  total: number;
+}
+
 /** DataChannel メッセージ共用型。 */
 export type StageMessage =
   | LayoutChangeMessage
@@ -104,7 +125,10 @@ export type StageMessage =
   | BannerShowMessage
   | BannerHideMessage
   | OverlayShowMessage
-  | OverlayHideMessage;
+  | OverlayHideMessage
+  | SlideDeckMessage
+  | SlidePageMessage
+  | SlideTotalMessage;
 
 /** メッセージを Uint8Array にエンコードする (LiveKit publishData の引数型に合わせる)。 */
 export function encodeLayoutMessage(msg: LayoutChangeMessage): Uint8Array {
@@ -198,6 +222,30 @@ export function decodeStageMessage(payload: Uint8Array): StageMessage | null {
     }
     if (type === "overlay-hide") {
       return obj as OverlayHideMessage;
+    }
+    if (
+      type === "slide-deck" &&
+      typeof (obj as { url?: unknown }).url === "string"
+    ) {
+      return obj as SlideDeckMessage;
+    }
+    const slidePage = (obj as { page?: unknown }).page;
+    if (
+      type === "slide-page" &&
+      typeof slidePage === "number" &&
+      Number.isInteger(slidePage) &&
+      slidePage >= 1
+    ) {
+      return obj as SlidePageMessage;
+    }
+    const slideTotal = (obj as { total?: unknown }).total;
+    if (
+      type === "slide-total" &&
+      typeof slideTotal === "number" &&
+      Number.isInteger(slideTotal) &&
+      slideTotal >= 1
+    ) {
+      return obj as SlideTotalMessage;
     }
     return null;
   } catch {

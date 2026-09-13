@@ -73,6 +73,7 @@ import {
   MicOff,
   Monitor,
   MonitorOff,
+  Upload,
 } from "@stagecast/ui/icons";
 
 function toParticipantInfo(
@@ -147,6 +148,10 @@ export function App(props: {
   const [chatMessages, setChatMessages] = useState<ChatMessageDisplay[]>([]);
   const [presets, setPresets] = useState<Preset[]>([]);
   const [stageAssets, setStageAssets] = useState<AssetMetadata[]>([]);
+  // F-3 / DESIGN.md 5.2: 事前アップロードスライド (PDF) のデッキ選択状態。
+  const [deckKey, setDeckKey] = useState<string | undefined>();
+  const [deckUrl, setDeckUrl] = useState<string | undefined>();
+  const deckInputRef = useRef<HTMLInputElement>(null);
   const [muteNotice, setMuteNotice] = useState<string | undefined>();
   const [roomState, setRoomState] = useState<RoomState>("stopped");
   const [egressState, setEgressState] = useState<EgressState>("idle");
@@ -308,6 +313,24 @@ export function App(props: {
       return client.getAssetDownloadUrl(inviteToken, assetKey);
     },
     [client, inviteToken],
+  );
+
+  // F-3 / DESIGN.md 5.2: PDF をアップロードしてデッキとして選択し、composer に通知する。
+  const handleUploadDeck = useCallback(
+    async (file: File) => {
+      if (!inviteToken) return;
+      const { uploadUrl, key } = await client.getDeckUploadUrl(inviteToken, file.name);
+      await fetch(uploadUrl, {
+        method: "PUT",
+        body: file,
+        headers: { "content-type": "application/pdf" },
+      });
+      const downloadUrl = await client.getDeckDownloadUrl(inviteToken, key);
+      setDeckKey(key);
+      setDeckUrl(downloadUrl);
+      await controller.setDeckUrl(downloadUrl);
+    },
+    [client, inviteToken, controller],
   );
 
   const wrap = useCallback(
@@ -549,12 +572,38 @@ export function App(props: {
 
   const slideControls = (
     <>
+      <input
+        ref={deckInputRef}
+        type="file"
+        accept="application/pdf"
+        className="hidden"
+        onChange={(e) => {
+          const file = e.target.files?.[0];
+          if (file) void wrap(() => handleUploadDeck(file))();
+          e.target.value = "";
+        }}
+      />
+      <Button
+        variant="outline"
+        size="sm"
+        disabled={busy || !inviteToken}
+        onClick={() => deckInputRef.current?.click()}
+        aria-label="スライド PDF をアップロード"
+      >
+        <Upload className="size-4" />
+        <span className="ml-1.5 hidden sm:inline">デッキ</span>
+      </Button>
+      {deckKey && (
+        <span className="max-w-[12ch] truncate font-mono text-xs text-text-secondary" title={deckKey}>
+          {deckKey.split("/").pop()}
+        </span>
+      )}
       <div className="mx-1 h-6 w-px bg-line-1" aria-hidden />
       <div className="flex items-center gap-1">
         <Button
           variant="ghost"
           size="icon-sm"
-          disabled={busy}
+          disabled={busy || !deckUrl}
           onClick={wrap(async () => setPage(await controller.slidePrev()))}
           aria-label="前のスライド"
         >
@@ -566,7 +615,7 @@ export function App(props: {
         <Button
           variant="ghost"
           size="icon-sm"
-          disabled={busy}
+          disabled={busy || !deckUrl}
           onClick={wrap(async () => setPage(await controller.slideNext()))}
           aria-label="次のスライド"
         >

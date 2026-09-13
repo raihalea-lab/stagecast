@@ -47,6 +47,12 @@ class FakeStageClient implements StageClient {
     };
   }
   async deletePreset() {}
+  async getDeckUploadUrl() {
+    return { assetId: "deck-1", key: "assets/decks/evt-1/deck-1.pdf", uploadUrl: "https://put" };
+  }
+  async getDeckDownloadUrl() {
+    return "https://signed/deck.pdf";
+  }
 }
 
 const speakerJoin: JoinResponse = {
@@ -92,6 +98,17 @@ describe("StageController (DESIGN.md 4.1, F-1, F-3)", () => {
     expect(await ctrl.slideNext()).toBe(3);
     expect(await ctrl.slideNext()).toBe(3); // 上限でクランプ
     expect(room.slides.map((s) => s.page)).toEqual([2, 3, 3]);
+    expect(room.slides[0]?.type).toBe("slide-page");
+  });
+
+  it("setDeckUrl は slide-deck メッセージを DataChannel に送信する (F-3, 5.2)", async () => {
+    const room = new FakeRoomConnector();
+    const ctrl = new StageController(new FakeStageClient(speakerJoin), room);
+    await ctrl.join("token");
+    await ctrl.setDeckUrl("https://signed/deck.pdf");
+    expect(room.publishedData).toHaveLength(1);
+    const msg = decodeStageMessage(room.publishedData[0]!);
+    expect(msg).toEqual({ type: "slide-deck", url: "https://signed/deck.pdf" });
   });
 
   it("allows a moderator to publish (D8: 進行補助 + メディア制御)", async () => {
