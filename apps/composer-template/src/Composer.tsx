@@ -24,6 +24,7 @@ import { decodeStageMessage, type LayoutKind } from "@stagecast/shared";
 import { Grid } from "./layouts/Grid.js";
 import { Pip } from "./layouts/Pip.js";
 import { ScreenShareMain } from "./layouts/ScreenShareMain.js";
+import { SlideLayout } from "./layouts/SlideLayout.js";
 import { Spotlight } from "./layouts/Spotlight.js";
 import { type VideoTile } from "./layouts/types.js";
 import { Banner, type BannerState } from "./overlays/Banner.js";
@@ -55,6 +56,10 @@ export function Composer(props: Props) {
   // Phase 4: オーバーレイ（QRコード/画像/動画）状態。
   const [overlayState, setOverlayState] = useState<OverlayState | null>(null);
   const handleOverlayAutoHide = useCallback(() => setOverlayState(null), []);
+  // F-3 / DESIGN.md 5.2: 事前アップロードスライド (PDF) のデッキ URL と表示ページ。
+  const [slideUrl, setSlideUrl] = useState<string | undefined>(undefined);
+  const [slidePage, setSlidePage] = useState(1);
+  const [slideTotalPages, setSlideTotalPages] = useState(1);
 
   // postMessage ブリッジ: 同一 identity の DataChannel エコー問題を回避
   useEffect(() => {
@@ -111,6 +116,17 @@ export function Composer(props: Props) {
             next.set(d.speakerId!, d.visibility!);
             return next;
           });
+        }
+      } else if (data.type === "slide-deck") {
+        const d = data as { url?: string };
+        if (d.url) {
+          setSlideUrl(d.url);
+          setSlidePage(1);
+        }
+      } else if (data.type === "slide-page") {
+        const d = data as { page?: number };
+        if (typeof d.page === "number" && d.page >= 1) {
+          setSlidePage(d.page);
         }
       }
     };
@@ -192,6 +208,11 @@ export function Composer(props: Props) {
           });
         } else if (msg.type === "overlay-hide") {
           setOverlayState(null);
+        } else if (msg.type === "slide-deck") {
+          setSlideUrl(msg.url);
+          setSlidePage(1);
+        } else if (msg.type === "slide-page") {
+          setSlidePage(msg.page);
         }
       });
     // LiveKit Egress sidecar 構成 (ADR 0010 D-2) では url が ws://localhost:7880。
@@ -222,6 +243,17 @@ export function Composer(props: Props) {
         <div style={{ color: "#fff", padding: 24 }}>Connection error: {errorMsg ?? "unknown"}</div>
       );
     }
+    // F-3 / DESIGN.md 5.2: 事前アップロードスライドが読み込まれていれば slide を main に表示。
+    if (slideUrl) {
+      return (
+        <SlideLayout
+          tiles={visibleTiles}
+          url={slideUrl}
+          page={slidePage}
+          onTotalPages={setSlideTotalPages}
+        />
+      );
+    }
     if (visibleTiles.length === 0) {
       return <WaitingScreen />;
     }
@@ -236,7 +268,7 @@ export function Composer(props: Props) {
       default:
         return <Grid tiles={visibleTiles} />;
     }
-  }, [state, errorMsg, visibleTiles, layout, focusIdentity]);
+  }, [state, errorMsg, visibleTiles, layout, focusIdentity, slideUrl, slidePage]);
 
   return (
     <div className="composer-root" style={{ position: "relative" }}>

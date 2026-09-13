@@ -14,6 +14,8 @@ import {
   type LayoutChangeMessage,
   type MuteRequestMessage,
   type VisibilityChangeMessage,
+  type SlideDeckMessage,
+  type SlidePageMessage,
 } from "./layout-protocol.js";
 
 describe("layout-protocol (R16, ADR 0012 D-4)", () => {
@@ -244,6 +246,36 @@ describe("overlay-show / overlay-hide (Phase 4: QRコード/ムービー)", () =
     const bytes = new TextEncoder().encode(
       JSON.stringify({ type: "overlay-show", kind: "image", url: "x", position: "center" }),
     );
+    expect(decodeStageMessage(bytes)).toBeNull();
+  });
+});
+
+describe("slide-deck / slide-page (F-3, DESIGN.md 5.2)", () => {
+  it("slide-deck が往復する", () => {
+    const msg: SlideDeckMessage = {
+      type: "slide-deck",
+      url: "https://signed.example.com/deck.pdf?X-Amz-Signature=abc",
+    };
+    expect(decodeStageMessage(encodeStageMessage(msg))).toEqual(msg);
+  });
+
+  it("url が無い slide-deck は null", () => {
+    const bytes = new TextEncoder().encode(JSON.stringify({ type: "slide-deck" }));
+    expect(decodeStageMessage(bytes)).toBeNull();
+  });
+
+  it("slide-page が往復する", () => {
+    const msg: SlidePageMessage = { type: "slide-page", page: 3 };
+    expect(decodeStageMessage(encodeStageMessage(msg))).toEqual(msg);
+  });
+
+  it("page が 1 未満の slide-page は null", () => {
+    const bytes = new TextEncoder().encode(JSON.stringify({ type: "slide-page", page: 0 }));
+    expect(decodeStageMessage(bytes)).toBeNull();
+  });
+
+  it("page が整数でない slide-page は null", () => {
+    const bytes = new TextEncoder().encode(JSON.stringify({ type: "slide-page", page: 1.5 }));
     expect(decodeStageMessage(bytes)).toBeNull();
   });
 });

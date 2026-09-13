@@ -6,6 +6,7 @@
  * D8: publishData + 参加者追跡 + DataChannel 受信を追加。
  */
 import { Room, RoomEvent, Track } from "livekit-client";
+import { encodeStageMessage } from "@stagecast/shared";
 import type { PreferredDevices } from "./devices.js";
 import type {
   ConnectOptions,
@@ -86,7 +87,7 @@ export class LiveKitRoomConnector implements RoomConnector {
     await this.room.localParticipant.setScreenShareEnabled(enabled);
   }
   async sendSlide(message: SlideMessage): Promise<void> {
-    const payload = this.encoder.encode(JSON.stringify(message));
+    const payload = encodeStageMessage(message);
     await this.room.localParticipant.publishData(payload, { reliable: true, topic: "slides" });
   }
   async publishData(payload: Uint8Array, opts?: PublishDataOptions): Promise<void> {
