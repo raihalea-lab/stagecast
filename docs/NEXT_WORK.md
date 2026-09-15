@@ -355,6 +355,23 @@ AssetsBucket はどの Distribution の origin でもないため循環参照に
 完了基準: 実機で (1) stage-web からデッキ PDF をアップロードできる、(2) composer-template が
 そのデッキを描画できる、(3) admin-web の素材アップロードが通る。
 
+### D10. 公開ルート一覧が control-api と CDK で二重管理になっている
+
+`services/control-api/src/http/app.ts` の `requireAdmin` より前のルート (招待トークン認証) は、
+`infra/lib/control-plane-stack.ts` の公開ルート一覧にも登録しないと API Gateway の JWT authorizer に
+弾かれ、**Lambda に届く前に 401 `{"message":"Unauthorized"}` になる**。この二重管理のせいで
+F-3 のデッキ 2 ルートと `GET /event-requests/public` の登録が漏れていた (2026-09-15 に修正)。
+
+- ルートを足すのはサービス側、公開指定は infra 側。別パッケージなので片方だけ直しても気づけない
+- ユニットテストは `createApp` を直接叩くので API Gateway を通らず、この抜けを検知できない
+- 暫定対応として infra テストに公開ルート一覧のアサーションを置いたが、**app.ts に新ルートを足して
+  両方を忘れると依然すり抜ける** (テストもリストを書き写しているだけのため)
+
+案: 公開ルート一覧を `@stagecast/shared` に単一の定数として置き、infra はそれを回して `CfnRoute` を
+生成、control-api 側には「一覧の各ルートが 404 にならない」テストを置く。ルート追加漏れ自体は
+ルーターが if チェーンである限り静的には検出できないので、`app.ts` のルート定義をテーブル化して
+一覧を生成できる形にするところまでやるかは別途判断する。
+
 ---
 
 ## N: Nice-to-have (UX / DX 改善・遠い未来)
