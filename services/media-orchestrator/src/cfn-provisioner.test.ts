@@ -15,9 +15,15 @@ const stackName = (eventId: string) => `StagecastEventMedia-${eventId}`;
 class FakeCfn implements CloudFormationLike {
   readonly created: string[] = [];
   readonly deleted: string[] = [];
+  /** createStack に渡された DeploymentMode (ADR 0020 D-1)。 */
+  readonly createModes: (string | undefined)[] = [];
   constructor(private readonly describe: () => DescribeResult) {}
-  async createStack(input: { StackName: string }): Promise<{ StackId?: string }> {
+  async createStack(input: {
+    StackName: string;
+    DeploymentMode?: string | undefined;
+  }): Promise<{ StackId?: string }> {
     this.created.push(input.StackName);
+    this.createModes.push(input.DeploymentMode);
     return { StackId: `arn:${input.StackName}` };
   }
   async deleteStack(input: { StackName: string }): Promise<void> {
@@ -178,5 +184,54 @@ describe("CloudFormationMediaStackProvisioner (DESIGN.md 7.1)", () => {
     const handle = await p.provision(spec("evt-retry"));
     expect(handle.status).toBe("running");
     expect(calls).toBeGreaterThanOrEqual(2); // 初回 throw → 再試行で COMPLETE
+  });
+});
+
+describe("Express モード (ADR 0020 D-1)", () => {
+  const completed = (): DescribeResult => ({ Stacks: [{ StackStatus: "CREATE_COMPLETE" }] });
+
+  it("expressMode=true のとき createStack に EXPRESS を渡す", async () => {
+    const cfn = new FakeCfn(completed);
+    const p = new CloudFormationMediaStackProvisioner({
+      cfn,
+      renderTemplate: () => '{"Resources":{}}',
+      stackName,
+      delay: noDelay,
+      expressMode: true,
+    });
+    await p.provision(spec("evt-express"));
+    expect(cfn.createModes).toEqual(["EXPRESS"]);
+  });
+
+  it("既定 (未指定) では DeploymentMode を渡さない = CFN 既定の STANDARD", async () => {
+    const cfn = new FakeCfn(completed);
+    const p = new CloudFormationMediaStackProvisioner({
+      cfn,
+      renderTemplate: () => '{"Resources":{}}',
+      stackName,
+      delay: noDelay,
+    });
+    await p.provision(spec("evt-standard"));
+    expect(cfn.createModes).toEqual([undefined]);
+  });
+
+  it("破棄は Express にしない (削除完了の先行報告で作り直しが名前衝突するため)", async () => {
+    const cfn = new FakeCfn(completed);
+    const p = new CloudFormationMediaStackProvisioner({
+      cfn,
+      renderTemplate: () => '{"Resources":{}}',
+      stackName,
+      delay: noDelay,
+      expressMode: true,
+    });
+    await p.destroy({
+      eventId: "evt-express",
+      stackId: stackName("evt-express"),
+      status: "destroying",
+      sfuUrl: "",
+      captionPipelineId: "",
+      valkeyNamespace: "evt-express",
+    });
+    expect(cfn.deleted).toEqual([stackName("evt-express")]);
   });
 });
