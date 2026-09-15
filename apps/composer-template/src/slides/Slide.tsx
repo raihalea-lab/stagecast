@@ -59,9 +59,11 @@ export function Slide({ url, page }: Props) {
     let cancelled = false;
     setError(undefined);
     setDoc(null);
-    // disableRange/disableStream: 署名付き GET URL は 15 分で失効するので、遅延 range 取得に
-    // しておくと後半ページの描画時に 403 になる。読み込み時に 1 回で全部取り切る。
-    const loadingTask = getDocument({ url, disableRange: true, disableStream: true });
+    // disableRange: 署名付き GET URL は 15 分で失効するので、遅延 range 取得にしておくと
+    // 後半ページの描画時に 403 になる。読み込み時に 1 回で全部取り切る。
+    // disableStream は付けない。ダウンロード完了まで解析を始めなくなるだけで、
+    // 上の 403 対策には寄与しない。
+    const loadingTask = getDocument({ url, disableRange: true });
     loadingTask.promise
       .then((d) => {
         if (cancelled) {

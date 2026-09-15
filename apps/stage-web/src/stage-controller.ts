@@ -29,6 +29,7 @@ export class StageController {
   private deck: SlideDeckState = { page: 1, totalPages: 1 };
   private lastJoin?: JoinResponse;
   private joinInFlight?: Promise<JoinResponse>;
+  private knownIdentities = new Set<string>();
 
   constructor(
     private readonly client: StageClient,
@@ -50,6 +51,8 @@ export class StageController {
     this.room.onDisconnected(() => {
       this.session = undefined;
       this.lastJoin = undefined;
+      // 再入室したときに全員を「既知」と誤認して join を検知できなくなるのを防ぐ。
+      this.knownIdentities.clear();
       handler();
     });
   }
@@ -61,8 +64,19 @@ export class StageController {
     this.room.onReconnected(handler);
   }
 
-  onParticipantsChanged(handler: (participants: ParticipantSnapshot[]) => void): void {
-    this.room.onParticipantsChanged(handler);
+  /**
+   * 参加者の変化を通知する。第 2 引数は今回新しく入室した identity (F-3, 5.2)。
+   * RoomConnector のハンドラ枠は 1 つしかないので、差分の計算はここで持つ。
+   */
+  onParticipantsChanged(
+    handler: (participants: ParticipantSnapshot[], joinedIdentities: string[]) => void,
+  ): void {
+    this.room.onParticipantsChanged((participants) => {
+      const identities = participants.map((p) => p.identity);
+      const joined = identities.filter((id) => !this.knownIdentities.has(id));
+      this.knownIdentities = new Set(identities);
+      handler(participants, joined);
+    });
   }
 
   onDataReceived(handler: (payload: Uint8Array) => void): void {
@@ -312,5 +326,6 @@ export class StageController {
     await this.room.disconnect();
     this.session = undefined;
     this.lastJoin = undefined;
+    this.knownIdentities.clear();
   }
 }
