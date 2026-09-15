@@ -277,6 +277,22 @@ describe("ControlPlaneStack", () => {
     }
   });
 
+  it("D9: 成果物バケットに CORS があり、ブラウザからの署名付き PUT/GET が通る", () => {
+    // stage-web のデッキ投入 (F-3) / admin-web の素材アップロード (Phase 4) / composer-template の
+    // pdf.js 描画は、Lambda を経由せずブラウザから直接 S3 を叩く (DESIGN.md 6.4)。
+    const buckets = template.findResources("AWS::S3::Bucket");
+    const withCors = Object.values(buckets).filter((b) => b.Properties.CorsConfiguration);
+    expect(withCors).toHaveLength(1); // 成果物バケットだけ。SPA バケットには付けない
+    const rules = withCors[0]!.Properties.CorsConfiguration.CorsRules;
+    expect(rules).toHaveLength(1);
+    expect(rules[0].AllowedMethods).toEqual(expect.arrayContaining(["GET", "PUT", "HEAD"]));
+    // PUT のプリフライトで問われる Content-Type を許可している。
+    expect(rules[0].AllowedHeaders).toContain("content-type");
+    // オリジンは個別指定。ワイルドカードは使わない。
+    expect(rules[0].AllowedOrigins).not.toContain("*");
+    expect(rules[0].AllowedOrigins.length).toBeGreaterThanOrEqual(3);
+  });
+
   it("常時稼働スタックにメディア層の有料リソース (ECS Service/ElastiCache) を含めない (N-1, 7.2)", () => {
     template.resourceCountIs("AWS::ECS::Service", 0);
     template.resourceCountIs("AWS::ElastiCache::ServerlessCache", 0);

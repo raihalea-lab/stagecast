@@ -25,10 +25,10 @@ R12-followup-1〜22 で **stage-web から SFU への WebRTC 接続** が完了 
 
 ### 🔥 すぐやる (1〜3 日以内)
 
-> 🔴 **2026-09-15 追記: D9 (AssetsBucket の CORS 設定) が実機のブロッカー**。
-> F-3 のスライド投影 (PR #211) と Phase 4 の素材アップロードは、どちらもブラウザから
-> 署名付き URL で S3 を直接叩くが、バケットに CORS が無いため実機で落ちる。
-> 詳細は下の **D9** を参照。
+> 🔴 **2026-09-15 追記: F-3 (スライド投影, #211 マージ済み) は実機未確認**。
+> D9 (AssetsBucket の CORS) はコード上は対応したが、**デプロイして実機で通すまでが残作業**。
+> 手順は下の **D9** を参照。あわせて composer の描画サイズ (1280x720 出力でスライドが
+> 親領域いっぱいに出るか) はブラウザ実機での目視確認が必要。
 
 1. **R12 完了 ✅ (2026-06-21 R12-followup-23 で映像受信成功)**
    - R12-followup-23 (PR #119) で Egress config に `insecure: true` を追加 → Chrome 147+ の LNA WebSocket 制限を回避 → YouTube Live で映像受信成功 ✅
@@ -332,28 +332,25 @@ reconcile Lambda 自身は `cloudformation:*` (スタック操作) + `iam:PassRo
 - 残: エンジン側 (Transcribe/Translate/Bedrock) の一過性エラー再試行は二重字幕回避を考慮しつつ別途。
   YouTube ingest など他の外部呼び出しにも `withRetry` を横展開
 
-### D9. AssetsBucket に CORS 設定が無く、ブラウザからの直接アクセスが通らない 🔴 F-3 実機の前提
+### D9. AssetsBucket に CORS 設定が無く、ブラウザからの直接アクセスが通らない ✅ コード対応済み (要デプロイ)
 
-`infra/lib/control-plane-stack.ts:99` の `AssetsBucket` には `cors` が未設定 (infra 側の CORS 設定は
-`:492` の API Gateway `corsConfiguration` のみ)。署名付き URL は発行できるが、**ブラウザから
-クロスオリジンで叩く経路はプリフライト/レスポンスヘッダが無く落ちる**:
+~~`AssetsBucket` には `cors` が未設定 (infra 側の CORS 設定は API Gateway の
+`corsConfiguration` のみ)。署名付き URL は発行できるが、ブラウザからクロスオリジンで叩く経路は
+プリフライト/レスポンスヘッダが無く落ちる~~ → `assetsBucket.addCorsRule()` を追加した。
+
+対象経路 (いずれも Lambda を経由せずブラウザから直接 S3 を叩く設計, DESIGN.md 6.4):
 
 - `apps/stage-web/src/App.tsx` の `handleUploadDeck` → 署名付き PUT (F-3 デッキ投入)
 - `apps/composer-template/src/slides/Slide.tsx` の pdf.js → 署名付き GET (F-3 スライド描画)
-- `apps/admin-web/src/api/http-asset-service.ts:34` の署名付き PUT (Phase 4 素材アップロード)
+- `apps/admin-web/src/api/http-asset-service.ts` の署名付き PUT (Phase 4 素材アップロード)
 
-F-3 で入った経路だけの問題ではなく、素材アップロードと共通の既存の穴。ユニット/統合テストは
-フェイク経由なので検知できず、**実機で初めて落ちる**。
+設定内容: `GET`/`PUT`/`HEAD`、オリジンは admin-web / stage-web / composer-web の各 Distribution
+ドメイン + `localhost:5173-5176` (`*` は使わない)、`allowedHeaders: content-type`、
+`exposedHeaders: ETag / Content-Range / Accept-Ranges`。各 SPA は別 Distribution で、
+AssetsBucket はどの Distribution の origin でもないため循環参照にならない。
 
-対応: `AssetsBucket` に `cors` を追加する。
-
-- `allowedMethods`: `GET` / `PUT` / `HEAD`
-- `allowedOrigins`: フロントを配る CloudFront ディストリビューションのドメイン (+ ローカル開発の
-  `http://localhost:*`)。`*` は避ける (バケットは BLOCK_ALL + 署名付き URL 前提なので、
-  オリジンを絞っても運用上困らない)
-- `allowedHeaders`: `content-type` (PUT の Content-Type プリフライト用)
-- `exposedHeaders`: pdf.js の range 取得を将来有効に戻すなら `Content-Range` / `Accept-Ranges`
-
+**残: デプロイと実機確認**。ユニット/統合テストはフェイク経由で、CORS の効き目は実機でしか
+確認できない (infra テストは synth 結果に CorsConfiguration があることだけを見ている)。
 完了基準: 実機で (1) stage-web からデッキ PDF をアップロードできる、(2) composer-template が
 そのデッキを描画できる、(3) admin-web の素材アップロードが通る。
 
@@ -444,13 +441,6 @@ D1-D12 の 12 PR で完了 (2026-06-24)。[ADR 0013](decisions/0013-design-syste
 ---
 
 ## P: 未マージ PR
-
-### P3. #211: 事前アップロードスライド (PDF) の投影 (F-3, DESIGN.md 5.2)
-
-- 状態: open / mergeable。Hermes レビュー 4 件 + コードレビュー 5 件を反映済み
-- マージ後の残作業: **D9 (AssetsBucket の CORS)** が無いと実機で動かない。必ずセットで対応する
-- 実機未確認: composer の描画サイズ (1280x720 出力でスライドが親領域いっぱいに出るか) は
-  ブラウザ実機で目視確認が必要
 
 ### P1. #8: vite 5.4.21 → 8.0.16
 
