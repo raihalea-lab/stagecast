@@ -3,9 +3,13 @@
  *
  * サーバー側レンダリングは行わない (ADR 0012: composer-template は Egress の Chrome 上で
  * 動く React app)。pdf.js で署名付き GET URL から PDF を取得し、指定ページを canvas に描画する。
- * 総ページ数は pdf.js が返す (stage-web のハードコード `totalPages: 1` を置き換える)。
+ *
+ * 総ページ数は stage-web 側がアップロード時に解決して StageController に入れる。
+ * composer が接続するのは subscribe 専用の token (preview-token.ts は canPublishData: false、
+ * Egress は recorder token) なので、composer から DataChannel で返送する経路は使えない。
+ * ここでは受信ページを doc.numPages でクランプするだけ。
  */
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { getDocument, GlobalWorkerOptions, type PDFDocumentProxy } from "pdfjs-dist";
 import workerUrl from "pdfjs-dist/build/pdf.worker.min.mjs?url";
 
@@ -14,13 +18,36 @@ GlobalWorkerOptions.workerSrc = workerUrl;
 interface Props {
   url: string;
   page: number;
-  onTotalPages?: (total: number) => void;
 }
 
-export function Slide({ url, page, onTotalPages }: Props) {
-  const canvasRef = useRef<HTMLCanvasElement>(null);
+interface CanvasSize {
+  width: number;
+  height: number;
+}
+
+export function Slide({ url, page }: Props) {
+  const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const observerRef = useRef<ResizeObserver | null>(null);
   const [doc, setDoc] = useState<PDFDocumentProxy | null>(null);
   const [error, setError] = useState<string | undefined>();
+  // 描画倍率は canvas のレイアウトサイズ基準。tile の有無で .slide-main の幅が
+  // 100% ↔ 75% に変わるため、ResizeObserver で追従して再描画する。
+  const [size, setSize] = useState<CanvasSize>({ width: 0, height: 0 });
+
+  const attachCanvas = useCallback((el: HTMLCanvasElement | null) => {
+    canvasRef.current = el;
+    observerRef.current?.disconnect();
+    observerRef.current = null;
+    if (!el) return;
+    const observer = new ResizeObserver(() => {
+      setSize({ width: el.clientWidth, height: el.clientHeight });
+    });
+    observer.observe(el);
+    observerRef.current = observer;
+    setSize({ width: el.clientWidth, height: el.clientHeight });
+  }, []);
+
+  useEffect(() => () => observerRef.current?.disconnect(), []);
 
   useEffect(() => {
     let cancelled = false;
@@ -34,7 +61,6 @@ export function Slide({ url, page, onTotalPages }: Props) {
           return;
         }
         setDoc(d);
-        onTotalPages?.(d.numPages);
       })
       .catch((err: unknown) => {
         if (!cancelled) setError(err instanceof Error ? err.message : String(err));
@@ -43,21 +69,19 @@ export function Slide({ url, page, onTotalPages }: Props) {
       cancelled = true;
       void loadingTask.destroy();
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [url]);
 
   useEffect(() => {
-    if (!doc || !canvasRef.current) return;
+    if (!doc) return;
+    // レイアウト確定前 (幅 0) は描画しない。ResizeObserver が実サイズを通知したら再実行される。
+    if (size.width <= 0 || size.height <= 0) return;
     let cancelled = false;
     const clamped = Math.min(doc.numPages, Math.max(1, page));
-    doc.getPage(clamped).then((pdfPage) => {
-      if (cancelled || !canvasRef.current) return;
+    void doc.getPage(clamped).then((pdfPage) => {
       const canvas = canvasRef.current;
+      if (cancelled || !canvas) return;
       const viewport = pdfPage.getViewport({ scale: 1 });
-      const scale = Math.min(
-        canvas.clientWidth / viewport.width,
-        canvas.clientHeight / viewport.height,
-      );
+      const scale = Math.min(size.width / viewport.width, size.height / viewport.height);
       const scaled = pdfPage.getViewport({ scale });
       canvas.width = scaled.width;
       canvas.height = scaled.height;
@@ -68,7 +92,7 @@ export function Slide({ url, page, onTotalPages }: Props) {
     return () => {
       cancelled = true;
     };
-  }, [doc, page]);
+  }, [doc, page, size.width, size.height]);
 
   if (error) {
     return (
@@ -78,5 +102,5 @@ export function Slide({ url, page, onTotalPages }: Props) {
     );
   }
 
-  return <canvas ref={canvasRef} className="slide-canvas" />;
+  return <canvas ref={attachCanvas} className="slide-canvas" />;
 }

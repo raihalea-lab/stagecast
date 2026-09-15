@@ -20,7 +20,6 @@ import type {
 export class LiveKitRoomConnector implements RoomConnector {
   private room = new Room();
   state: RoomState = "idle";
-  private encoder = new TextEncoder();
   private prefs: PreferredDevices = {};
   private participantsHandler?: (participants: ParticipantSnapshot[]) => void;
 

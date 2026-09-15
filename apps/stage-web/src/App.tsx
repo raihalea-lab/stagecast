@@ -151,6 +151,8 @@ export function App(props: {
   // F-3 / DESIGN.md 5.2: 事前アップロードスライド (PDF) のデッキ選択状態。
   const [deckKey, setDeckKey] = useState<string | undefined>();
   const [deckUrl, setDeckUrl] = useState<string | undefined>();
+  // F-3: PDF の総ページ数。stage-web が pdf.js で解決して StageController に渡す。
+  const [deckTotalPages, setDeckTotalPages] = useState(1);
   const deckInputRef = useRef<HTMLInputElement>(null);
   const [muteNotice, setMuteNotice] = useState<string | undefined>();
   const [roomState, setRoomState] = useState<RoomState>("stopped");
@@ -319,6 +321,11 @@ export function App(props: {
   const handleUploadDeck = useCallback(
     async (file: File) => {
       if (!inviteToken) return;
+      // 総ページ数を先に解決する: 読めない PDF はアップロードせずここで失敗させる。
+      // これが無いと deck は totalPages=1 のままになり、2 ページ目以降に送れない。
+      const { resolvePdfPageCount } = await import("./lib/pdf-pages.js");
+      const totalPages = await resolvePdfPageCount(file);
+
       const { uploadUrl, key } = await client.getDeckUploadUrl(inviteToken, file.name);
       await fetch(uploadUrl, {
         method: "PUT",
@@ -328,7 +335,12 @@ export function App(props: {
       const downloadUrl = await client.getDeckDownloadUrl(inviteToken, key);
       setDeckKey(key);
       setDeckUrl(downloadUrl);
+      setDeckTotalPages(totalPages);
+      // setDeck が deck を 1 ページ目に戻すので setDeckUrl より先に呼ぶ
+      // (setDeckUrl は totalPages を維持する)。composer も slide-deck 受信で 1 に戻る。
+      controller.setDeck(totalPages);
       await controller.setDeckUrl(downloadUrl);
+      setPage(1);
     },
     [client, inviteToken, controller],
   );
@@ -570,6 +582,9 @@ export function App(props: {
     </>
   );
 
+  // スライド操作は moderator 限定。control-api の /stage/decks/upload-url は moderator 以外を
+  // 403 で返し、デッキ URL / 総ページ数を持つのも投入した端末だけなので、speaker ビューには
+  // 押しても何も起きないボタンを置かない (moderator ビューからのみ描画する)。
   const slideControls = (
     <>
       <input
@@ -594,7 +609,10 @@ export function App(props: {
         <span className="ml-1.5 hidden sm:inline">デッキ</span>
       </Button>
       {deckKey && (
-        <span className="max-w-[12ch] truncate font-mono text-xs text-text-secondary" title={deckKey}>
+        <span
+          className="max-w-[12ch] truncate font-mono text-xs text-text-secondary"
+          title={deckKey}
+        >
           {deckKey.split("/").pop()}
         </span>
       )}
@@ -603,19 +621,22 @@ export function App(props: {
         <Button
           variant="ghost"
           size="icon-sm"
-          disabled={busy || !deckUrl}
+          disabled={busy || !deckUrl || page <= 1}
           onClick={wrap(async () => setPage(await controller.slidePrev()))}
           aria-label="前のスライド"
         >
           <ChevronLeft className="size-4" />
         </Button>
-        <span className="min-w-[3ch] text-center font-mono text-xs tabular-nums text-text-secondary">
-          {page}
+        <span
+          className="min-w-[5ch] text-center font-mono text-xs tabular-nums text-text-secondary"
+          aria-label={`スライド ${page} / ${deckTotalPages}`}
+        >
+          {page} / {deckTotalPages}
         </span>
         <Button
           variant="ghost"
           size="icon-sm"
-          disabled={busy || !deckUrl}
+          disabled={busy || !deckUrl || page >= deckTotalPages}
           onClick={wrap(async () => setPage(await controller.slideNext()))}
           aria-label="次のスライド"
         >
@@ -1008,7 +1029,6 @@ export function App(props: {
       controlBar={
         <ControlBar>
           {mediaControls}
-          {slideControls}
           <div className="flex-1" />
           <Sheet>
             <SheetTrigger asChild>
