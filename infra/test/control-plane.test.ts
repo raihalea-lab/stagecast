@@ -277,6 +277,41 @@ describe("ControlPlaneStack", () => {
     }
   });
 
+  it("招待トークンで叩くルートは JWT authorizer を通さない (4.1)", () => {
+    // control-api 側で invite-token を検証するルートを $default (JWT) に落とすと、
+    // API Gateway が Lambda に届く前に 401 {"message":"Unauthorized"} を返してしまう。
+    // services/control-api/src/http/app.ts の requireAdmin より前のルートと対応させる。
+    const routes = Object.values(template.findResources("AWS::ApiGatewayV2::Route"));
+    const publicKeys = routes
+      .filter((r) => r.Properties.AuthorizationType === "NONE")
+      .map((r) => r.Properties.RouteKey as string);
+    for (const key of [
+      "POST /invites/verify",
+      "POST /join",
+      "POST /preview-token",
+      "POST /presentation/speakers/{speakerId}",
+      "POST /stage/assets",
+      "POST /stage/assets/download-url",
+      "POST /stage/decks/upload-url",
+      "POST /stage/decks/download-url",
+      "POST /stage/presets",
+      "POST /stage/presets/list",
+      "DELETE /stage/presets/{presetId}",
+      "POST /event-requests",
+      "GET /event-requests/public",
+      "GET /events/public",
+      "OPTIONS /{proxy+}",
+    ]) {
+      expect(publicKeys).toContain(key);
+    }
+    // 管理者ルートは $default (JWT) に落とす。公開ルートに管理者パスを混ぜない。
+    expect(publicKeys.some((k) => k.includes("$default"))).toBe(false);
+    template.hasResourceProperties("AWS::ApiGatewayV2::Route", {
+      RouteKey: "$default",
+      AuthorizationType: "JWT",
+    });
+  });
+
   it("D9: 成果物バケットに CORS があり、ブラウザからの署名付き PUT/GET が通る", () => {
     // stage-web のデッキ投入 (F-3) / admin-web の素材アップロード (Phase 4) / composer-template の
     // pdf.js 描画は、Lambda を経由せずブラウザから直接 S3 を叩く (DESIGN.md 6.4)。
