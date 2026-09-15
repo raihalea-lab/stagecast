@@ -128,22 +128,54 @@ export class StageController {
     this.deck = { page: 1, totalPages: Math.max(1, totalPages) };
   }
 
+  /** 事前アップロードスライド (PDF) のデッキ URL を composer に通知する (F-3, 5.2)。 */
+  async setDeckUrl(url: string): Promise<void> {
+    this.requirePublish();
+    this.deck = { page: 1, totalPages: this.deck.totalPages };
+    await this.room.publishData(encodeStageMessage({ type: "slide-deck", url }));
+  }
+
+  /**
+   * 投影を解除して composer を通常レイアウトに戻す (F-3, 5.2)。
+   * composer はデッキが載っている間 slide レイアウトを固定するため、これが無いと
+   * イベント中ずっと grid / 画面共有メインに戻せない。
+   */
+  async hideDeck(): Promise<void> {
+    this.requirePublish();
+    this.deck = { page: 1, totalPages: 1 };
+    await this.room.publishData(encodeStageMessage({ type: "slide-hide" }));
+  }
+
+  /**
+   * 後から room に入ってきた participant (先にデッキを入れてから配信を始めた場合の
+   * egress composer など) にデッキの現在状態を配り直す (F-3, 5.2)。
+   * slide-deck は一度きりの broadcast なので、これが無いと composer が投影を受け取れない。
+   */
+  async republishDeck(url: string): Promise<void> {
+    this.requirePublish();
+    await this.room.publishData(encodeStageMessage({ type: "slide-deck", url }));
+    // composer は slide-deck 受信で 1 ページ目に戻るので、現在ページを続けて送る。
+    if (this.deck.page !== 1) {
+      await this.room.sendSlide({ type: "slide-page", page: this.deck.page });
+    }
+  }
+
   async slideNext(): Promise<number> {
     this.requirePublish();
     this.deck = nextPage(this.deck);
-    await this.room.sendSlide({ type: "slide", page: this.deck.page });
+    await this.room.sendSlide({ type: "slide-page", page: this.deck.page });
     return this.deck.page;
   }
   async slidePrev(): Promise<number> {
     this.requirePublish();
     this.deck = prevPage(this.deck);
-    await this.room.sendSlide({ type: "slide", page: this.deck.page });
+    await this.room.sendSlide({ type: "slide-page", page: this.deck.page });
     return this.deck.page;
   }
   async slideGoTo(page: number): Promise<number> {
     this.requirePublish();
     this.deck = goToPage(this.deck, page);
-    await this.room.sendSlide({ type: "slide", page: this.deck.page });
+    await this.room.sendSlide({ type: "slide-page", page: this.deck.page });
     return this.deck.page;
   }
 

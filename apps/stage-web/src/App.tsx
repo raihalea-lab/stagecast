@@ -73,7 +73,14 @@ import {
   MicOff,
   Monitor,
   MonitorOff,
+  Upload,
+  X,
 } from "@stagecast/ui/icons";
+
+/** デッキ状態を配り直す間隔 (F-3)。後から起動した composer がこの間隔内で追いつく。 */
+const DECK_REPLAY_INTERVAL_MS = 15_000;
+/** 署名付き GET URL を取り直す閾値。control-api の presign は 15 分で失効する。 */
+const DECK_URL_MAX_AGE_MS = 10 * 60_000;
 
 function toParticipantInfo(
   s: ParticipantSnapshot,
@@ -147,6 +154,14 @@ export function App(props: {
   const [chatMessages, setChatMessages] = useState<ChatMessageDisplay[]>([]);
   const [presets, setPresets] = useState<Preset[]>([]);
   const [stageAssets, setStageAssets] = useState<AssetMetadata[]>([]);
+  // F-3 / DESIGN.md 5.2: 事前アップロードスライド (PDF) のデッキ選択状態。
+  const [deckKey, setDeckKey] = useState<string | undefined>();
+  const [deckUrl, setDeckUrl] = useState<string | undefined>();
+  // F-3: PDF の総ページ数。stage-web が pdf.js で解決して StageController に渡す。
+  const [deckTotalPages, setDeckTotalPages] = useState(1);
+  const deckInputRef = useRef<HTMLInputElement>(null);
+  // 現在のデッキ URL を発行した時刻 (署名付き URL の失効前に取り直すため)。
+  const deckUrlIssuedAtRef = useRef(0);
   const [muteNotice, setMuteNotice] = useState<string | undefined>();
   const [roomState, setRoomState] = useState<RoomState>("stopped");
   const [egressState, setEgressState] = useState<EgressState>("idle");
@@ -309,6 +324,73 @@ export function App(props: {
     },
     [client, inviteToken],
   );
+
+  // F-3 / DESIGN.md 5.2: PDF をアップロードしてデッキとして選択し、composer に通知する。
+  const handleUploadDeck = useCallback(
+    async (file: File) => {
+      if (!inviteToken) return;
+      // 総ページ数を先に解決する: 読めない PDF はアップロードせずここで失敗させる。
+      // これが無いと deck は totalPages=1 のままになり、2 ページ目以降に送れない。
+      const { resolvePdfPageCount } = await import("./lib/pdf-pages.js");
+      const totalPages = await resolvePdfPageCount(file);
+
+      const { uploadUrl, key } = await client.getDeckUploadUrl(inviteToken, file.name);
+      const putRes = await fetch(uploadUrl, {
+        method: "PUT",
+        body: file,
+        headers: { "content-type": "application/pdf" },
+      });
+      // 失敗を見ずに slide-deck を配ると composer が配信画面いっぱいにエラーを出す。
+      if (!putRes.ok) throw new Error(`deck upload failed: ${putRes.status}`);
+      const downloadUrl = await client.getDeckDownloadUrl(inviteToken, key);
+      setDeckKey(key);
+      setDeckUrl(downloadUrl);
+      deckUrlIssuedAtRef.current = Date.now();
+      setDeckTotalPages(totalPages);
+      // setDeck が deck を 1 ページ目に戻すので setDeckUrl より先に呼ぶ
+      // (setDeckUrl は totalPages を維持する)。composer も slide-deck 受信で 1 に戻る。
+      controller.setDeck(totalPages);
+      await controller.setDeckUrl(downloadUrl);
+      setPage(1);
+    },
+    [client, inviteToken, controller],
+  );
+
+  // 投影中はデッキの現在状態を定期的に配り直す (F-3)。slide-deck は一度きりの broadcast で、
+  // egress composer は hidden participant なので join を検知して個別に送ることもできない。
+  // これが無いと「デッキ投入 → 配信開始」という自然な手順で composer が投影を受け取れない。
+  // composer は同じ PDF の再配布を無視するので、投影中の画面はちらつかない。
+  useEffect(() => {
+    if (!session || !inviteToken || !deckKey || !deckUrl) return;
+    let stopped = false;
+    const timer = setInterval(() => {
+      void (async () => {
+        let url = deckUrl;
+        if (Date.now() - deckUrlIssuedAtRef.current > DECK_URL_MAX_AGE_MS) {
+          url = await client.getDeckDownloadUrl(inviteToken, deckKey);
+          if (stopped) return;
+          deckUrlIssuedAtRef.current = Date.now();
+          setDeckUrl(url);
+        }
+        await controller.republishDeck(url);
+        // 失敗しても次の tick で再試行するので、配信中のバナーは出さない。
+      })().catch(() => {});
+    }, DECK_REPLAY_INTERVAL_MS);
+    return () => {
+      stopped = true;
+      clearInterval(timer);
+    };
+  }, [session, client, inviteToken, deckKey, deckUrl, controller]);
+
+  // 投影解除: composer はデッキが載っている間 slide レイアウトを固定するので、
+  // grid / 画面共有メインに戻すには明示的に解除する必要がある (F-3)。
+  const handleClearDeck = useCallback(async () => {
+    await controller.hideDeck();
+    setDeckKey(undefined);
+    setDeckUrl(undefined);
+    setDeckTotalPages(1);
+    setPage(1);
+  }, [controller]);
 
   const wrap = useCallback(
     (fn: () => Promise<unknown>) => async () => {
@@ -547,26 +629,73 @@ export function App(props: {
     </>
   );
 
+  // スライド操作は moderator 限定。control-api の /stage/decks/upload-url は moderator 以外を
+  // 403 で返し、デッキ URL / 総ページ数を持つのも投入した端末だけなので、speaker ビューには
+  // 押しても何も起きないボタンを置かない (moderator ビューからのみ描画する)。
   const slideControls = (
     <>
+      <input
+        ref={deckInputRef}
+        type="file"
+        accept="application/pdf"
+        className="hidden"
+        onChange={(e) => {
+          const file = e.target.files?.[0];
+          if (file) void wrap(() => handleUploadDeck(file))();
+          e.target.value = "";
+        }}
+      />
+      <Button
+        variant="outline"
+        size="sm"
+        disabled={busy || !inviteToken}
+        onClick={() => deckInputRef.current?.click()}
+        aria-label="スライド PDF をアップロード"
+      >
+        <Upload className="size-4" />
+        <span className="ml-1.5 hidden sm:inline">デッキ</span>
+      </Button>
+      {deckKey && (
+        <span
+          className="max-w-[12ch] truncate font-mono text-xs text-text-secondary"
+          title={deckKey}
+        >
+          {deckKey.split("/").pop()}
+        </span>
+      )}
+      {deckUrl && (
+        <Button
+          variant="ghost"
+          size="icon-sm"
+          disabled={busy}
+          onClick={wrap(handleClearDeck)}
+          aria-label="スライドの投影を解除"
+          title="スライドの投影を解除"
+        >
+          <X className="size-4" />
+        </Button>
+      )}
       <div className="mx-1 h-6 w-px bg-line-1" aria-hidden />
       <div className="flex items-center gap-1">
         <Button
           variant="ghost"
           size="icon-sm"
-          disabled={busy}
+          disabled={busy || !deckUrl || page <= 1}
           onClick={wrap(async () => setPage(await controller.slidePrev()))}
           aria-label="前のスライド"
         >
           <ChevronLeft className="size-4" />
         </Button>
-        <span className="min-w-[3ch] text-center font-mono text-xs tabular-nums text-text-secondary">
-          {page}
+        <span
+          className="min-w-[5ch] text-center font-mono text-xs tabular-nums text-text-secondary"
+          aria-label={`スライド ${page} / ${deckTotalPages}`}
+        >
+          {page} / {deckTotalPages}
         </span>
         <Button
           variant="ghost"
           size="icon-sm"
-          disabled={busy}
+          disabled={busy || !deckUrl || page >= deckTotalPages}
           onClick={wrap(async () => setPage(await controller.slideNext()))}
           aria-label="次のスライド"
         >
@@ -959,7 +1088,6 @@ export function App(props: {
       controlBar={
         <ControlBar>
           {mediaControls}
-          {slideControls}
           <div className="flex-1" />
           <Sheet>
             <SheetTrigger asChild>

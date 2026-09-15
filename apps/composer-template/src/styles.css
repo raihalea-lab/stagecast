@@ -248,3 +248,56 @@ body,
   flex: 0 0 auto;
   height: 140px;
 }
+
+/* --- Slide Layout (F-3, DESIGN.md 5.2) --- */
+.slide-layout {
+  display: flex;
+  width: 100%;
+  height: 100%;
+  background: var(--surface-bg);
+  padding: 6px;
+  gap: 6px;
+}
+.slide-main {
+  flex: 0 0 75%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #000;
+  overflow: hidden;
+}
+.slide-main--full {
+  flex: 1 1 auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #000;
+  overflow: hidden;
+}
+/* スケール計算は canvas.clientWidth/Height を基準にするため (slides/Slide.tsx)、
+   canvas のレイアウトサイズを親 (.slide-main) いっぱいに広げる。これが無いと
+   canvas 既定の 300x150 を基準に描画され、1280x720 出力でスライドが極端に小さくなる。 */
+.slide-canvas {
+  width: 100%;
+  height: 100%;
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+}
+.slide-error {
+  color: rgba(255, 255, 255, 0.7);
+  font-size: 14px;
+  padding: 24px;
+  text-align: center;
+}
+.slide-subs {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  flex: 1 1 auto;
+  overflow-y: auto;
+}
+.slide-sub-item {
+  flex: 0 0 auto;
+  height: 140px;
+}
