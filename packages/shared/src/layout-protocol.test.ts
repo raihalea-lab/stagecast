@@ -5,6 +5,7 @@ import {
   decodeStageMessage,
   encodeLayoutMessage,
   encodeStageMessage,
+  isSameDeck,
   type BannerHideMessage,
   type BannerShowMessage,
   type ChatMessage,
@@ -256,13 +257,32 @@ describe("slide-deck / slide-page / slide-hide (F-3, DESIGN.md 5.2)", () => {
     const msg: SlideDeckMessage = {
       type: "slide-deck",
       url: "https://signed.example.com/deck.pdf?X-Amz-Signature=abc",
+      totalPages: 13,
     };
     expect(decodeStageMessage(encodeStageMessage(msg))).toEqual(msg);
   });
 
   it("url が無い slide-deck は null", () => {
-    const bytes = new TextEncoder().encode(JSON.stringify({ type: "slide-deck" }));
+    const bytes = new TextEncoder().encode(JSON.stringify({ type: "slide-deck", totalPages: 3 }));
     expect(decodeStageMessage(bytes)).toBeNull();
+  });
+
+  // totalPages が無いと受信側は最終ページを判断できず自分でめくれない (F-3)。
+  it("totalPages が無い slide-deck は null", () => {
+    const bytes = new TextEncoder().encode(
+      JSON.stringify({ type: "slide-deck", url: "https://signed.example.com/deck.pdf" }),
+    );
+    expect(decodeStageMessage(bytes)).toBeNull();
+  });
+
+  it("isSameDeck は署名の違いを無視してパスで比較する", () => {
+    const a = "https://s3.example.com/assets/decks/e1/deck.pdf?X-Amz-Signature=aaa";
+    const b = "https://s3.example.com/assets/decks/e1/deck.pdf?X-Amz-Signature=bbb";
+    const c = "https://s3.example.com/assets/decks/e1/other.pdf?X-Amz-Signature=aaa";
+    expect(isSameDeck(a, b)).toBe(true);
+    expect(isSameDeck(a, c)).toBe(false);
+    // URL として壊れている場合は文字列比較にフォールバックする。
+    expect(isSameDeck("not a url", "not a url")).toBe(true);
   });
 
   it("slide-page が往復する", () => {

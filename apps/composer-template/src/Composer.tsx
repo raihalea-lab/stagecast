@@ -20,7 +20,7 @@ import {
   type RemoteParticipant,
   type RemoteTrackPublication,
 } from "livekit-client";
-import { decodeStageMessage, type LayoutKind } from "@stagecast/shared";
+import { decodeStageMessage, isSameDeck, type LayoutKind } from "@stagecast/shared";
 import { Grid } from "./layouts/Grid.js";
 import { Pip } from "./layouts/Pip.js";
 import { ScreenShareMain } from "./layouts/ScreenShareMain.js";
@@ -35,21 +35,6 @@ interface Props {
   token: string;
   url: string;
   initialLayout: LayoutKind;
-}
-
-/**
- * 同じ S3 オブジェクトを指す署名付き URL かを判定する (F-3)。
- * stage-web はデッキ状態を定期的に配り直し、署名は都度変わる。URL 文字列で比較すると
- * その度に PDF を読み直して配信画面が一瞬空になるため、パスだけで同一性を見る。
- */
-function isSameDeck(a: string, b: string): boolean {
-  try {
-    const ua = new URL(a);
-    const ub = new URL(b);
-    return ua.origin === ub.origin && ua.pathname === ub.pathname;
-  } catch {
-    return a === b;
-  }
 }
 
 export function Composer(props: Props) {
