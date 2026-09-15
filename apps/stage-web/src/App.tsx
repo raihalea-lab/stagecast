@@ -81,6 +81,9 @@ import {
 const DECK_REPLAY_INTERVAL_MS = 15_000;
 /** 署名付き GET URL を取り直す閾値。control-api の presign は 15 分で失効する。 */
 const DECK_URL_MAX_AGE_MS = 10 * 60_000;
+// participant の入室通知は「room に join した」時点で届くので、相手の composer が
+// DataReceived を購読し終える前に配ってしまうことがある。少し待ってから配り直す。
+const PARTICIPANT_REPLAY_DELAY_MS = 500;
 
 function toParticipantInfo(
   s: ParticipantSnapshot,
@@ -162,6 +165,8 @@ export function App(props: {
   const deckInputRef = useRef<HTMLInputElement>(null);
   // 現在のデッキ URL を発行した時刻 (署名付き URL の失効前に取り直すため)。
   const deckUrlIssuedAtRef = useRef(0);
+  // 入室検知ハンドラは mount 時に 1 回だけ登録するので、最新の replayDeck を ref 越しに呼ぶ。
+  const replayDeckRef = useRef<() => Promise<void>>(async () => {});
   const [muteNotice, setMuteNotice] = useState<string | undefined>();
   const [roomState, setRoomState] = useState<RoomState>("stopped");
   const [egressState, setEgressState] = useState<EgressState>("idle");
@@ -179,7 +184,16 @@ export function App(props: {
     });
     controller.onReconnecting(() => setReconnecting(true));
     controller.onReconnected(() => setReconnecting(false));
-    controller.onParticipantsChanged(setParticipants);
+    controller.onParticipantsChanged((next, joined) => {
+      setParticipants(next);
+      // プレビューの composer は hidden ではないので入室を検知できる。待たずに配り直す
+      // (hidden な egress composer は従来どおりハートビートが拾う)。
+      if (joined.length > 0) {
+        setTimeout(() => {
+          void replayDeckRef.current().catch(() => {});
+        }, PARTICIPANT_REPLAY_DELAY_MS);
+      }
+    });
     controller.onDataReceived((payload) => {
       const msg = decodeStageMessage(payload);
       if (!msg) return;
@@ -356,31 +370,33 @@ export function App(props: {
     [client, inviteToken, controller],
   );
 
-  // 投影中はデッキの現在状態を定期的に配り直す (F-3)。slide-deck は一度きりの broadcast で、
-  // egress composer は hidden participant なので join を検知して個別に送ることもできない。
-  // これが無いと「デッキ投入 → 配信開始」という自然な手順で composer が投影を受け取れない。
+  // 投影中のデッキ状態を配り直す (F-3)。slide-deck は一度きりの broadcast なので、
+  // 「デッキ投入 → 配信開始」の順で操作されると後から来た composer が投影を受け取れない。
   // composer は同じ PDF の再配布を無視するので、投影中の画面はちらつかない。
-  useEffect(() => {
+  const replayDeck = useCallback(async () => {
     if (!session || !inviteToken || !deckKey || !deckUrl) return;
-    let stopped = false;
-    const timer = setInterval(() => {
-      void (async () => {
-        let url = deckUrl;
-        if (Date.now() - deckUrlIssuedAtRef.current > DECK_URL_MAX_AGE_MS) {
-          url = await client.getDeckDownloadUrl(inviteToken, deckKey);
-          if (stopped) return;
-          deckUrlIssuedAtRef.current = Date.now();
-          setDeckUrl(url);
-        }
-        await controller.republishDeck(url);
-        // 失敗しても次の tick で再試行するので、配信中のバナーは出さない。
-      })().catch(() => {});
-    }, DECK_REPLAY_INTERVAL_MS);
-    return () => {
-      stopped = true;
-      clearInterval(timer);
-    };
+    let url = deckUrl;
+    if (Date.now() - deckUrlIssuedAtRef.current > DECK_URL_MAX_AGE_MS) {
+      url = await client.getDeckDownloadUrl(inviteToken, deckKey);
+      deckUrlIssuedAtRef.current = Date.now();
+      setDeckUrl(url);
+    }
+    await controller.republishDeck(url);
   }, [session, client, inviteToken, deckKey, deckUrl, controller]);
+
+  useEffect(() => {
+    replayDeckRef.current = replayDeck;
+  }, [replayDeck]);
+
+  // egress composer は hidden participant で入室を検知できないので、定期配布で拾う。
+  useEffect(() => {
+    if (!session || !deckKey || !deckUrl) return;
+    const timer = setInterval(() => {
+      // 失敗しても次の tick で再試行するので、配信中のバナーは出さない。
+      void replayDeckRef.current().catch(() => {});
+    }, DECK_REPLAY_INTERVAL_MS);
+    return () => clearInterval(timer);
+  }, [session, deckKey, deckUrl]);
 
   // 投影解除: composer はデッキが載っている間 slide レイアウトを固定するので、
   // grid / 画面共有メインに戻すには明示的に解除する必要がある (F-3)。
