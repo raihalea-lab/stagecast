@@ -15,7 +15,7 @@
     "@stagecast/shared": "workspace:*"
   },
   "devDependencies": {
-    "@types/node": "^25.9.2",
+    "@types/node": "^26.4.0",
     "livekit-server-sdk": "^2.15.4",
     "typescript": "^6.0.3",
     "vitest": "^4.1.0"
