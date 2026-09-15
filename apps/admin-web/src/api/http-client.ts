@@ -24,16 +24,17 @@ import type {
   IssuedInvite,
   PreviewTokenResult,
   StageTokenResult,
+  TokenProvider,
 } from "./types.js";
 
 export class HttpControlApiClient implements ControlApiClient {
   constructor(
     private readonly baseUrl: string,
-    private readonly getToken: () => string | undefined,
+    private readonly getToken: TokenProvider,
   ) {}
 
   private async call<T>(method: string, path: string, body?: unknown): Promise<T> {
-    const token = this.getToken();
+    const token = await this.getToken();
     const res = await fetch(`${this.baseUrl}${path}`, {
       method,
       headers: {

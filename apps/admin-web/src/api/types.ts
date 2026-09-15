@@ -21,6 +21,12 @@ import type {
 } from "@stagecast/shared";
 import type { CreateEventInput, CreateEventRequestInput } from "@stagecast/control-api";
 
+/**
+ * Authorization ヘッダに載せる id token を供給する。
+ * Cognito 利用時は期限切れ前に更新をかけるため非同期になる (D11)。
+ */
+export type TokenProvider = () => string | undefined | Promise<string | undefined>;
+
 export interface IssuedInvite {
   jti: string;
   token: string;
