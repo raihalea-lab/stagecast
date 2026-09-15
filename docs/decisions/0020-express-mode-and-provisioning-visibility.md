@@ -44,9 +44,11 @@ CloudFormation で作成する (DESIGN.md 7.1)。運用上 3 つの課題が出�
 - Express はロールバックを既定で無効にする。失敗は `CREATE_FAILED` のまま残るが、
   reconcile は `failed` を destroy → 再作成で扱うため (reconcile.ts) 挙動は変わらない。
 - **reconcile Lambda は `@aws-sdk/client-cloudformation` だけバンドルする**。他の SDK
-  クライアントは従来どおり Lambda ランタイム同梱を使うが、`DeploymentConfig` は新しい
-  SDK にしか無く、古い同梱版だとパラメータが黙って落ちて
+  クライアントは従来どおり Lambda ランタイム同梱を使うが、`DeploymentConfig` は
+  3.1077.0 以降にしか無く、古い同梱版だとパラメータが黙って落ちて
   「速くならないが成功する」状態になるため、このクライアントだけバージョンを固定する。
+- 念のため `DescribeStacks` が返す `DeploymentConfig.Mode` を毎回ログに出し、
+  EXPRESS を要求したのに STANDARD で返ってきたら warn を出す (取りこぼしの検知)。
 
 ### D-2. スケールアップ対象の ECS サービスを規約名で確定させる
 
@@ -57,6 +59,9 @@ CloudFormation で作成する (DESIGN.md 7.1)。運用上 3 つの課題が出�
 - スタックが `CREATE_IN_PROGRESS` でも引き上げを試みる。Express モードでは
   サービスが先に出来上がっているので、多くの場合その tick で 1 に上がる。
   まだ存在しないサービスは `missing` として次の tick に持ち越す。
+- 引き上げは「`desiredCount=0` なら一律 1」ではなく**サービスごとの目標値**で行う。
+  ADR 0017 D-2 の「字幕不要なイベントで CaptionWorker を起動しない」は意図した 0 なので、
+  `captionEnabled=false` のときは CaptionWorker を 0 のまま据え置く。
 
 ### D-3. 起動進捗を events 行に書き戻し、管理画面に出す
 
@@ -77,7 +82,10 @@ CloudFormation で作成する (DESIGN.md 7.1)。運用上 3 つの課題が出�
   スタック完成をもって `ready` とする。
 
 - 観測値が変わったときだけ書き込む (`observedAtMs` だけの差分は無視) ので、
-  DynamoDB の書き込みは 1 イベントあたり数回で収まる (N-1)。
+  DynamoDB の書き込みは 1 イベントあたり数回で収まる (N-1)。比較対象の片方は
+  DynamoDB から戻る項目でキー順が保証されないため、フィールドごとに突き合わせる。
+- `provisioning` は **DynamoDB の予約語**なので、更新式では `ExpressionAttributeNames`
+  経由で参照する (`media` は予約語ではないので既存コードはそのままで動く)。
 - admin-web の Setup タブに「配信インフラ」カードを追加。進行中のみ 5 秒間隔でポーリングし、
   `ready` に達したら止める。
 

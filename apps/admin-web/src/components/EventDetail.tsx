@@ -104,8 +104,12 @@ function ProvisioningCard(props: {
   const { client, eventId, eventStatus } = props;
   const [info, setInfo] = useState<EventProvisioningInfo | undefined>(props.initial);
 
-  // draft/ended はスタックを持たないのでポーリングしない。準備完了に達したらそこで止める。
-  const active = eventStatus !== "draft" && eventStatus !== "ended" && info?.phase !== "ready";
+  // scheduled の事前プロビジョニングは「タスク 0 で ready」なので、配信中に切り替わった直後は
+  // ready のまま LiveKit URL が未確定になる。その状態を「完了」と誤認するとポーリングが
+  // 止まったまま進捗が更新されないため、live/warmup では mediaReady も満たして初めて完了とみなす。
+  const settled = info?.phase === "ready" && (eventStatus === "scheduled" ? true : info.mediaReady);
+  // draft/ended はスタックを持たないのでポーリングしない。
+  const active = eventStatus !== "draft" && eventStatus !== "ended" && !settled;
 
   useEffect(() => {
     if (!active) return;
@@ -667,6 +671,8 @@ export function EventDetail(props: {
 
         <TabsContent value="setup" className="space-y-6 pt-4">
           <ProvisioningCard
+            // イベントを切り替えたときに前のイベントの観測値を引きずらないよう作り直す。
+            key={event.id}
             client={client}
             eventId={event.id}
             eventStatus={event.status}

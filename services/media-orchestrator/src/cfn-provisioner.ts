@@ -65,6 +65,14 @@ export interface CfnProvisionerConfig {
   /** 待機関数 (テストで差し替え可能)。 */
   delay?: ((ms: number) => Promise<void>) | undefined;
   /**
+   * describeStacks で観測したスタックの状態を通知する (ADR 0020 D-1)。
+   * Express を要求したのに DeploymentMode が STANDARD のままなら、SDK / リージョンが
+   * 未対応でパラメータが黙って落ちている。ログで気づけるようにここから流す。
+   */
+  onObserve?:
+    | ((o: { stackName: string; status: string; deploymentMode?: string | undefined }) => void)
+    | undefined;
+  /**
    * describeStacks の一過性失敗 (CFN スロットリング等) に対するリトライ設定。
    * 既定では provisioner の `delay` を sleep に使い、テストは実時間を待たない。
    */
@@ -97,6 +105,11 @@ export class CloudFormationMediaStackProvisioner implements MediaStackProvisione
         describeRetry,
       );
       const status = res.Stacks?.[0]?.StackStatus ?? "";
+      this.config.onObserve?.({
+        stackName,
+        status,
+        deploymentMode: res.Stacks?.[0]?.DeploymentMode,
+      });
       if (FAILED.test(status)) throw new Error(`stack ${stackName} failed: ${status}`);
       if (COMPLETE.test(status)) return this.outputs(res);
       await delay(interval);

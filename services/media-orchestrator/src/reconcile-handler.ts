@@ -206,12 +206,14 @@ async function deps(): Promise<HandlerDeps> {
       );
       return res.Items?.[0]?.provisioning as EventProvisioningInfo | undefined;
     },
+    // `provisioning` は DynamoDB の予約語なので式中で直接書けない (media は予約語ではない)。
     put: async (eventId, info) => {
       await dynamo.send(
         new UpdateCommand({
           TableName: tableName,
           Key: { pk: `EVENT#${eventId}`, sk: "META" },
-          UpdateExpression: "SET provisioning = :p, updatedAtMs = :t",
+          UpdateExpression: "SET #prov = :p, updatedAtMs = :t",
+          ExpressionAttributeNames: { "#prov": "provisioning" },
           ExpressionAttributeValues: { ":p": info, ":t": Date.now() },
         }),
       );
@@ -221,7 +223,8 @@ async function deps(): Promise<HandlerDeps> {
         new UpdateCommand({
           TableName: tableName,
           Key: { pk: `EVENT#${eventId}`, sk: "META" },
-          UpdateExpression: "REMOVE provisioning SET updatedAtMs = :t",
+          UpdateExpression: "REMOVE #prov SET updatedAtMs = :t",
+          ExpressionAttributeNames: { "#prov": "provisioning" },
           ExpressionAttributeValues: { ":t": Date.now() },
         }),
       );
@@ -432,6 +435,7 @@ function makeExecutor(): ReconcileExecutor {
       const lambda = new LambdaClient({});
       const fnName = process.env.RENDER_TEMPLATE_FUNCTION_NAME;
       if (!fnName) throw new Error("RENDER_TEMPLATE_FUNCTION_NAME is required");
+      const expressMode = process.env.CFN_EXPRESS_MODE !== "false";
       return createAwsMediaStackProvisioner({
         renderTemplate: async (spec) => {
           const res = await lambda.send(
@@ -467,7 +471,22 @@ function makeExecutor(): ReconcileExecutor {
         roleArn: process.env.CFN_EXEC_ROLE_ARN,
         // ADR 0020 D-1: CloudFormation Express モードでスタック作成を短縮する。
         // 事故時の退避用に CFN_EXPRESS_MODE=false で従来の STANDARD に戻せる。
-        expressMode: process.env.CFN_EXPRESS_MODE !== "false",
+        expressMode,
+        // Express を要求したのに STANDARD で返ってきたら、パラメータが黙って落ちている
+        // (SDK / リージョン未対応)。「速くならないが成功する」状態に気づけるよう警告する。
+        onObserve: (o) => {
+          if (expressMode && o.deploymentMode && o.deploymentMode !== "EXPRESS") {
+            log.warn("express mode not applied", {
+              stackName: o.stackName,
+              deploymentMode: o.deploymentMode,
+            });
+          }
+          log.info("stack observed", {
+            stackName: o.stackName,
+            status: o.status,
+            deploymentMode: o.deploymentMode,
+          });
+        },
       });
     })();
     return provisionerPromise;
@@ -526,11 +545,14 @@ async function observeAndScale(
   ecs: EcsLike,
   eventId: string,
   scaleUp: boolean,
+  captionEnabled: boolean,
 ): Promise<EventProvisioningInfo["services"]> {
   const names = eventServiceNames(eventId, sharedCluster());
   const observed = await readServiceStatuses(ecs, names);
   if (!scaleUp) return observed;
-  const { scaled, statuses } = await scaleUpServices(ecs, names, observed);
+  // ADR 0017 D-2: 字幕不要なイベントの CaptionWorker=0 は意図した 0 なので引き上げない。
+  const targets = { [names.sfu]: 1, [names.captionWorker]: captionEnabled ? 1 : 0 };
+  const { scaled, statuses } = await scaleUpServices(ecs, names, observed, targets);
   for (const service of scaled) log.info("scaled up service", { eventId, service });
   return statuses;
 }
@@ -637,7 +659,8 @@ export async function handler(
     let services: EventProvisioningInfo["services"] = [];
     if (a && a.kind !== "deleting") {
       try {
-        services = await observeAndScale(d.ecs, d2.eventId, wantTasks);
+        // captionEnabled 未指定は有効扱い (reconcile.ts の toSpec と同じ既定, ADR 0017)。
+        services = await observeAndScale(d.ecs, d2.eventId, wantTasks, d2.captionEnabled ?? true);
       } catch (err) {
         log.error("ecs observe/scale failed", { eventId: d2.eventId, error: String(err) });
       }
