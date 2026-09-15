@@ -62,6 +62,16 @@ CloudFormation で作成する (DESIGN.md 7.1)。運用上 3 つの課題が出�
 - 引き上げは「`desiredCount=0` なら一律 1」ではなく**サービスごとの目標値**で行う。
   ADR 0017 D-2 の「字幕不要なイベントで CaptionWorker を起動しない」は意図した 0 なので、
   `captionEnabled=false` のときは CaptionWorker を 0 のまま据え置く。
+  ただし `DesiredEvent.captionEnabled` は ADR 0017 で型に足されたきり `toDesiredEvent` が
+  埋めておらず (`CaptionSettings` に字幕オフの項目が無い)、**現状は常に有効扱い**になる。
+  ここは「一律 1 に上げる」実装で塞いでしまうと後で戻せないので形だけ先に入れてある。
+  実際に 0 を選べるようにするのは別タスク (NEXT_WORK D)。
+- `failed` / `deleting` なスタックのサービスは引き上げない。同じ tick で既に DeleteStack を
+  出しているため、消える直前のサービスに UpdateService を撃つことになる。
+- 引き上げはサービス単位で失敗を閉じ込める。1 つの UpdateService 失敗で観測結果ごと
+  失うと、管理画面の進捗カードが空になってしまう。
+- `DescribeServices` は `status === "ACTIVE"` だけを採用する。破棄直後は同名の
+  INACTIVE な残骸が返り、それを「存在する」と扱うと UpdateService が拒否される。
 
 ### D-3. 起動進捗を events 行に書き戻し、管理画面に出す
 
@@ -86,8 +96,10 @@ CloudFormation で作成する (DESIGN.md 7.1)。運用上 3 つの課題が出�
   DynamoDB から戻る項目でキー順が保証されないため、フィールドごとに突き合わせる。
 - `provisioning` は **DynamoDB の予約語**なので、更新式では `ExpressionAttributeNames`
   経由で参照する (`media` は予約語ではないので既存コードはそのままで動く)。
-- admin-web の Setup タブに「配信インフラ」カードを追加。進行中のみ 5 秒間隔でポーリングし、
-  `ready` に達したら止める。
+- admin-web の Setup タブに「配信インフラ」カードを追加。進行中 (`creating`/`starting`/
+  `deleting`) は 5 秒、それ以外は 30 秒の間隔で再取得する。`ready` でもポーリングを止めない:
+  タスクが落ちれば reconcile は phase を `starting` に戻すので、打ち切ると「準備完了」の
+  緑表示のまま実態と乖離する。
 
 ## 影響・トレードオフ
 

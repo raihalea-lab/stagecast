@@ -58,8 +58,23 @@ import {
   X,
 } from "@stagecast/ui/icons";
 
-/** 起動途中のあいだだけ events を再取得する間隔。 */
-const PROVISIONING_POLL_MS = 5000;
+/** 起動が動いている最中の再取得間隔。 */
+const PROVISIONING_POLL_ACTIVE_MS = 5000;
+/** 落ち着いている (準備完了 / スタック未作成 / 失敗待ち) ときの再取得間隔。 */
+const PROVISIONING_POLL_IDLE_MS = 30_000;
+
+/**
+ * phase ごとの再取得間隔。
+ *
+ * `ready` でも監視を止めない: タスクが落ちれば reconcile は phase を `starting` に戻すので、
+ * ポーリングを打ち切ると「準備完了」の緑表示のまま実態と乖離する。
+ * 逆に `none` / `failed` は reconcile の次 tick 待ちなので 5 秒間隔で叩き続ける意味がない。
+ */
+function provisioningPollMs(phase: ProvisioningPhase): number {
+  return phase === "creating" || phase === "starting" || phase === "deleting"
+    ? PROVISIONING_POLL_ACTIVE_MS
+    : PROVISIONING_POLL_IDLE_MS;
+}
 
 const PHASE_LABEL: Record<ProvisioningPhase, string> = {
   none: "未作成",
@@ -104,15 +119,13 @@ function ProvisioningCard(props: {
   const { client, eventId, eventStatus } = props;
   const [info, setInfo] = useState<EventProvisioningInfo | undefined>(props.initial);
 
-  // scheduled の事前プロビジョニングは「タスク 0 で ready」なので、配信中に切り替わった直後は
-  // ready のまま LiveKit URL が未確定になる。その状態を「完了」と誤認するとポーリングが
-  // 止まったまま進捗が更新されないため、live/warmup では mediaReady も満たして初めて完了とみなす。
-  const settled = info?.phase === "ready" && (eventStatus === "scheduled" ? true : info.mediaReady);
-  // draft/ended はスタックを持たないのでポーリングしない。
-  const active = eventStatus !== "draft" && eventStatus !== "ended" && !settled;
+  const phase: ProvisioningPhase = info?.phase ?? "none";
+  // draft/ended はスタックを持たないので監視しない。
+  const watching = eventStatus !== "draft" && eventStatus !== "ended";
+  const pollMs = provisioningPollMs(phase);
 
   useEffect(() => {
-    if (!active) return;
+    if (!watching) return;
     let cancelled = false;
     const tick = async () => {
       try {
@@ -123,16 +136,14 @@ function ProvisioningCard(props: {
       }
     };
     void tick();
-    const timer = setInterval(() => void tick(), PROVISIONING_POLL_MS);
+    const timer = setInterval(() => void tick(), pollMs);
     return () => {
       cancelled = true;
       clearInterval(timer);
     };
-  }, [active, client, eventId]);
+  }, [watching, pollMs, client, eventId]);
 
-  if (eventStatus === "draft" || eventStatus === "ended") return null;
-
-  const phase: ProvisioningPhase = info?.phase ?? "none";
+  if (!watching) return null;
 
   return (
     <Card>

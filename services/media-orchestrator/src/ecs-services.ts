@@ -69,8 +69,8 @@ export function eventServiceNames(eventId: string, sharedClusterName?: string): 
 /** ECS の最小サブセット。テストでは fake を注入する。 */
 export interface EcsLike {
   /**
-   * 指定サービスの desired/running を返す。存在しないサービスは結果に含めない
-   * (AWS SDK も failures として返し、例外にはしない)。
+   * 指定サービスの desired/running を返す。存在しない / ACTIVE でないサービスは
+   * 結果に含めない (AWS SDK も failures として返し、例外にはしない)。
    */
   describeServices(
     cluster: string,
@@ -96,6 +96,12 @@ export async function readServiceStatuses(
   });
 }
 
+/** 引き上げに失敗したサービス (呼び出し側でログに出す)。 */
+export interface ServiceScaleFailure {
+  name: string;
+  err: unknown;
+}
+
 /**
  * ADR 0016 D-6: pending (desiredCount=0) で事前プロビジョニングしたサービスを目標数に引き上げる。
  *
@@ -111,8 +117,9 @@ export async function scaleUpServices(
   names: EventServiceNames,
   statuses: EcsServiceStatus[],
   targets: Record<string, number>,
-): Promise<{ scaled: string[]; statuses: EcsServiceStatus[] }> {
+): Promise<{ scaled: string[]; failures: ServiceScaleFailure[]; statuses: EcsServiceStatus[] }> {
   const scaled: string[] = [];
+  const failures: ServiceScaleFailure[] = [];
   const next: EcsServiceStatus[] = [];
   for (const s of statuses) {
     const target = targets[s.name] ?? 0;
@@ -120,9 +127,16 @@ export async function scaleUpServices(
       next.push(s);
       continue;
     }
-    await ecs.updateDesiredCount(names.cluster, s.name, target);
-    scaled.push(s.name);
-    next.push({ ...s, desiredCount: target });
+    try {
+      await ecs.updateDesiredCount(names.cluster, s.name, target);
+      scaled.push(s.name);
+      next.push({ ...s, desiredCount: target });
+    } catch (err) {
+      // 1 サービスの失敗で残りの引き上げと観測結果を巻き添えにしない
+      // (観測結果が空になると管理画面の進捗カードが真っ白になる)。
+      failures.push({ name: s.name, err });
+      next.push(s);
+    }
   }
-  return { scaled, statuses: next };
+  return { scaled, failures, statuses: next };
 }

@@ -12,6 +12,8 @@ import {
 /** DescribeServices が failures を返す (= 例外にならない) 挙動を写したフェイク。 */
 function fakeEcs(
   services: { name: string; desiredCount: number; runningCount: number }[],
+  /** UpdateService を拒否するサービス名 (ECS 側のエラーを模す)。 */
+  rejecting: string[] = [],
 ): EcsLike & { updates: { service: string; desiredCount: number }[] } {
   const updates: { service: string; desiredCount: number }[] = [];
   return {
@@ -19,6 +21,7 @@ function fakeEcs(
     describeServices: async (_cluster, names) =>
       services.filter((s) => names.includes(s.name)).map((s) => ({ ...s })),
     updateDesiredCount: async (_cluster, service, desiredCount) => {
+      if (rejecting.includes(service)) throw new Error(`cannot update ${service}`);
       updates.push({ service, desiredCount });
       const found = services.find((s) => s.name === service);
       if (found) found.desiredCount = desiredCount;
@@ -100,6 +103,23 @@ describe("scaleUpServices (ADR 0016 D-6)", () => {
 
     expect(result.scaled).toEqual([]);
     expect(ecs.updates).toEqual([]);
+  });
+
+  it("1 サービスの引き上げ失敗が他のサービスと観測結果を巻き添えにしない", async () => {
+    const ecs = fakeEcs(
+      [
+        { name: "sfu-evt-1", desiredCount: 0, runningCount: 0 },
+        { name: "captionworker-evt-1", desiredCount: 0, runningCount: 0 },
+      ],
+      ["sfu-evt-1"],
+    );
+    const statuses = await readServiceStatuses(ecs, names);
+    const result = await scaleUpServices(ecs, names, statuses, allOne);
+
+    expect(result.failures.map((f) => f.name)).toEqual(["sfu-evt-1"]);
+    expect(result.scaled).toEqual(["captionworker-evt-1"]);
+    // 観測結果は 2 件とも残る (管理画面の進捗カードが空にならない)。
+    expect(result.statuses.map((s) => s.desiredCount)).toEqual([0, 1]);
   });
 
   it("まだ存在しないサービス (CFN 作成途中) は次 tick に持ち越す", async () => {

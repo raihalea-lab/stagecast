@@ -237,9 +237,11 @@ async function deps(): Promise<HandlerDeps> {
   const ecsLike: EcsLike = {
     describeServices: async (cluster, services) => {
       // 存在しないサービスは failures に入るだけで例外にはならない (= 作成途中を素通りできる)。
+      // 破棄直後は同名の INACTIVE/DRAINING な残骸が返ることがあり、これを「存在する」と
+      // 扱うと UpdateService が ECS に拒否されるので ACTIVE だけを採用する。
       const res = await ecs.send(new DescribeServicesCommand({ cluster, services }));
       return (res.services ?? []).flatMap((svc) =>
-        svc.serviceName
+        svc.serviceName && svc.status === "ACTIVE"
           ? [
               {
                 name: svc.serviceName,
@@ -475,7 +477,8 @@ function makeExecutor(): ReconcileExecutor {
         // Express を要求したのに STANDARD で返ってきたら、パラメータが黙って落ちている
         // (SDK / リージョン未対応)。「速くならないが成功する」状態に気づけるよう警告する。
         onObserve: (o) => {
-          if (expressMode && o.deploymentMode && o.deploymentMode !== "EXPRESS") {
+          // DeploymentConfig ごと返ってこない (= パラメータが落ちた) 場合も検知対象。
+          if (expressMode && o.deploymentMode !== "EXPRESS") {
             log.warn("express mode not applied", {
               stackName: o.stackName,
               deploymentMode: o.deploymentMode,
@@ -552,8 +555,11 @@ async function observeAndScale(
   if (!scaleUp) return observed;
   // ADR 0017 D-2: 字幕不要なイベントの CaptionWorker=0 は意図した 0 なので引き上げない。
   const targets = { [names.sfu]: 1, [names.captionWorker]: captionEnabled ? 1 : 0 };
-  const { scaled, statuses } = await scaleUpServices(ecs, names, observed, targets);
+  const { scaled, failures, statuses } = await scaleUpServices(ecs, names, observed, targets);
   for (const service of scaled) log.info("scaled up service", { eventId, service });
+  for (const f of failures) {
+    log.error("scale up failed", { eventId, service: f.name, error: String(f.err) });
+  }
   return statuses;
 }
 
@@ -656,8 +662,9 @@ export async function handler(
 
     // Express モードでは CREATE_IN_PROGRESS の時点で既にサービスが存在しうるので、
     // running を待たずに観測・引き上げを試みる (無ければ missing として次 tick に持ち越す)。
+    // failed / deleting は上の executePlan が既に DeleteStack を出しているので触らない。
     let services: EventProvisioningInfo["services"] = [];
-    if (a && a.kind !== "deleting") {
+    if (a && (a.kind === "running" || a.kind === "in_progress")) {
       try {
         // captionEnabled 未指定は有効扱い (reconcile.ts の toSpec と同じ既定, ADR 0017)。
         services = await observeAndScale(d.ecs, d2.eventId, wantTasks, d2.captionEnabled ?? true);
