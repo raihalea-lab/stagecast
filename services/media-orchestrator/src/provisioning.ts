@@ -65,14 +65,31 @@ export interface ProvisioningStore {
   clear(eventId: string): Promise<void>;
 }
 
-/** observedAtMs だけの差分は「変化なし」とみなす (毎 tick の無駄な書き込みを避ける, N-1)。 */
+/**
+ * observedAtMs だけの差分は「変化なし」とみなす (毎 tick の無駄な書き込みを避ける, N-1)。
+ *
+ * 比較対象の片方は DynamoDB から戻ってきた項目で、キー順は保証されない。
+ * そのため JSON 文字列化ではなくフィールドごとに突き合わせる。
+ */
 export function sameProvisioning(
   a: EventProvisioningInfo | undefined,
   b: EventProvisioningInfo,
 ): boolean {
   if (!a) return false;
-  const strip = (v: EventProvisioningInfo): string => JSON.stringify({ ...v, observedAtMs: 0 });
-  return strip(a) === strip(b);
+  if (a.phase !== b.phase) return false;
+  if (a.stackStatus !== b.stackStatus) return false;
+  if (a.mediaReady !== b.mediaReady) return false;
+  if (a.services.length !== b.services.length) return false;
+  return a.services.every((s, i) => {
+    const t = b.services[i];
+    return (
+      t !== undefined &&
+      s.name === t.name &&
+      s.desiredCount === t.desiredCount &&
+      s.runningCount === t.runningCount &&
+      Boolean(s.missing) === Boolean(t.missing)
+    );
+  });
 }
 
 export type ProvisioningOutcome =

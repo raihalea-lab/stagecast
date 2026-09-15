@@ -14,6 +14,7 @@ import {
 } from "@aws-sdk/client-cloudformation";
 import {
   CloudFormationMediaStackProvisioner,
+  type CfnProvisionerConfig,
   type CloudFormationLike,
   type DeploymentMode,
   type DescribeResult,
@@ -80,6 +81,8 @@ export interface AwsProvisionerConfig {
   roleArn?: string | undefined;
   /** CloudFormation Express モードで作成する (ADR 0020 D-1)。 */
   expressMode?: boolean | undefined;
+  /** describeStacks の観測結果 (Express が実際に効いたかの確認に使う)。 */
+  onObserve?: CfnProvisionerConfig["onObserve"];
 }
 
 /**
@@ -97,5 +100,6 @@ export function createAwsMediaStackProvisioner(
     maxPolls: config.maxPolls,
     roleArn: config.roleArn,
     expressMode: config.expressMode,
+    onObserve: config.onObserve,
   });
 }

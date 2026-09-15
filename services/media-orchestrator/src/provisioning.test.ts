@@ -4,6 +4,7 @@ import {
   computePhase,
   computeProvisioning,
   createProvisioningPublisher,
+  sameProvisioning,
   type ProvisioningInput,
   type ProvisioningStore,
 } from "./provisioning.js";
@@ -86,13 +87,44 @@ describe("computeProvisioning", () => {
   });
 });
 
+describe("sameProvisioning", () => {
+  it("キーの並び順が違っても同じ観測値とみなす (DynamoDB の項目は順序を保証しない)", () => {
+    const a = computeProvisioning(input({ stack: { kind: "running" } }), 1);
+    // DocumentClient から戻ってくる項目のようにキー順を入れ替えて復元する。
+    const shuffled = JSON.parse(
+      JSON.stringify({
+        observedAtMs: 999,
+        mediaReady: a.mediaReady,
+        services: a.services.map((s) => ({
+          runningCount: s.runningCount,
+          name: s.name,
+          desiredCount: s.desiredCount,
+        })),
+        phase: a.phase,
+      }),
+    ) as EventProvisioningInfo;
+    expect(sameProvisioning(shuffled, a)).toBe(true);
+  });
+
+  it("サービスの running 数が違えば別物とみなす", () => {
+    const a = computeProvisioning(input({ stack: { kind: "running" } }), 1);
+    const b = computeProvisioning(
+      input({ stack: { kind: "running" }, services: running(1, 0) }),
+      1,
+    );
+    expect(sameProvisioning(a, b)).toBe(false);
+  });
+});
+
 describe("createProvisioningPublisher", () => {
+  /** DynamoDB 往復を模して、書いた値とは別のオブジェクトを返す。 */
   function fakeStore(): ProvisioningStore & { written: EventProvisioningInfo[] } {
     let current: EventProvisioningInfo | undefined;
     const written: EventProvisioningInfo[] = [];
     return {
       written,
-      get: async () => current,
+      get: async () =>
+        current ? (JSON.parse(JSON.stringify(current)) as EventProvisioningInfo) : undefined,
       put: async (_id, info) => {
         current = info;
         written.push(info);

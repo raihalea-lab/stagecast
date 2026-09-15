@@ -15,6 +15,8 @@ export const CAPTION_WORKER_SERVICE = "captionworker";
 /** 観測対象サービス名の解決結果。 */
 export interface EventServiceNames {
   cluster: string;
+  sfu: string;
+  captionWorker: string;
   /** DescribeServices に渡す ECS service 名 (宣言順が管理画面の表示順になる)。 */
   services: string[];
 }
@@ -54,12 +56,13 @@ export function captionWorkerServiceName(eventId: string, sharedClusterName?: st
  * (旧実装はここに `valkey` を残していたため、存在しないサービスを毎 tick 問い合わせていた。)
  */
 export function eventServiceNames(eventId: string, sharedClusterName?: string): EventServiceNames {
+  const sfu = sfuServiceName(eventId, sharedClusterName);
+  const captionWorker = captionWorkerServiceName(eventId, sharedClusterName);
   return {
     cluster: clusterName(eventId, sharedClusterName),
-    services: [
-      sfuServiceName(eventId, sharedClusterName),
-      captionWorkerServiceName(eventId, sharedClusterName),
-    ],
+    sfu,
+    captionWorker,
+    services: [sfu, captionWorker],
   };
 }
 
@@ -94,7 +97,11 @@ export async function readServiceStatuses(
 }
 
 /**
- * ADR 0016 D-6: pending (desiredCount=0) で事前プロビジョニングしたサービスを 1 に引き上げる。
+ * ADR 0016 D-6: pending (desiredCount=0) で事前プロビジョニングしたサービスを目標数に引き上げる。
+ *
+ * `targets` はサービス名 → 目標タスク数。目標が 0 のサービスは引き上げない
+ * (ADR 0017 D-2: 字幕不要なイベントで CaptionWorker を起動しないのは意図した 0 なので、
+ * 「desiredCount=0 だから上げる」と一律に扱うとコスト削減が無効化される)。
  *
  * 引き上げたサービス名を返す。`missing` なサービス (まだ CFN が作っていない) は次の tick に任せる。
  * 戻り値の statuses は引き上げ後の desired を反映した観測値で、そのまま管理画面に出せる。
@@ -103,17 +110,19 @@ export async function scaleUpServices(
   ecs: EcsLike,
   names: EventServiceNames,
   statuses: EcsServiceStatus[],
+  targets: Record<string, number>,
 ): Promise<{ scaled: string[]; statuses: EcsServiceStatus[] }> {
   const scaled: string[] = [];
   const next: EcsServiceStatus[] = [];
   for (const s of statuses) {
-    if (s.missing || s.desiredCount !== 0) {
+    const target = targets[s.name] ?? 0;
+    if (s.missing || s.desiredCount !== 0 || target <= 0) {
       next.push(s);
       continue;
     }
-    await ecs.updateDesiredCount(names.cluster, s.name, 1);
+    await ecs.updateDesiredCount(names.cluster, s.name, target);
     scaled.push(s.name);
-    next.push({ ...s, desiredCount: 1 });
+    next.push({ ...s, desiredCount: target });
   }
   return { scaled, statuses: next };
 }

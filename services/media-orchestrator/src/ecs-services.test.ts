@@ -57,14 +57,17 @@ describe("readServiceStatuses", () => {
 });
 
 describe("scaleUpServices (ADR 0016 D-6)", () => {
+  const names = eventServiceNames("evt-1", "shared");
+  /** 字幕ありイベントの目標値。 */
+  const allOne = { [names.sfu]: 1, [names.captionWorker]: 1 };
+
   it("desiredCount=0 のサービスをすべて 1 に引き上げる", async () => {
     const ecs = fakeEcs([
       { name: "sfu-evt-1", desiredCount: 0, runningCount: 0 },
       { name: "captionworker-evt-1", desiredCount: 0, runningCount: 0 },
     ]);
-    const names = eventServiceNames("evt-1", "shared");
     const statuses = await readServiceStatuses(ecs, names);
-    const result = await scaleUpServices(ecs, names, statuses);
+    const result = await scaleUpServices(ecs, names, statuses, allOne);
 
     expect(result.scaled).toEqual(["sfu-evt-1", "captionworker-evt-1"]);
     expect(ecs.updates).toEqual([
@@ -74,11 +77,26 @@ describe("scaleUpServices (ADR 0016 D-6)", () => {
     expect(result.statuses.map((s) => s.desiredCount)).toEqual([1, 1]);
   });
 
+  it("ADR 0017 D-2: 目標 0 の CaptionWorker は引き上げない (字幕なしのコスト削減を壊さない)", async () => {
+    const ecs = fakeEcs([
+      { name: "sfu-evt-1", desiredCount: 0, runningCount: 0 },
+      { name: "captionworker-evt-1", desiredCount: 0, runningCount: 0 },
+    ]);
+    const statuses = await readServiceStatuses(ecs, names);
+    const result = await scaleUpServices(ecs, names, statuses, {
+      [names.sfu]: 1,
+      [names.captionWorker]: 0,
+    });
+
+    expect(result.scaled).toEqual(["sfu-evt-1"]);
+    expect(ecs.updates).toEqual([{ service: "sfu-evt-1", desiredCount: 1 }]);
+    expect(result.statuses.map((s) => s.desiredCount)).toEqual([1, 0]);
+  });
+
   it("既に 1 以上のサービスは触らない (冪等)", async () => {
     const ecs = fakeEcs([{ name: "sfu-evt-1", desiredCount: 1, runningCount: 1 }]);
-    const names = eventServiceNames("evt-1", "shared");
     const statuses = await readServiceStatuses(ecs, names);
-    const result = await scaleUpServices(ecs, names, statuses);
+    const result = await scaleUpServices(ecs, names, statuses, allOne);
 
     expect(result.scaled).toEqual([]);
     expect(ecs.updates).toEqual([]);
@@ -86,9 +104,8 @@ describe("scaleUpServices (ADR 0016 D-6)", () => {
 
   it("まだ存在しないサービス (CFN 作成途中) は次 tick に持ち越す", async () => {
     const ecs = fakeEcs([]);
-    const names = eventServiceNames("evt-1", "shared");
     const statuses = await readServiceStatuses(ecs, names);
-    const result = await scaleUpServices(ecs, names, statuses);
+    const result = await scaleUpServices(ecs, names, statuses, allOne);
 
     expect(result.scaled).toEqual([]);
     expect(ecs.updates).toEqual([]);
