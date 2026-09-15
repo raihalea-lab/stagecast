@@ -104,16 +104,15 @@ export function App(props: {
     () => (cognito ? new CognitoAuthClient(cognitoConfig(cognito)) : undefined),
     [cognito],
   );
-  // Cognito 使用時は期限前に refresh token で更新する (D11)。更新もできず期限も切れていれば
-  // セッション終了なのでログイン画面へ倒す。Cognito 無効時 (ローカル等) は従来どおり素読み。
+  // Cognito 使用時は期限前に refresh token で更新する (D11)。Cognito 無効時 (ローカル等) は素読み。
+  // ログイン画面へ倒すのは "expired" (refresh token が無い/失効した) のときだけ。通信断で更新に
+  // 失敗しただけならセッションは生きているので、401 エラーを見せて次の操作で復帰させる。
   const getIdToken = useCallback(async (): Promise<string | undefined> => {
     if (!authClient) return sessionStorage.getItem("stagecast.idToken") ?? undefined;
-    const tokens = await authClient.getValidToken();
-    if (!tokens) {
-      setAuth({ status: "anonymous" });
-      return undefined;
-    }
-    return tokens.idToken;
+    const result = await authClient.getValidToken();
+    if (result.status === "ok") return result.tokens.idToken;
+    if (result.status === "expired") setAuth({ status: "anonymous" });
+    return undefined;
   }, [authClient]);
 
   const client = useMemo(
@@ -180,7 +179,8 @@ export function App(props: {
           return;
         }
         // 期限切れでも refresh token が生きていればログインし直さずに復帰できる (D11)。
-        if (await authClient.getValidToken()) {
+        // 更新できなかった理由が一時的なものなら、ログイン画面に落とさず復帰に賭ける。
+        if ((await authClient.getValidToken()).status !== "expired") {
           if (!cancelled) setAuth({ status: "authenticated" });
           return;
         }
@@ -199,8 +199,8 @@ export function App(props: {
   useEffect(() => {
     if (!authClient || auth.status !== "authenticated") return;
     const timer = setInterval(() => {
-      void authClient.getValidToken().then((tokens) => {
-        if (!tokens) setAuth({ status: "anonymous" });
+      void authClient.getValidToken().then((result) => {
+        if (result.status === "expired") setAuth({ status: "anonymous" });
       });
     }, 60_000);
     return () => clearInterval(timer);

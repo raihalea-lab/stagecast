@@ -391,11 +391,18 @@ refresh は 30 日と十分に長い)。原因は admin-web 側の 2 点。
 
 - `exchangeCode` が `refresh_token` を保存するようにし、`grant_type: "refresh_token"` での更新
   (`refreshTokens`) を追加。Cognito は更新応答に `refresh_token` を含めないので既存のものを持ち越す
-- `getValidToken()` が入口。残り 5 分 (`REFRESH_LEAD_MS`) を切っていれば更新してから返し、更新できず
-  期限も切れていれば `undefined` → 呼び出し側がログイン画面へ倒す。画面から同時に API が飛んでも
-  更新は 1 回に畳む (single-flight)
-- 失効 (4xx) はトークンを捨てるが、ネットワーク断や Cognito の 5xx では捨てずに次回再試行する。
-  期限内であれば更新に失敗しても現行トークンで粘る
+- `getValidToken()` が入口。残り 5 分 (`REFRESH_LEAD_MS`) を切っていれば更新してから返す。画面から
+  同時に API が飛んでも更新は 1 回に畳む (single-flight)
+- 戻り値は `TokenLookup` (`ok` / `expired` / `unavailable`) で、**「セッションが終わった」と「今は
+  更新できない」を分ける**。ログイン画面へ倒すのは `expired` のときだけ。通信断で一度でも
+  `expired` を返すと、生きている 30 日の refresh token を捨てて再ログインさせてしまう
+- 失効 (`invalid_grant` 等の 4xx) はトークンを捨てるが、通信断・Cognito の 5xx・混雑 (408/429) は
+  捨てずに再試行する。期限内であれば更新に失敗しても現行トークンで粘る
+- 更新に失敗したら 30 秒 (`REFRESH_RETRY_COOLDOWN_MS`) は再試行しない。リード時間中は API 呼び出しの
+  たびに更新条件を満たすため、これが無いと通信断のあいだ `/oauth2/token` を叩き続けて 429 を招く
+- 応答は `parseTokenResponse` で検証してから保存する。素のキャストだと `id_token` が欠けた 200 応答で
+  `"undefined"` を保存し、正常なトークンを壊す
+- `clearTokens()` は世代カウンタを進め、進行中の更新が**ログアウト後に応答を保存し直すのを防ぐ**
 - API クライアント 3 種 (`http-client` / `http-asset-service` / `http-artifact-service`) のトークン
   供給を `TokenProvider` (非同期可) に変更。呼び出しのたびに期限を見るので、タブを放置していても
   次の操作で更新が入る。加えて `App.tsx` が 60 秒間隔で期限前更新をかける
