@@ -31,6 +31,10 @@ R12-followup-1〜22 で **stage-web から SFU への WebRTC 接続** が完了 
 > **実機確認が残作業**: ①スタック作成時間が実際に短縮されるか (CloudFormation コンソールで
 > Express 適用を確認)、②準備中→配信中でタスクが 1 になるか、③管理画面の phase が
 > `creating → starting → ready` と進むか。
+> あわせて **`DesiredEvent.captionEnabled` が未配線**のまま残っている (ADR 0017 で型に
+> 足されたきり `toDesiredEvent` が埋めておらず、`CaptionSettings` にも字幕オフの項目が無い)。
+> ADR 0020 D-2 で「目標 0 なら引き上げない」形は入れたので、字幕オフを選べるようにすれば
+> ADR 0017 D-2 のコスト削減 (-35%) が実際に効くようになる。
 
 > 🔴 **2026-09-15 追記: F-3 (スライド投影, #211 マージ済み) は実機未確認**。
 > D9 (AssetsBucket の CORS) はコード上は対応したが、**デプロイして実機で通すまでが残作業**。
