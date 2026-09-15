@@ -3,19 +3,19 @@
  * 制御 API から S3 署名付き URL を取得し、ブラウザから直接 PUT する。
  */
 import type { AssetRef } from "@stagecast/shared";
-import type { AssetService } from "./types.js";
+import type { AssetService, TokenProvider } from "./types.js";
 
 export class HttpAssetService implements AssetService {
   constructor(
     private readonly baseUrl: string,
-    private readonly getToken: () => string | undefined,
+    private readonly getToken: TokenProvider,
   ) {}
 
   async upload(
     file: { name: string; contentType: string; bytes: Uint8Array },
     tags?: string[],
   ): Promise<AssetRef> {
-    const token = this.getToken();
+    const token = await this.getToken();
     const presignRes = await fetch(`${this.baseUrl}/assets/upload-url`, {
       method: "POST",
       headers: {

@@ -25,6 +25,8 @@ export interface TokenSet {
   accessToken: string;
   /** UNIX ms。期限切れの判定に使う。 */
   expiresAtMs: number;
+  /** id/access token の更新に使う (Cognito 既定 30 日)。発行されない構成もあるので optional。 */
+  refreshToken?: string;
 }
 
 const STORAGE_KEYS = {
@@ -33,7 +35,14 @@ const STORAGE_KEYS = {
   idToken: "stagecast.idToken",
   accessToken: "stagecast.accessToken",
   expiresAt: "stagecast.expiresAt",
+  refreshToken: "stagecast.refreshToken",
 } as const;
+
+/**
+ * 期限切れの何ms前から更新をかけるか (D11)。
+ * 更新の往復と、その間に飛ぶ API 呼び出しが期限内に収まるだけの余裕を取る。
+ */
+const REFRESH_LEAD_MS = 5 * 60 * 1000;
 
 /** URL-safe Base64 (RFC 7636 §4.1)。Buffer 非依存 (ブラウザ前提)。 */
 function base64UrlEncode(bytes: ArrayBuffer | Uint8Array): string {
@@ -61,6 +70,7 @@ export interface SessionStorageLike {
 
 export class CognitoAuthClient {
   private readonly scopes: string;
+  private refreshInFlight?: Promise<TokenSet | undefined>;
 
   constructor(
     private readonly config: CognitoAuthConfig,
@@ -118,11 +128,86 @@ export class CognitoAuthClient {
       id_token: string;
       access_token: string;
       expires_in: number;
+      refresh_token?: string;
     };
     const tokens: TokenSet = {
       idToken: data.id_token,
       accessToken: data.access_token,
       expiresAtMs: Date.now() + data.expires_in * 1000,
+      refreshToken: data.refresh_token,
+    };
+    // saveTokens は refresh token を「渡されたときだけ」書くので、ログインし直しで
+    // 前のセッションのものが残らないよう先に消しておく。
+    this.storage.removeItem(STORAGE_KEYS.refreshToken);
+    this.saveTokens(tokens);
+    return tokens;
+  }
+
+  /**
+   * 期限に余裕があるトークンを返す。残りが REFRESH_LEAD_MS を切っていれば更新を試みる (D11)。
+   * 更新できず期限も切れていれば undefined -- 呼び出し側はログイン画面へ倒す。
+   */
+  async getValidToken(): Promise<TokenSet | undefined> {
+    const current = this.getTokens();
+    if (current && Date.now() < current.expiresAtMs - REFRESH_LEAD_MS) return current;
+    const refreshed = await this.refreshTokens();
+    // 更新に失敗しても期限内なら現行トークンで粘る (一時的なネットワーク断で落とさない)。
+    // 期限切れなら getTokens() が undefined なので、そのまま未認証として返る。
+    return refreshed ?? current;
+  }
+
+  /**
+   * refresh token で id/access token を更新する。更新できなければ undefined。
+   * 画面から複数の API 呼び出しが同時に走っても更新は 1 回に畳む (single-flight)。
+   */
+  async refreshTokens(): Promise<TokenSet | undefined> {
+    this.refreshInFlight ??= this.requestRefresh()
+      // 呼び出し側は「更新できたか」だけ見れば済むようにする (不正な応答等も更新失敗に倒す)。
+      .catch(() => undefined)
+      .finally(() => {
+        this.refreshInFlight = undefined;
+      });
+    return this.refreshInFlight;
+  }
+
+  private async requestRefresh(): Promise<TokenSet | undefined> {
+    const refreshToken = this.storage.getItem(STORAGE_KEYS.refreshToken);
+    if (!refreshToken) return undefined;
+    // PKCE は authorization_code 側だけの話なので code_verifier も redirect_uri も要らない。
+    const body = new URLSearchParams({
+      grant_type: "refresh_token",
+      client_id: this.config.clientId,
+      refresh_token: refreshToken,
+    });
+    let res: Response;
+    try {
+      res = await fetch(`https://${this.config.domain}/oauth2/token`, {
+        method: "POST",
+        headers: { "content-type": "application/x-www-form-urlencoded" },
+        body,
+      });
+    } catch {
+      // ネットワーク断はトークンを捨てる理由にならない。次の呼び出しで再試行する。
+      return undefined;
+    }
+    if (!res.ok) {
+      // 4xx (invalid_grant 等) は refresh token が失効/取り消し済み。持っていても無駄なので捨てる。
+      // 5xx は Cognito 側の一時障害なので残す。
+      if (res.status < 500) this.clearTokens();
+      return undefined;
+    }
+    const data = (await res.json()) as {
+      id_token: string;
+      access_token: string;
+      expires_in: number;
+      refresh_token?: string;
+    };
+    const tokens: TokenSet = {
+      idToken: data.id_token,
+      accessToken: data.access_token,
+      expiresAtMs: Date.now() + data.expires_in * 1000,
+      // Cognito は refresh 応答に refresh_token を含めない (既存のものを使い続ける) ので持ち越す。
+      refreshToken: data.refresh_token ?? refreshToken,
     };
     this.saveTokens(tokens);
     return tokens;
@@ -136,7 +221,8 @@ export class CognitoAuthClient {
     if (!idToken || !accessToken || !expiresAt) return undefined;
     const expiresAtMs = Number(expiresAt);
     if (Number.isNaN(expiresAtMs) || Date.now() >= expiresAtMs) return undefined;
-    return { idToken, accessToken, expiresAtMs };
+    const refreshToken = this.storage.getItem(STORAGE_KEYS.refreshToken) ?? undefined;
+    return { idToken, accessToken, expiresAtMs, refreshToken };
   }
 
   /** トークンを保存する。 */
@@ -144,6 +230,10 @@ export class CognitoAuthClient {
     this.storage.setItem(STORAGE_KEYS.idToken, tokens.idToken);
     this.storage.setItem(STORAGE_KEYS.accessToken, tokens.accessToken);
     this.storage.setItem(STORAGE_KEYS.expiresAt, String(tokens.expiresAtMs));
+    // 更新応答には refresh token が無いので、渡されたときだけ上書きして既存を消さない。
+    if (tokens.refreshToken) {
+      this.storage.setItem(STORAGE_KEYS.refreshToken, tokens.refreshToken);
+    }
   }
 
   /** Cognito Hosted UI のログアウト URL を返す (ブラウザはここへ遷移してセッションを切る)。 */
@@ -159,6 +249,7 @@ export class CognitoAuthClient {
     this.storage.removeItem(STORAGE_KEYS.idToken);
     this.storage.removeItem(STORAGE_KEYS.accessToken);
     this.storage.removeItem(STORAGE_KEYS.expiresAt);
+    this.storage.removeItem(STORAGE_KEYS.refreshToken);
   }
 }
 
