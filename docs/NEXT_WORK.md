@@ -381,7 +381,9 @@ refresh は 30 日と十分に長い)。原因は admin-web 側の 2 点。
 - `apps/admin-web/src/auth/cognito.ts` は `grant_type: "authorization_code"` しか実装しておらず、
   **token エンドポイントの応答から `refresh_token` を読んでいない** (レスポンスの型が
   `{id_token, access_token, expires_in}` のみ)。保存も更新もしないので 30 日の refresh token が
-  完全に死んでいる。access token が切れた時点でログイン画面に戻る
+  完全に死んでいる。期限が切れると `getTokens()` が `undefined` を返し、`Authorization` ヘッダが
+  落ちて API 呼び出しが 401 になる (画面にはエラー表示が出るだけ。`App.tsx` の auth 判定は初回
+  マウント時のみなので、ログイン画面に戻るのは再読み込みしたとき)
 - トークンの保管先が `sessionStorage` (`CognitoAuthClient` の既定引数)。**タブを閉じると消える**ので、
   有効期限内でも開き直すと再ログインになる
 
