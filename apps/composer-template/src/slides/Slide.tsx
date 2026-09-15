@@ -10,7 +10,12 @@
  * ここでは受信ページを doc.numPages でクランプするだけ。
  */
 import { useCallback, useEffect, useRef, useState } from "react";
-import { getDocument, GlobalWorkerOptions, type PDFDocumentProxy } from "pdfjs-dist";
+import {
+  getDocument,
+  GlobalWorkerOptions,
+  type PDFDocumentProxy,
+  type RenderTask,
+} from "pdfjs-dist";
 import workerUrl from "pdfjs-dist/build/pdf.worker.min.mjs?url";
 
 GlobalWorkerOptions.workerSrc = workerUrl;
@@ -28,6 +33,7 @@ interface CanvasSize {
 export function Slide({ url, page }: Props) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const observerRef = useRef<ResizeObserver | null>(null);
+  const renderTaskRef = useRef<RenderTask | null>(null);
   const [doc, setDoc] = useState<PDFDocumentProxy | null>(null);
   const [error, setError] = useState<string | undefined>();
   // 描画倍率は canvas のレイアウトサイズ基準。tile の有無で .slide-main の幅が
@@ -53,7 +59,9 @@ export function Slide({ url, page }: Props) {
     let cancelled = false;
     setError(undefined);
     setDoc(null);
-    const loadingTask = getDocument({ url });
+    // disableRange/disableStream: 署名付き GET URL は 15 分で失効するので、遅延 range 取得に
+    // しておくと後半ページの描画時に 403 になる。読み込み時に 1 回で全部取り切る。
+    const loadingTask = getDocument({ url, disableRange: true, disableStream: true });
     loadingTask.promise
       .then((d) => {
         if (cancelled) {
@@ -87,10 +95,21 @@ export function Slide({ url, page }: Props) {
       canvas.height = scaled.height;
       const ctx = canvas.getContext("2d");
       if (!ctx) return;
-      pdfPage.render({ canvas, canvasContext: ctx, viewport: scaled }).promise.catch(() => {});
+      // 同じ canvas への二重 render は pdf.js が例外にする (#canvasInUse)。ページを速く
+      // 送ったときに前ページのまま固まるので、走っている render は必ず cancel してから始める。
+      renderTaskRef.current?.cancel();
+      const task = pdfPage.render({ canvas, canvasContext: ctx, viewport: scaled });
+      renderTaskRef.current = task;
+      // cancel 時は RenderingCancelledException で reject するため握り潰す。
+      task.promise
+        .catch(() => {})
+        .finally(() => {
+          if (renderTaskRef.current === task) renderTaskRef.current = null;
+        });
     });
     return () => {
       cancelled = true;
+      renderTaskRef.current?.cancel();
     };
   }, [doc, page, size.width, size.height]);
 

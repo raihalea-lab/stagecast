@@ -15,6 +15,7 @@ import {
   type MuteRequestMessage,
   type VisibilityChangeMessage,
   type SlideDeckMessage,
+  type SlideHideMessage,
   type SlidePageMessage,
 } from "./layout-protocol.js";
 
@@ -250,7 +251,7 @@ describe("overlay-show / overlay-hide (Phase 4: QRコード/ムービー)", () =
   });
 });
 
-describe("slide-deck / slide-page (F-3, DESIGN.md 5.2)", () => {
+describe("slide-deck / slide-page / slide-hide (F-3, DESIGN.md 5.2)", () => {
   it("slide-deck が往復する", () => {
     const msg: SlideDeckMessage = {
       type: "slide-deck",
@@ -277,5 +278,10 @@ describe("slide-deck / slide-page (F-3, DESIGN.md 5.2)", () => {
   it("page が整数でない slide-page は null", () => {
     const bytes = new TextEncoder().encode(JSON.stringify({ type: "slide-page", page: 1.5 }));
     expect(decodeStageMessage(bytes)).toBeNull();
+  });
+
+  it("slide-hide が往復する", () => {
+    const msg: SlideHideMessage = { type: "slide-hide" };
+    expect(decodeStageMessage(encodeStageMessage(msg))).toEqual(msg);
   });
 });
