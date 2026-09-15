@@ -74,7 +74,13 @@ import {
   Monitor,
   MonitorOff,
   Upload,
+  X,
 } from "@stagecast/ui/icons";
+
+/** デッキ状態を配り直す間隔 (F-3)。後から起動した composer がこの間隔内で追いつく。 */
+const DECK_REPLAY_INTERVAL_MS = 15_000;
+/** 署名付き GET URL を取り直す閾値。control-api の presign は 15 分で失効する。 */
+const DECK_URL_MAX_AGE_MS = 10 * 60_000;
 
 function toParticipantInfo(
   s: ParticipantSnapshot,
@@ -154,6 +160,8 @@ export function App(props: {
   // F-3: PDF の総ページ数。stage-web が pdf.js で解決して StageController に渡す。
   const [deckTotalPages, setDeckTotalPages] = useState(1);
   const deckInputRef = useRef<HTMLInputElement>(null);
+  // 現在のデッキ URL を発行した時刻 (署名付き URL の失効前に取り直すため)。
+  const deckUrlIssuedAtRef = useRef(0);
   const [muteNotice, setMuteNotice] = useState<string | undefined>();
   const [roomState, setRoomState] = useState<RoomState>("stopped");
   const [egressState, setEgressState] = useState<EgressState>("idle");
@@ -327,14 +335,17 @@ export function App(props: {
       const totalPages = await resolvePdfPageCount(file);
 
       const { uploadUrl, key } = await client.getDeckUploadUrl(inviteToken, file.name);
-      await fetch(uploadUrl, {
+      const putRes = await fetch(uploadUrl, {
         method: "PUT",
         body: file,
         headers: { "content-type": "application/pdf" },
       });
+      // 失敗を見ずに slide-deck を配ると composer が配信画面いっぱいにエラーを出す。
+      if (!putRes.ok) throw new Error(`deck upload failed: ${putRes.status}`);
       const downloadUrl = await client.getDeckDownloadUrl(inviteToken, key);
       setDeckKey(key);
       setDeckUrl(downloadUrl);
+      deckUrlIssuedAtRef.current = Date.now();
       setDeckTotalPages(totalPages);
       // setDeck が deck を 1 ページ目に戻すので setDeckUrl より先に呼ぶ
       // (setDeckUrl は totalPages を維持する)。composer も slide-deck 受信で 1 に戻る。
@@ -344,6 +355,42 @@ export function App(props: {
     },
     [client, inviteToken, controller],
   );
+
+  // 投影中はデッキの現在状態を定期的に配り直す (F-3)。slide-deck は一度きりの broadcast で、
+  // egress composer は hidden participant なので join を検知して個別に送ることもできない。
+  // これが無いと「デッキ投入 → 配信開始」という自然な手順で composer が投影を受け取れない。
+  // composer は同じ PDF の再配布を無視するので、投影中の画面はちらつかない。
+  useEffect(() => {
+    if (!session || !inviteToken || !deckKey || !deckUrl) return;
+    let stopped = false;
+    const timer = setInterval(() => {
+      void (async () => {
+        let url = deckUrl;
+        if (Date.now() - deckUrlIssuedAtRef.current > DECK_URL_MAX_AGE_MS) {
+          url = await client.getDeckDownloadUrl(inviteToken, deckKey);
+          if (stopped) return;
+          deckUrlIssuedAtRef.current = Date.now();
+          setDeckUrl(url);
+        }
+        await controller.republishDeck(url);
+        // 失敗しても次の tick で再試行するので、配信中のバナーは出さない。
+      })().catch(() => {});
+    }, DECK_REPLAY_INTERVAL_MS);
+    return () => {
+      stopped = true;
+      clearInterval(timer);
+    };
+  }, [session, client, inviteToken, deckKey, deckUrl, controller]);
+
+  // 投影解除: composer はデッキが載っている間 slide レイアウトを固定するので、
+  // grid / 画面共有メインに戻すには明示的に解除する必要がある (F-3)。
+  const handleClearDeck = useCallback(async () => {
+    await controller.hideDeck();
+    setDeckKey(undefined);
+    setDeckUrl(undefined);
+    setDeckTotalPages(1);
+    setPage(1);
+  }, [controller]);
 
   const wrap = useCallback(
     (fn: () => Promise<unknown>) => async () => {
@@ -615,6 +662,18 @@ export function App(props: {
         >
           {deckKey.split("/").pop()}
         </span>
+      )}
+      {deckUrl && (
+        <Button
+          variant="ghost"
+          size="icon-sm"
+          disabled={busy}
+          onClick={wrap(handleClearDeck)}
+          aria-label="スライドの投影を解除"
+          title="スライドの投影を解除"
+        >
+          <X className="size-4" />
+        </Button>
       )}
       <div className="mx-1 h-6 w-px bg-line-1" aria-hidden />
       <div className="flex items-center gap-1">

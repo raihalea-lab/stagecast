@@ -13,7 +13,7 @@
  * participant 数にはカウントされない (livekit-server-sdk の egress role)。
  * よって tiles = video track を 1 個以上 publish している participant の publication 数。
  */
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Room,
   RoomEvent,
@@ -35,6 +35,21 @@ interface Props {
   token: string;
   url: string;
   initialLayout: LayoutKind;
+}
+
+/**
+ * 同じ S3 オブジェクトを指す署名付き URL かを判定する (F-3)。
+ * stage-web はデッキ状態を定期的に配り直し、署名は都度変わる。URL 文字列で比較すると
+ * その度に PDF を読み直して配信画面が一瞬空になるため、パスだけで同一性を見る。
+ */
+function isSameDeck(a: string, b: string): boolean {
+  try {
+    const ua = new URL(a);
+    const ub = new URL(b);
+    return ua.origin === ub.origin && ua.pathname === ub.pathname;
+  } catch {
+    return a === b;
+  }
 }
 
 export function Composer(props: Props) {
@@ -59,6 +74,22 @@ export function Composer(props: Props) {
   // F-3 / DESIGN.md 5.2: 事前アップロードスライド (PDF) のデッキ URL と表示ページ。
   const [slideUrl, setSlideUrl] = useState<string | undefined>(undefined);
   const [slidePage, setSlidePage] = useState(1);
+  // 再配布の判定に使う現在のデッキ URL (state 更新関数の外で同期的に読むため ref で持つ)。
+  const slideUrlRef = useRef<string | undefined>(undefined);
+
+  const applySlideDeck = useCallback((url: string) => {
+    // 同じデッキの配り直しは無視する (読み直すと配信画面がちらつく)。
+    if (slideUrlRef.current && isSameDeck(slideUrlRef.current, url)) return;
+    slideUrlRef.current = url;
+    setSlideUrl(url);
+    setSlidePage(1);
+  }, []);
+
+  const clearSlideDeck = useCallback(() => {
+    slideUrlRef.current = undefined;
+    setSlideUrl(undefined);
+    setSlidePage(1);
+  }, []);
 
   // postMessage ブリッジ: 同一 identity の DataChannel エコー問題を回避
   useEffect(() => {
@@ -118,20 +149,19 @@ export function Composer(props: Props) {
         }
       } else if (data.type === "slide-deck") {
         const d = data as { url?: string };
-        if (d.url) {
-          setSlideUrl(d.url);
-          setSlidePage(1);
-        }
+        if (d.url) applySlideDeck(d.url);
       } else if (data.type === "slide-page") {
         const d = data as { page?: number };
         if (typeof d.page === "number" && d.page >= 1) {
           setSlidePage(d.page);
         }
+      } else if (data.type === "slide-hide") {
+        clearSlideDeck();
       }
     };
     window.addEventListener("message", handleMessage);
     return () => window.removeEventListener("message", handleMessage);
-  }, []);
+  }, [applySlideDeck, clearSlideDeck]);
 
   useEffect(() => {
     let cancelled = false;
@@ -208,10 +238,12 @@ export function Composer(props: Props) {
         } else if (msg.type === "overlay-hide") {
           setOverlayState(null);
         } else if (msg.type === "slide-deck") {
-          setSlideUrl(msg.url);
-          setSlidePage(1);
+          applySlideDeck(msg.url);
         } else if (msg.type === "slide-page") {
           setSlidePage(msg.page);
+        } else if (msg.type === "slide-hide") {
+          // 投影解除。以後は通常の layout (grid / 画面共有メイン等) に戻る。
+          clearSlideDeck();
         }
       });
     // LiveKit Egress sidecar 構成 (ADR 0010 D-2) では url が ws://localhost:7880。
@@ -225,7 +257,7 @@ export function Composer(props: Props) {
       cancelled = true;
       void room.disconnect();
     };
-  }, [room, props.url, props.token]);
+  }, [room, props.url, props.token, applySlideDeck, clearSlideDeck]);
 
   // Phase 1: visibility state でフィルタ。visibility-change を一度でも受信したらフィルタ有効。
   const visibleTiles = useMemo(() => {

@@ -108,6 +108,15 @@ export interface SlidePageMessage {
   page: number;
 }
 
+/**
+ * 事前アップロードスライドの投影解除メッセージ (F-3, DESIGN.md 5.2)。
+ * composer はデッキが載っている間 slide レイアウトを固定するので、grid 等に戻すには
+ * これを送る (banner-hide / overlay-hide と同じ対)。
+ */
+export interface SlideHideMessage {
+  type: "slide-hide";
+}
+
 /** DataChannel メッセージ共用型。 */
 export type StageMessage =
   | LayoutChangeMessage
@@ -120,7 +129,8 @@ export type StageMessage =
   | OverlayShowMessage
   | OverlayHideMessage
   | SlideDeckMessage
-  | SlidePageMessage;
+  | SlidePageMessage
+  | SlideHideMessage;
 
 /** メッセージを Uint8Array にエンコードする (LiveKit publishData の引数型に合わせる)。 */
 export function encodeLayoutMessage(msg: LayoutChangeMessage): Uint8Array {
@@ -226,6 +236,9 @@ export function decodeStageMessage(payload: Uint8Array): StageMessage | null {
       slidePage >= 1
     ) {
       return obj as SlidePageMessage;
+    }
+    if (type === "slide-hide") {
+      return obj as SlideHideMessage;
     }
     return null;
   } catch {
