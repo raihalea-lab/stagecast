@@ -250,6 +250,36 @@ export class ControlPlaneStack extends Stack {
       requestWebBucket,
     );
 
+    // --- AssetsBucket の CORS (D9) ---
+    // 署名付き URL でブラウザが S3 を直接叩く経路があるため、バケット側に CORS が要る。
+    // Lambda を経由しないのがこれらの設計意図 (DESIGN.md 6.4) なので、API Gateway の
+    // corsConfiguration では代替できない。
+    //   PUT: stage-web のデッキ投入 (F-3) / admin-web の素材アップロード (Phase 4)
+    //   GET: composer-template の pdf.js 描画・オーバーレイ素材 (F-3, Phase 4)
+    // 各 SPA は別 Distribution なので origin も個別に許可する。バケットは BLOCK_ALL +
+    // 署名付き URL 前提だが、オリジンを絞っても運用上困らないので `*` は使わない。
+    // Distribution の origin は各 SPA バケットで AssetsBucket ではないため、ここで
+    // domainName を参照しても循環参照にならない。
+    assetsBucket.addCorsRule({
+      allowedMethods: [s3.HttpMethods.GET, s3.HttpMethods.PUT, s3.HttpMethods.HEAD],
+      allowedOrigins: [
+        `https://${adminWebDistribution.domainName}`,
+        `https://${stageWebDistribution.domainName}`,
+        `https://${composerWebDistribution.domainName}`,
+        // ローカル開発 (vite は 5173 から順に空きポートを取る。SPA は 4 つ)。
+        "http://localhost:5173",
+        "http://localhost:5174",
+        "http://localhost:5175",
+        "http://localhost:5176",
+      ],
+      // 署名はクエリ文字列に乗るので、プリフライトで問われるのは PUT の Content-Type だけ。
+      allowedHeaders: ["content-type"],
+      // ETag はアップロード結果の確認用。Content-Range/Accept-Ranges は pdf.js の range 取得を
+      // 将来有効に戻すとき (現在は disableRange) に要る。
+      exposedHeaders: ["ETag", "Content-Range", "Accept-Ranges"],
+      maxAge: 3600,
+    });
+
     // --- Cognito: 管理者認証 (DESIGN.md 4 表, F-12, T6) ---
     const adminUserPool = new cognito.UserPool(this, "AdminUserPool", {
       selfSignUpEnabled: false, // 管理者は招待制。自己サインアップ不可。
