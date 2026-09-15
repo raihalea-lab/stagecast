@@ -80,9 +80,9 @@ describe("deck upload service (F-3, DESIGN.md 5.2)", () => {
 
   it("rejects non-PDF content types", async () => {
     const svc = createDeckUploadService({ signer: new FakeSigner(), newId: () => "id" });
-    await expect(svc.createUploadUrl("evt-1", "slides.pptx", "application/vnd.ms-powerpoint")).rejects.toThrow(
-      "deck must be application/pdf",
-    );
+    await expect(
+      svc.createUploadUrl("evt-1", "slides.pptx", "application/vnd.ms-powerpoint"),
+    ).rejects.toThrow("deck must be application/pdf");
   });
 });
 
@@ -114,7 +114,16 @@ describe("POST /stage/decks/upload-url", () => {
         method: "POST",
         path: "/events",
         headers: adminAuth,
-        body: { title: "E", startsAt: "2026-07-01T09:00:00Z", caption: { languages: ["ja"], youtubeLanguage: "ja", engine: "transcribe", customApiEnabled: false } },
+        body: {
+          title: "E",
+          startsAt: "2026-07-01T09:00:00Z",
+          caption: {
+            languages: ["ja"],
+            youtubeLanguage: "ja",
+            engine: "transcribe",
+            customApiEnabled: false,
+          },
+        },
       }),
     );
     const eventId = (create.body as { id: string }).id;
@@ -164,7 +173,16 @@ describe("POST /stage/decks/upload-url", () => {
         method: "POST",
         path: "/events",
         headers: adminAuth,
-        body: { title: "E", startsAt: "2026-07-01T09:00:00Z", caption: { languages: ["ja"], youtubeLanguage: "ja", engine: "transcribe", customApiEnabled: false } },
+        body: {
+          title: "E",
+          startsAt: "2026-07-01T09:00:00Z",
+          caption: {
+            languages: ["ja"],
+            youtubeLanguage: "ja",
+            engine: "transcribe",
+            customApiEnabled: false,
+          },
+        },
       }),
     );
     const eventId = (create.body as { id: string }).id;
@@ -216,7 +234,16 @@ describe("POST /stage/decks/download-url", () => {
         method: "POST",
         path: "/events",
         headers: adminAuth,
-        body: { title: "E", startsAt: "2026-07-01T09:00:00Z", caption: { languages: ["ja"], youtubeLanguage: "ja", engine: "transcribe", customApiEnabled: false } },
+        body: {
+          title: "E",
+          startsAt: "2026-07-01T09:00:00Z",
+          caption: {
+            languages: ["ja"],
+            youtubeLanguage: "ja",
+            engine: "transcribe",
+            customApiEnabled: false,
+          },
+        },
       }),
     );
     const eventId = (create.body as { id: string }).id;

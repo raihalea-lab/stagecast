@@ -10,17 +10,16 @@ interface Props {
   tiles: readonly VideoTile[];
   url: string;
   page: number;
-  onTotalPages?: (total: number) => void;
 }
 
 export function SlideLayout(props: Props) {
-  const { tiles, url, page, onTotalPages } = props;
+  const { tiles, url, page } = props;
   const subs = tiles;
 
   return (
     <div className="slide-layout">
       <div className={subs.length > 0 ? "slide-main" : "slide-main--full"}>
-        <Slide url={url} page={page} onTotalPages={onTotalPages} />
+        <Slide url={url} page={page} />
       </div>
       {subs.length > 0 && (
         <div className="slide-subs">

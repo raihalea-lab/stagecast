@@ -78,7 +78,10 @@ export interface StageClient {
   createPreset(inviteToken: string, label: string, config: Preset["config"]): Promise<Preset>;
   deletePreset(inviteToken: string, presetId: string): Promise<void>;
   /** 事前アップロードスライド (PDF) のデッキ用アップロード URL を取得する (F-3, 5.2)。 */
-  getDeckUploadUrl(inviteToken: string, filename: string): Promise<{
+  getDeckUploadUrl(
+    inviteToken: string,
+    filename: string,
+  ): Promise<{
     assetId: string;
     key: string;
     uploadUrl: string;

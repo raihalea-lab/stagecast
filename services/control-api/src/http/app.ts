@@ -99,7 +99,6 @@ export function createApp(deps: AppDeps) {
     presentation,
     join,
     assets,
-    decks,
     artifacts,
     settings,
     egress,

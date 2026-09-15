@@ -214,6 +214,9 @@ importers:
       livekit-client:
         specifier: ^2.19.2
         version: 2.19.2(@types/dom-mediacapture-record@1.0.22)
+      pdfjs-dist:
+        specifier: ^6.3.289
+        version: 6.3.289
       react:
         specifier: ^19.2.7
         version: 19.2.7
@@ -7222,7 +7225,7 @@ snapshots:
 
   vite@8.0.16(@types/node@25.9.2)(esbuild@0.28.1)(jiti@1.21.7)(tsx@4.22.4):
     dependencies:
-      lightningcss: 1.32.0
+      lightningcss: 1.33.0
       picomatch: 4.0.4
       postcss: 8.5.15
       rolldown: 1.0.3

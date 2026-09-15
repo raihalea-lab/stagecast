@@ -59,7 +59,6 @@ export function Composer(props: Props) {
   // F-3 / DESIGN.md 5.2: 事前アップロードスライド (PDF) のデッキ URL と表示ページ。
   const [slideUrl, setSlideUrl] = useState<string | undefined>(undefined);
   const [slidePage, setSlidePage] = useState(1);
-  const [slideTotalPages, setSlideTotalPages] = useState(1);
 
   // postMessage ブリッジ: 同一 identity の DataChannel エコー問題を回避
   useEffect(() => {
@@ -245,14 +244,7 @@ export function Composer(props: Props) {
     }
     // F-3 / DESIGN.md 5.2: 事前アップロードスライドが読み込まれていれば slide を main に表示。
     if (slideUrl) {
-      return (
-        <SlideLayout
-          tiles={visibleTiles}
-          url={slideUrl}
-          page={slidePage}
-          onTotalPages={setSlideTotalPages}
-        />
-      );
+      return <SlideLayout tiles={visibleTiles} url={slideUrl} page={slidePage} />;
     }
     if (visibleTiles.length === 0) {
       return <WaitingScreen />;

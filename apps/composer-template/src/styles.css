@@ -274,7 +274,12 @@ body,
   background: #000;
   overflow: hidden;
 }
+/* スケール計算は canvas.clientWidth/Height を基準にするため (slides/Slide.tsx)、
+   canvas のレイアウトサイズを親 (.slide-main) いっぱいに広げる。これが無いと
+   canvas 既定の 300x150 を基準に描画され、1280x720 出力でスライドが極端に小さくなる。 */
 .slide-canvas {
+  width: 100%;
+  height: 100%;
   max-width: 100%;
   max-height: 100%;
   object-fit: contain;

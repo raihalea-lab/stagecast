@@ -111,6 +111,28 @@ describe("StageController (DESIGN.md 4.1, F-1, F-3)", () => {
     expect(msg).toEqual({ type: "slide-deck", url: "https://signed/deck.pdf" });
   });
 
+  it("setDeck で入れた総ページ数は setDeckUrl 後も維持される (F-3, 5.2)", async () => {
+    const room = new FakeRoomConnector();
+    const ctrl = new StageController(new FakeStageClient(speakerJoin), room);
+    await ctrl.join("token");
+    // stage-web は pdf.js で総ページ数を解決してから deck URL を配る (App.tsx handleUploadDeck)。
+    ctrl.setDeck(4);
+    await ctrl.setDeckUrl("https://signed/deck.pdf");
+    expect(ctrl.slideDeck).toEqual({ page: 1, totalPages: 4 });
+    expect(await ctrl.slideNext()).toBe(2);
+  });
+
+  it("新しいデッキを入れるとページは 1 に戻る (F-3, 5.2)", async () => {
+    const room = new FakeRoomConnector();
+    const ctrl = new StageController(new FakeStageClient(speakerJoin), room);
+    await ctrl.join("token");
+    ctrl.setDeck(4);
+    expect(await ctrl.slideNext()).toBe(2);
+    ctrl.setDeck(2);
+    await ctrl.setDeckUrl("https://signed/deck2.pdf");
+    expect(ctrl.slideDeck).toEqual({ page: 1, totalPages: 2 });
+  });
+
   it("allows a moderator to publish (D8: 進行補助 + メディア制御)", async () => {
     const room = new FakeRoomConnector();
     const ctrl = new StageController(
