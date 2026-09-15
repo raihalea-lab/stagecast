@@ -566,10 +566,16 @@ export class ControlPlaneStack extends Stack {
       "POST /presentation/speakers/{speakerId}",
       "POST /stage/assets",
       "POST /stage/assets/download-url",
+      // 事前アップロードスライド (PDF) のデッキ (F-3, DESIGN.md 5.2)。
+      // control-api 側で invite-token を検証し、moderator 以外は 403 で弾く。
+      "POST /stage/decks/upload-url",
+      "POST /stage/decks/download-url",
       "POST /stage/presets",
       "POST /stage/presets/list",
       "DELETE /stage/presets/{presetId}",
       "POST /event-requests",
+      // request-web のトップが認証なしで叩く (App.tsx の pending リクエスト一覧)。
+      "GET /event-requests/public",
       "GET /events/public",
       "OPTIONS /{proxy+}",
     ]) {
