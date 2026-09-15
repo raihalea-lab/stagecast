@@ -25,6 +25,13 @@ R12-followup-1〜22 で **stage-web から SFU への WebRTC 接続** が完了 
 
 ### 🔥 すぐやる (1〜3 日以内)
 
+> 🟢 **2026-09-15 追記: ADR 0020 (CloudFormation Express モード + 起動進捗の可視化) を実装**。
+> スタック作成を Express 化し、CaptionWorker の service 名不一致で pending→live のタスク
+> 引き上げが起きていなかったバグを修正、管理画面に「配信インフラ」カードを追加した。
+> **実機確認が残作業**: ①スタック作成時間が実際に短縮されるか (CloudFormation コンソールで
+> Express 適用を確認)、②準備中→配信中でタスクが 1 になるか、③管理画面の phase が
+> `creating → starting → ready` と進むか。
+
 > 🔴 **2026-09-15 追記: F-3 (スライド投影, #211 マージ済み) は実機未確認**。
 > D9 (AssetsBucket の CORS) はコード上は対応したが、**デプロイして実機で通すまでが残作業**。
 > 手順は下の **D9** を参照。あわせて composer の描画サイズ (1280x720 出力でスライドが

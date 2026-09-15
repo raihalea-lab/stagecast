@@ -5,7 +5,14 @@
  * admin-web は OpenStageButton で stage-web を開くだけ。
  */
 import { useCallback, useEffect, useState } from "react";
-import type { AssetMetadata, EventDefinition, EventStatus, InvitedRole } from "@stagecast/shared";
+import type {
+  AssetMetadata,
+  EventDefinition,
+  EventProvisioningInfo,
+  EventStatus,
+  InvitedRole,
+  ProvisioningPhase,
+} from "@stagecast/shared";
 import type {
   Artifact,
   ArtifactService,
@@ -39,7 +46,133 @@ import {
   TabsList,
   TabsTrigger,
 } from "@stagecast/ui";
-import { Download, ExternalLink, File, Image, Tag, Trash2, Upload, X } from "@stagecast/ui/icons";
+import {
+  Download,
+  ExternalLink,
+  File,
+  Image,
+  Server,
+  Tag,
+  Trash2,
+  Upload,
+  X,
+} from "@stagecast/ui/icons";
+
+/** 起動途中のあいだだけ events を再取得する間隔。 */
+const PROVISIONING_POLL_MS = 5000;
+
+const PHASE_LABEL: Record<ProvisioningPhase, string> = {
+  none: "未作成",
+  creating: "スタック作成中",
+  starting: "タスク起動中",
+  ready: "準備完了",
+  failed: "作成失敗",
+  deleting: "破棄中",
+};
+
+const PHASE_VARIANT: Record<ProvisioningPhase, "muted" | "loading" | "warmup" | "ok" | "warn"> = {
+  none: "muted",
+  creating: "loading",
+  starting: "warmup",
+  ready: "ok",
+  failed: "warn",
+  deleting: "loading",
+};
+
+const PHASE_HINT: Record<ProvisioningPhase, string> = {
+  none: "配信予定にすると CloudFormation スタックの作成が始まります。",
+  creating: "CloudFormation がスタックを作成しています。",
+  starting: "スタックは完成しました。ECS タスクの起動と LiveKit URL の確定を待っています。",
+  ready: "メディア層の準備が完了しました。配信を開始できます。",
+  failed: "スタックの作成に失敗しました。次の調整ループで作り直されます。",
+  deleting: "スタックを破棄しています。",
+};
+
+/**
+ * メディア層の起動進捗カード (ADR 0020 D-3)。
+ *
+ * CloudFormation Express モード (ADR 0020 D-1) では CREATE_COMPLETE が「タスクが動いている」
+ * ことを意味しないため、スタックの状態と ECS タスクの running 数を分けて出す。
+ * 進行中のあいだだけポーリングし、準備完了になったら止める。
+ */
+function ProvisioningCard(props: {
+  client: ControlApiClient;
+  eventId: string;
+  eventStatus: EventStatus;
+  initial?: EventProvisioningInfo;
+}) {
+  const { client, eventId, eventStatus } = props;
+  const [info, setInfo] = useState<EventProvisioningInfo | undefined>(props.initial);
+
+  // draft/ended はスタックを持たないのでポーリングしない。準備完了に達したらそこで止める。
+  const active = eventStatus !== "draft" && eventStatus !== "ended" && info?.phase !== "ready";
+
+  useEffect(() => {
+    if (!active) return;
+    let cancelled = false;
+    const tick = async () => {
+      try {
+        const latest = await client.getEvent(eventId);
+        if (!cancelled) setInfo(latest.provisioning);
+      } catch {
+        // 一時的な取得失敗は次の tick で回復する (進捗表示のためだけの読み取り)。
+      }
+    };
+    void tick();
+    const timer = setInterval(() => void tick(), PROVISIONING_POLL_MS);
+    return () => {
+      cancelled = true;
+      clearInterval(timer);
+    };
+  }, [active, client, eventId]);
+
+  if (eventStatus === "draft" || eventStatus === "ended") return null;
+
+  const phase: ProvisioningPhase = info?.phase ?? "none";
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2 text-base">
+          <Server className="size-4" />
+          配信インフラ
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        <div className="flex items-center gap-3">
+          <StatusPill variant={PHASE_VARIANT[phase]}>{PHASE_LABEL[phase]}</StatusPill>
+          {info?.stackStatus && (
+            <code className="text-xs text-text-secondary">{info.stackStatus}</code>
+          )}
+        </div>
+        <p className="text-sm text-text-secondary">{PHASE_HINT[phase]}</p>
+
+        {info && info.services.length > 0 && (
+          <ul className="space-y-2">
+            {info.services.map((svc) => (
+              <li
+                key={svc.name}
+                className="flex items-center justify-between rounded-md border border-line-1 px-3 py-2 text-sm"
+              >
+                <code className="text-xs text-text-primary">{svc.name}</code>
+                <span className="text-text-secondary">
+                  {svc.missing ? "未作成" : `タスク ${svc.runningCount} / ${svc.desiredCount}`}
+                </span>
+              </li>
+            ))}
+          </ul>
+        )}
+
+        {info && (
+          <p className="text-xs text-text-tertiary">
+            LiveKit URL: {info.mediaReady ? "確定済み" : "未確定"} ／ 最終確認{" "}
+            {new Date(info.observedAtMs).toLocaleTimeString()}
+          </p>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
 
 const TRANSITIONS: Record<
   EventStatus,
@@ -533,6 +666,13 @@ export function EventDetail(props: {
         </TabsList>
 
         <TabsContent value="setup" className="space-y-6 pt-4">
+          <ProvisioningCard
+            client={client}
+            eventId={event.id}
+            eventStatus={event.status}
+            {...(event.provisioning ? { initial: event.provisioning } : {})}
+          />
+
           <Card>
             <CardHeader>
               <CardTitle className="flex items-center gap-2 text-base">

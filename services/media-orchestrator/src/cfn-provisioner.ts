@@ -16,8 +16,18 @@ export interface StackOutput {
   OutputValue?: string | undefined;
 }
 export interface DescribeResult {
-  Stacks?: { StackStatus?: string | undefined; Outputs?: StackOutput[] | undefined }[] | undefined;
+  Stacks?:
+    | {
+        StackStatus?: string | undefined;
+        /** 実際に適用されたデプロイモード (ADR 0020 D-1 の効き目確認用)。 */
+        DeploymentMode?: string | undefined;
+        Outputs?: StackOutput[] | undefined;
+      }[]
+    | undefined;
 }
+
+/** CloudFormation のデプロイモード (ADR 0020 D-1)。 */
+export type DeploymentMode = "EXPRESS" | "STANDARD";
 
 /** CloudFormation の最小サブセット。 */
 export interface CloudFormationLike {
@@ -27,6 +37,8 @@ export interface CloudFormationLike {
     Capabilities?: string[] | undefined;
     /** CFN サービスロール ARN (R5)。指定時 CFN はこのロールでリソースを作成する。 */
     RoleARN?: string | undefined;
+    /** Express モード (ADR 0020 D-1)。未指定は CFN 既定の STANDARD。 */
+    DeploymentMode?: DeploymentMode | undefined;
   }): Promise<{ StackId?: string | undefined }>;
   deleteStack(input: { StackName: string }): Promise<void>;
   describeStacks(input: { StackName: string }): Promise<DescribeResult>;
@@ -40,6 +52,13 @@ export interface CfnProvisionerConfig {
   stackName: (eventId: string) => string;
   /** CFN サービスロール ARN (R5)。createStack の RoleARN に渡す。 */
   roleArn?: string | undefined;
+  /**
+   * CloudFormation Express モードでスタックを作成する (ADR 0020 D-1)。
+   * リソースが「設定適用済み」になった時点で完了扱いになり、作成が大幅に速くなる。
+   * 代わりに CREATE_COMPLETE は「タスクが動いている」ことを保証しないので、
+   * 実際の起動完了は ECS の running 数で別途観測する (ADR 0020 D-3)。
+   */
+  expressMode?: boolean | undefined;
   /** 完了待ちのポーリング間隔・最大回数 (テストでは 0/1)。 */
   pollIntervalMs?: number | undefined;
   maxPolls?: number | undefined;
@@ -92,6 +111,9 @@ export class CloudFormationMediaStackProvisioner implements MediaStackProvisione
       TemplateBody: await this.config.renderTemplate(spec),
       Capabilities: ["CAPABILITY_IAM", "CAPABILITY_NAMED_IAM"],
       ...(this.config.roleArn ? { RoleARN: this.config.roleArn } : {}),
+      // 破棄側 (deleteStack) は Express にしない: 削除完了の報告が実際の破棄より先行すると、
+      // 直後の作り直しが「まだ消えていない ECS サービス」と名前衝突する (ADR 0020 D-1)。
+      ...(this.config.expressMode ? { DeploymentMode: "EXPRESS" as const } : {}),
     });
     const outputs = await this.waitForComplete(stackName);
     return {
