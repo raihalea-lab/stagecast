@@ -47,6 +47,12 @@ class FakeStageClient implements StageClient {
     };
   }
   async deletePreset() {}
+  async getDeckUploadUrl() {
+    return { assetId: "deck-1", key: "assets/decks/evt-1/deck-1.pdf", uploadUrl: "https://put" };
+  }
+  async getDeckDownloadUrl() {
+    return "https://signed/deck.pdf";
+  }
 }
 
 const speakerJoin: JoinResponse = {
@@ -92,6 +98,78 @@ describe("StageController (DESIGN.md 4.1, F-1, F-3)", () => {
     expect(await ctrl.slideNext()).toBe(3);
     expect(await ctrl.slideNext()).toBe(3); // 上限でクランプ
     expect(room.slides.map((s) => s.page)).toEqual([2, 3, 3]);
+    expect(room.slides[0]?.type).toBe("slide-page");
+  });
+
+  it("setDeckUrl は slide-deck メッセージを DataChannel に送信する (F-3, 5.2)", async () => {
+    const room = new FakeRoomConnector();
+    const ctrl = new StageController(new FakeStageClient(speakerJoin), room);
+    await ctrl.join("token");
+    await ctrl.setDeckUrl("https://signed/deck.pdf");
+    expect(room.publishedData).toHaveLength(1);
+    const msg = decodeStageMessage(room.publishedData[0]!);
+    expect(msg).toEqual({ type: "slide-deck", url: "https://signed/deck.pdf" });
+  });
+
+  it("setDeck で入れた総ページ数は setDeckUrl 後も維持される (F-3, 5.2)", async () => {
+    const room = new FakeRoomConnector();
+    const ctrl = new StageController(new FakeStageClient(speakerJoin), room);
+    await ctrl.join("token");
+    // stage-web は pdf.js で総ページ数を解決してから deck URL を配る (App.tsx handleUploadDeck)。
+    ctrl.setDeck(4);
+    await ctrl.setDeckUrl("https://signed/deck.pdf");
+    expect(ctrl.slideDeck).toEqual({ page: 1, totalPages: 4 });
+    expect(await ctrl.slideNext()).toBe(2);
+  });
+
+  it("hideDeck は slide-hide を broadcast して投影状態を捨てる (F-3, 5.2)", async () => {
+    const room = new FakeRoomConnector();
+    const ctrl = new StageController(new FakeStageClient(speakerJoin), room);
+    await ctrl.join("token");
+    ctrl.setDeck(3);
+    await ctrl.setDeckUrl("https://signed/deck.pdf");
+    await ctrl.hideDeck();
+    expect(decodeStageMessage(room.publishedData.at(-1)!)).toEqual({ type: "slide-hide" });
+    expect(ctrl.slideDeck).toEqual({ page: 1, totalPages: 1 });
+  });
+
+  it("republishDeck は後から来た participant 向けに URL と現在ページを配り直す (F-3, 5.2)", async () => {
+    const room = new FakeRoomConnector();
+    const ctrl = new StageController(new FakeStageClient(speakerJoin), room);
+    await ctrl.join("token");
+    ctrl.setDeck(3);
+    await ctrl.setDeckUrl("https://signed/deck.pdf");
+    expect(await ctrl.slideNext()).toBe(2);
+
+    await ctrl.republishDeck("https://signed/deck.pdf?renewed");
+    expect(decodeStageMessage(room.publishedData.at(-1)!)).toEqual({
+      type: "slide-deck",
+      url: "https://signed/deck.pdf?renewed",
+    });
+    // composer は slide-deck で 1 ページ目に戻るので、現在ページを追送する。
+    expect(room.slides.at(-1)).toEqual({ type: "slide-page", page: 2 });
+    expect(ctrl.slideDeck).toEqual({ page: 2, totalPages: 3 });
+  });
+
+  it("1 ページ目を投影中の republishDeck は余計な slide-page を送らない (F-3, 5.2)", async () => {
+    const room = new FakeRoomConnector();
+    const ctrl = new StageController(new FakeStageClient(speakerJoin), room);
+    await ctrl.join("token");
+    ctrl.setDeck(3);
+    await ctrl.setDeckUrl("https://signed/deck.pdf");
+    await ctrl.republishDeck("https://signed/deck.pdf?renewed");
+    expect(room.slides).toHaveLength(0);
+  });
+
+  it("新しいデッキを入れるとページは 1 に戻る (F-3, 5.2)", async () => {
+    const room = new FakeRoomConnector();
+    const ctrl = new StageController(new FakeStageClient(speakerJoin), room);
+    await ctrl.join("token");
+    ctrl.setDeck(4);
+    expect(await ctrl.slideNext()).toBe(2);
+    ctrl.setDeck(2);
+    await ctrl.setDeckUrl("https://signed/deck2.pdf");
+    expect(ctrl.slideDeck).toEqual({ page: 1, totalPages: 2 });
   });
 
   it("allows a moderator to publish (D8: 進行補助 + メディア制御)", async () => {

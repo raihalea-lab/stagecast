@@ -24,6 +24,7 @@ import type { createInviteService } from "../usecases/invites.js";
 import type { createPresentationService } from "../usecases/presentation.js";
 import { ServiceUnavailableError, type createJoinService } from "../usecases/join.js";
 import type { createAssetUploadService } from "../assets/asset-upload.js";
+import type { createDeckUploadService } from "../assets/asset-upload.js";
 import type { createArtifactDownloadService } from "../assets/artifact-download.js";
 import type { AdminTokenService } from "../usecases/admin-token.js";
 import type { EgressService } from "../usecases/egress.js";
@@ -51,6 +52,7 @@ type InviteService = ReturnType<typeof createInviteService>;
 type PresentationService = ReturnType<typeof createPresentationService>;
 type JoinService = ReturnType<typeof createJoinService>;
 type AssetUploadService = ReturnType<typeof createAssetUploadService>;
+type DeckUploadService = ReturnType<typeof createDeckUploadService>;
 type ArtifactDownloadService = ReturnType<typeof createArtifactDownloadService>;
 
 export interface AppDeps {
@@ -61,6 +63,8 @@ export interface AppDeps {
   join: JoinService;
   /** 素材アップロード署名サービス (S3 未設定なら省略され 503)。 */
   assets?: AssetUploadService;
+  /** 事前アップロードスライド (PDF) のデッキ用アップロード署名サービス (F-3, 5.2)。 */
+  decks?: DeckUploadService;
   /** 成果物ダウンロードサービス (S3 未設定なら省略され 503)。 */
   artifacts?: ArtifactDownloadService;
   /** 運用設定 (LiveKit / YouTube 認証情報) 管理 (Secrets Manager 未設定なら省略され 503)。 */
@@ -232,6 +236,41 @@ export function createApp(deps: AppDeps) {
       // ponytail: 全件 list の線形探索。ライブラリが数百件を超えたら assetKey 引きの get を足す。
       const known = (await deps.assetMetadataRepo.list()).some((a) => a.assetKey === assetKey);
       if (!known) return json(404, { error: "asset not found" });
+      const downloadUrl = await deps.artifactStore.presignGet(assetKey);
+      return json(200, { downloadUrl });
+    }
+
+    // 公開: stage-web からデッキ (事前アップロードスライド PDF) のアップロード URL 取得
+    // (invite-token 認証, F-3, DESIGN.md 5.2)。`assets/decks/{eventId}/` 配下に PDF のみ許可。
+    if (req.method === "POST" && req.path === "/stage/decks/upload-url") {
+      if (!deps.decks) throw new ServiceUnavailableError("deck storage not configured");
+      const inviteToken = String(body.inviteToken ?? "");
+      const verified = await invites.verify(inviteToken);
+      if (!verified.valid) return json(401, { ok: false, reason: verified.reason });
+      if (verified.role !== "moderator") {
+        return json(403, { error: "only moderator can upload decks" });
+      }
+      const filename = String(body.filename ?? "deck.pdf");
+      const contentType = String(body.contentType ?? "application/pdf");
+      const result = await deps.decks.createUploadUrl(verified.eventId, filename, contentType);
+      return json(201, result);
+    }
+
+    // 公開: stage-web からデッキ (PDF) のダウンロード URL 取得 (invite-token 認証, F-3, 5.2)。
+    // composer-template が署名付き GET URL から pdf.js で描画するために使う。
+    if (req.method === "POST" && req.path === "/stage/decks/download-url") {
+      if (!deps.artifactStore) throw new ServiceUnavailableError("deck storage not configured");
+      const inviteToken = String(body.inviteToken ?? "");
+      const verified = await invites.verify(inviteToken);
+      if (!verified.valid) return json(401, { ok: false, reason: verified.reason });
+      if (verified.role !== "moderator") {
+        return json(403, { error: "only moderator can access decks" });
+      }
+      const assetKey = String(body.assetKey ?? "");
+      if (!assetKey) return json(400, { error: "assetKey is required" });
+      // デッキプレフィックス配下のキーだけ presign する (任意キーを許すと他イベントの素材を取得できる)。
+      const prefix = `assets/decks/${verified.eventId}/`;
+      if (!assetKey.startsWith(prefix)) return json(404, { error: "deck not found" });
       const downloadUrl = await deps.artifactStore.presignGet(assetKey);
       return json(200, { downloadUrl });
     }

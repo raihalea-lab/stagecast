@@ -11,7 +11,7 @@ import type { PreferredDevices } from "./devices.js";
 
 /** スライド送りのデータメッセージ (事前アップロード方式・5.2)。 */
 export interface SlideMessage {
-  type: "slide";
+  type: "slide-page";
   page: number;
 }
 
