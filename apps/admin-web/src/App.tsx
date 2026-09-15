@@ -104,11 +104,17 @@ export function App(props: {
     () => (cognito ? new CognitoAuthClient(cognitoConfig(cognito)) : undefined),
     [cognito],
   );
-  const getIdToken = useCallback(
-    (): string | undefined =>
-      authClient?.getTokens()?.idToken ?? sessionStorage.getItem("stagecast.idToken") ?? undefined,
-    [authClient],
-  );
+  // Cognito 使用時は期限前に refresh token で更新する (D11)。更新もできず期限も切れていれば
+  // セッション終了なのでログイン画面へ倒す。Cognito 無効時 (ローカル等) は従来どおり素読み。
+  const getIdToken = useCallback(async (): Promise<string | undefined> => {
+    if (!authClient) return sessionStorage.getItem("stagecast.idToken") ?? undefined;
+    const tokens = await authClient.getValidToken();
+    if (!tokens) {
+      setAuth({ status: "anonymous" });
+      return undefined;
+    }
+    return tokens.idToken;
+  }, [authClient]);
 
   const client = useMemo(
     () => props.client ?? new HttpControlApiClient(apiBaseUrl, getIdToken),
@@ -173,7 +179,8 @@ export function App(props: {
           if (!cancelled) setAuth({ status: "authenticated" });
           return;
         }
-        if (authClient.getTokens()) {
+        // 期限切れでも refresh token が生きていればログインし直さずに復帰できる (D11)。
+        if (await authClient.getValidToken()) {
           if (!cancelled) setAuth({ status: "authenticated" });
           return;
         }
@@ -186,6 +193,18 @@ export function App(props: {
       cancelled = true;
     };
   }, [authClient]);
+
+  // 放置中も期限前に更新しておく (D11)。API 呼び出し時にも更新は走るが、そちらは待ち時間になる。
+  // タイマーはタブ非アクティブ時に絞られるため、期限そのものの判定は getValidToken 側に任せる。
+  useEffect(() => {
+    if (!authClient || auth.status !== "authenticated") return;
+    const timer = setInterval(() => {
+      void authClient.getValidToken().then((tokens) => {
+        if (!tokens) setAuth({ status: "anonymous" });
+      });
+    }, 60_000);
+    return () => clearInterval(timer);
+  }, [authClient, auth.status]);
 
   const refresh = useCallback(async () => {
     const [list, reqs] = await Promise.all([

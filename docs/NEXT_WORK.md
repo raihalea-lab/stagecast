@@ -372,7 +372,7 @@ F-3 のデッキ 2 ルートと `GET /event-requests/public` の登録が漏れ�
 ルーターが if チェーンである限り静的には検出できないので、`app.ts` のルート定義をテーブル化して
 一覧を生成できる形にするところまでやるかは別途判断する。
 
-### D11. admin-web のログインが頻繁に切れる (refresh token 未実装)
+### D11. admin-web のログインが頻繁に切れる (refresh token 未実装) ✅ コード対応済み (要デプロイ)
 
 管理コンソールを開き直すたび、また 6 時間ごとに Cognito のログインからやり直しになる。
 **Cognito 側の有効期限設定の問題ではない** (`control-plane-stack.ts:320-322` で access/id は 6 時間、
@@ -387,9 +387,22 @@ refresh は 30 日と十分に長い)。原因は admin-web 側の 2 点。
 - トークンの保管先が `sessionStorage` (`CognitoAuthClient` の既定引数)。**タブを閉じると消える**ので、
   有効期限内でも開き直すと再ログインになる
 
-案: `exchangeCode` で `refresh_token` も保存し、`grant_type: "refresh_token"` での更新を実装する。
-期限切れ前 (例: 残り 5 分) に更新をかけ、失敗したらログインへ。保管先を `localStorage` に変えるかは
-XSS 時の被害範囲と引き換えなので、まず refresh token の実装だけで体感が改善するか見る。
+対応 (`apps/admin-web/src/auth/cognito.ts`):
+
+- `exchangeCode` が `refresh_token` を保存するようにし、`grant_type: "refresh_token"` での更新
+  (`refreshTokens`) を追加。Cognito は更新応答に `refresh_token` を含めないので既存のものを持ち越す
+- `getValidToken()` が入口。残り 5 分 (`REFRESH_LEAD_MS`) を切っていれば更新してから返し、更新できず
+  期限も切れていれば `undefined` → 呼び出し側がログイン画面へ倒す。画面から同時に API が飛んでも
+  更新は 1 回に畳む (single-flight)
+- 失効 (4xx) はトークンを捨てるが、ネットワーク断や Cognito の 5xx では捨てずに次回再試行する。
+  期限内であれば更新に失敗しても現行トークンで粘る
+- API クライアント 3 種 (`http-client` / `http-asset-service` / `http-artifact-service`) のトークン
+  供給を `TokenProvider` (非同期可) に変更。呼び出しのたびに期限を見るので、タブを放置していても
+  次の操作で更新が入る。加えて `App.tsx` が 60 秒間隔で期限前更新をかける
+
+**残り**: 保管先は `sessionStorage` のままなので、**タブを閉じると再ログインになる問題は残っている**。
+`localStorage` に変えると XSS 時に refresh token (30 日) を持ち出される範囲が広がるため、まず
+refresh token の実装だけで体感が改善するかを見てから判断する。
 
 ---
 
