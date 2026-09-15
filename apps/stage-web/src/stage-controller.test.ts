@@ -1,9 +1,17 @@
 import { describe, expect, it } from "vitest";
 import { decodeStageMessage } from "@stagecast/shared";
 import { StageController } from "./stage-controller.js";
-import { FakeRoomConnector } from "./lib/room.js";
+import { FakeRoomConnector, type ParticipantSnapshot } from "./lib/room.js";
 import type { JoinResponse, StageClient } from "./api/stage-client.js";
 import type { SpeakerVisibility } from "@stagecast/shared";
+
+/** identity だけが意味を持つテスト用の participant。 */
+const p = (identity: string): ParticipantSnapshot => ({
+  identity,
+  isTalking: false,
+  isMuted: false,
+  isScreenSharing: false,
+});
 
 class FakeStageClient implements StageClient {
   readonly visibilityCalls: { eventId: string; speakerId: string; visibility: string }[] = [];
@@ -149,6 +157,26 @@ describe("StageController (DESIGN.md 4.1, F-1, F-3)", () => {
     // composer は slide-deck で 1 ページ目に戻るので、現在ページを追送する。
     expect(room.slides.at(-1)).toEqual({ type: "slide-page", page: 2 });
     expect(ctrl.slideDeck).toEqual({ page: 2, totalPages: 3 });
+  });
+
+  it("onParticipantsChanged は新しく入室した identity だけを joined で渡す (F-3, 5.2)", async () => {
+    const room = new FakeRoomConnector();
+    const ctrl = new StageController(new FakeStageClient(speakerJoin), room);
+    await ctrl.join("token");
+    const seen: string[][] = [];
+    ctrl.onParticipantsChanged((_participants, joined) => seen.push(joined));
+
+    room.emitParticipantsChanged([p("moderator"), p("speaker-1")]);
+    room.emitParticipantsChanged([p("moderator"), p("speaker-1"), p("composer-preview")]);
+    // 退出しただけの変化では joined は空になる。
+    room.emitParticipantsChanged([p("moderator"), p("composer-preview")]);
+    expect(seen).toEqual([["moderator", "speaker-1"], ["composer-preview"], []]);
+
+    // 切断後に入り直したら全員を新規として扱う (既知セットが残っていると配り直せない)。
+    ctrl.onDisconnected(() => {});
+    room.emitDisconnect();
+    room.emitParticipantsChanged([p("moderator")]);
+    expect(seen.at(-1)).toEqual(["moderator"]);
   });
 
   it("1 ページ目を投影中の republishDeck は余計な slide-page を送らない (F-3, 5.2)", async () => {
