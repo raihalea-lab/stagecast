@@ -142,11 +142,23 @@ export class StageController {
     this.deck = { page: 1, totalPages: Math.max(1, totalPages) };
   }
 
+  /**
+   * 他のクライアントが送ったページ送りを自分のデッキ状態に反映する (F-3, 5.2)。
+   * 登壇者とモデレーターのどちらがめくっても双方の「次へ」が正しい位置から動くよう、
+   * 受信側も deck.page を同期する。publish はしない (往復して無限に増える)。
+   */
+  applyRemotePage(page: number): number {
+    this.deck = goToPage(this.deck, page);
+    return this.deck.page;
+  }
+
   /** 事前アップロードスライド (PDF) のデッキ URL を composer に通知する (F-3, 5.2)。 */
   async setDeckUrl(url: string): Promise<void> {
     this.requirePublish();
     this.deck = { page: 1, totalPages: this.deck.totalPages };
-    await this.room.publishData(encodeStageMessage({ type: "slide-deck", url }));
+    await this.room.publishData(
+      encodeStageMessage({ type: "slide-deck", url, totalPages: this.deck.totalPages }),
+    );
   }
 
   /**
@@ -167,7 +179,9 @@ export class StageController {
    */
   async republishDeck(url: string): Promise<void> {
     this.requirePublish();
-    await this.room.publishData(encodeStageMessage({ type: "slide-deck", url }));
+    await this.room.publishData(
+      encodeStageMessage({ type: "slide-deck", url, totalPages: this.deck.totalPages }),
+    );
     // composer は slide-deck 受信で 1 ページ目に戻るので、現在ページを続けて送る。
     if (this.deck.page !== 1) {
       await this.room.sendSlide({ type: "slide-page", page: this.deck.page });
