@@ -99,6 +99,28 @@ export interface SlideDeckMessage {
   type: "slide-deck";
   /** 署名付き GET URL (PDF の取得先)。 */
   url: string;
+  /**
+   * PDF の総ページ数。デッキを投入したクライアントが pdf.js で解決して載せる。
+   * これが無いと受信側 (登壇者の stage-web) が「最終ページかどうか」を判断できず、
+   * 自分でめくれない (F-3, DESIGN.md 5.2)。
+   */
+  totalPages: number;
+}
+
+/**
+ * 2 つのデッキ URL が同じ PDF を指すか判定する。
+ * デッキ状態は定期的に配り直され署名は都度変わるので、URL 文字列で比較すると
+ * 受信側が同じ PDF を読み直してしまう (composer は画面がちらつき、stage-web は
+ * ページ表示が 1 に戻る)。パスだけで同一性を見る。
+ */
+export function isSameDeck(a: string, b: string): boolean {
+  try {
+    const ua = new URL(a);
+    const ub = new URL(b);
+    return ua.origin === ub.origin && ua.pathname === ub.pathname;
+  } catch {
+    return a === b;
+  }
 }
 
 /** 事前アップロードスライドのページ送りメッセージ (F-3, DESIGN.md 5.2)。 */
@@ -225,7 +247,14 @@ export function decodeStageMessage(payload: Uint8Array): StageMessage | null {
     if (type === "overlay-hide") {
       return obj as OverlayHideMessage;
     }
-    if (type === "slide-deck" && typeof (obj as { url?: unknown }).url === "string") {
+    const deckTotal = (obj as { totalPages?: unknown }).totalPages;
+    if (
+      type === "slide-deck" &&
+      typeof (obj as { url?: unknown }).url === "string" &&
+      typeof deckTotal === "number" &&
+      Number.isInteger(deckTotal) &&
+      deckTotal >= 1
+    ) {
       return obj as SlideDeckMessage;
     }
     const slidePage = (obj as { page?: unknown }).page;
