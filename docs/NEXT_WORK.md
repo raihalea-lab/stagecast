@@ -372,6 +372,23 @@ F-3 のデッキ 2 ルートと `GET /event-requests/public` の登録が漏れ�
 ルーターが if チェーンである限り静的には検出できないので、`app.ts` のルート定義をテーブル化して
 一覧を生成できる形にするところまでやるかは別途判断する。
 
+### D11. admin-web のログインが頻繁に切れる (refresh token 未実装)
+
+管理コンソールを開き直すたび、また 6 時間ごとに Cognito のログインからやり直しになる。
+**Cognito 側の有効期限設定の問題ではない** (`control-plane-stack.ts:320-322` で access/id は 6 時間、
+refresh は 30 日と十分に長い)。原因は admin-web 側の 2 点。
+
+- `apps/admin-web/src/auth/cognito.ts` は `grant_type: "authorization_code"` しか実装しておらず、
+  **token エンドポイントの応答から `refresh_token` を読んでいない** (レスポンスの型が
+  `{id_token, access_token, expires_in}` のみ)。保存も更新もしないので 30 日の refresh token が
+  完全に死んでいる。access token が切れた時点でログイン画面に戻る
+- トークンの保管先が `sessionStorage` (`CognitoAuthClient` の既定引数)。**タブを閉じると消える**ので、
+  有効期限内でも開き直すと再ログインになる
+
+案: `exchangeCode` で `refresh_token` も保存し、`grant_type: "refresh_token"` での更新を実装する。
+期限切れ前 (例: 残り 5 分) に更新をかけ、失敗したらログインへ。保管先を `localStorage` に変えるかは
+XSS 時の被害範囲と引き換えなので、まず refresh token の実装だけで体感が改善するか見る。
+
 ---
 
 ## N: Nice-to-have (UX / DX 改善・遠い未来)
