@@ -349,8 +349,9 @@ reconcile Lambda 自身は `cloudformation:*` (スタック操作) + `iam:PassRo
 `exposedHeaders: ETag / Content-Range / Accept-Ranges`。各 SPA は別 Distribution で、
 AssetsBucket はどの Distribution の origin でもないため循環参照にならない。
 
-**残: デプロイと実機確認**。ユニット/統合テストはフェイク経由で、CORS の効き目は実機でしか
-確認できない (infra テストは synth 結果に CorsConfiguration があることだけを見ている)。
+**残: デプロイと実機確認**。ユニット/統合テストはフェイク経由で、CORS が実際にブラウザで
+効くかは実機でしか確認できない (infra テストは synth 結果の CorsConfiguration に許可メソッド・
+許可ヘッダ・オリジン条件が揃っているかまでは見るが、それは静的検査どまり)。
 完了基準: 実機で (1) stage-web からデッキ PDF をアップロードできる、(2) composer-template が
 そのデッキを描画できる、(3) admin-web の素材アップロードが通る。
 
