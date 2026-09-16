@@ -731,7 +731,18 @@ RenderTemplateFunction は Lambda の中で `app.synth()` する (ADR 0023 D-1)�
 やること: `cdk.out/asset.*/index.mjs` を実際に実行して `handler()` を叩くテストを用意する
 (手順は PR #236 の検証で使ったものと同じ)。少なくとも aws-cdk-lib を上げる PR では必ず走らせる。
 
-### D16. スタックが立たない障害が無言で進行する (provision 失敗が見えない)
+### D16. スタックが立たない障害が無言で進行する (provision 失敗が見えない) ✅ 1-2 対応済み (2026-09-17)
+
+> **2026-09-17: 1 と 2 を対応**。
+>
+> - 失敗理由を `EventProvisioningInfo.error` に書き戻し、管理画面の「配信インフラ」カードに出す。
+>   スタックがまだ無くても失敗していれば `failed` を出す (従来は「未作成」に見えていた)。
+>   成功した tick では消えるので、直れば表示も消える。
+> - reconcile の失敗に CloudWatch アラーム (`stagecast-reconcile-step-error`) を追加。
+>   60 秒 tick で **2 回連続失敗**したら `OrchestratorAlarmTopic` に通知する。
+>   単発の失敗は次 tick で回復しうるので、それでは鳴らさない。
+>
+> **残: 3 のバックオフ**。1 と 2 で気づけるようになったので優先度は低い。
 
 配信開始からスタック作成までの**正常系は良い**。`control-api` が live 遷移で reconcile を直接
 invoke するので tick 待ちは無く (ADR 0015 Phase 2)、実測で `CREATE_COMPLETE` まで 55 秒、

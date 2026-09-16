@@ -168,6 +168,20 @@ function ProvisioningCard(props: {
         </div>
         <p className="text-sm text-text-secondary">{PHASE_HINT[phase]}</p>
 
+        {/*
+          失敗理由を出す (NEXT_WORK D16)。これが無いと reconcile が毎分失敗していても
+          「未作成」としか出ず、配信を始められない障害が無言で進行する。
+        */}
+        {info?.error && (
+          <div className="rounded-md border border-error/40 bg-error/10 p-3">
+            <p className="text-xs font-medium text-error">起動に失敗しています</p>
+            <code className="mt-1 block break-words text-xs text-text-secondary">{info.error}</code>
+            <p className="mt-2 text-xs text-text-tertiary">
+              次の調整ループで自動的に再試行されます。繰り返す場合は設定かデプロイを確認してください。
+            </p>
+          </div>
+        )}
+
         {info && info.services.length > 0 && (
           <ul className="space-y-2">
             {info.services.map((svc) => (

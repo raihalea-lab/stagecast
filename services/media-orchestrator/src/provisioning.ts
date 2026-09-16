@@ -23,6 +23,11 @@ export interface ProvisioningInput {
    * (desiredCount=0, ADR 0016 D-4) は false。false のときはスタック完成をもって ready とする。
    */
   wantTasks: boolean;
+  /**
+   * 直近の provision/destroy の失敗理由 (D16)。成功した tick では undefined。
+   * スタックがまだ無い状態でもこれがあれば「失敗」として見せる。
+   */
+  error?: string | undefined;
 }
 
 /** 全サービスが desired 分だけ RUNNING になっているか (desired=0 のサービスは対象外)。 */
@@ -35,7 +40,9 @@ function tasksRunning(services: EcsServiceStatus[]): boolean {
 /** 純粋関数: 観測値から phase を決める。 */
 export function computePhase(input: ProvisioningInput): ProvisioningPhase {
   const kind = input.stack?.kind;
-  if (!kind) return "none";
+  // スタックがまだ無くても、作ろうとして失敗しているなら「未作成」ではなく「失敗」。
+  // ここを none のままにすると、毎分失敗していても画面は作成待ちに見える (D16)。
+  if (!kind) return input.error ? "failed" : "none";
   if (kind === "deleting") return "deleting";
   if (kind === "failed") return "failed";
   if (kind === "in_progress") return "creating";
@@ -54,6 +61,7 @@ export function computeProvisioning(
     ...(input.stack?.status ? { stackStatus: input.stack.status } : {}),
     services: input.services,
     mediaReady: input.mediaReady,
+    ...(input.error ? { error: input.error } : {}),
     observedAtMs,
   };
 }
@@ -79,6 +87,8 @@ export function sameProvisioning(
   if (a.phase !== b.phase) return false;
   if (a.stackStatus !== b.stackStatus) return false;
   if (a.mediaReady !== b.mediaReady) return false;
+  // 失敗理由が変わった / 直ったときに書き戻されないと、画面が古い理由を出し続ける。
+  if (a.error !== b.error) return false;
   if (a.services.length !== b.services.length) return false;
   return a.services.every((s, i) => {
     const t = b.services[i];

@@ -643,3 +643,26 @@ describe("翻訳参考資料の旧バージョン期限切れ", () => {
     });
   });
 });
+
+describe("reconcile 失敗のアラーム (NEXT_WORK D16)", () => {
+  // 2026-09-16 の障害では reconcile が 13 分間毎分失敗していたのに通知が無かった。
+  // 「スタックが立たない」= 配信を開始できない、なので最優先で気づきたい。
+  it("provision/destroy の失敗にアラームがある", () => {
+    const t = synth();
+    t.hasResourceProperties("AWS::CloudWatch::Alarm", {
+      AlarmName: "stagecast-reconcile-step-error",
+      MetricName: "ReconcileStepErrors",
+      Namespace: "Stagecast/Orchestrator",
+      // 単発の失敗は次 tick で回復しうるので 2 回連続を条件にする。
+      EvaluationPeriods: 2,
+      DatapointsToAlarm: 2,
+    });
+  });
+
+  it("失敗を数えるメトリクスフィルタがある", () => {
+    const t = synth();
+    t.hasResourceProperties("AWS::Logs::MetricFilter", {
+      FilterPattern: '{ $.msg = "reconcile step" && $.status = "error" }',
+    });
+  });
+});
