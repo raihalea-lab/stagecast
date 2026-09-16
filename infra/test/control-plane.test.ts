@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { App } from "aws-cdk-lib";
 import { Match, Template } from "aws-cdk-lib/assertions";
+import { MATERIALS_PREFIX } from "@stagecast/shared";
 import { ControlPlaneStack, resolveCfnValidateWasm } from "../lib/control-plane-stack";
 
 function synth(): Template {
@@ -619,5 +620,26 @@ describe("RenderTemplateFunction の CFN 検証 WASM (aws-cdk-lib 2.269+)", () =
     const p = resolveCfnValidateWasm();
     expect(p.endsWith("bindings_wasm_bg.wasm")).toBe(true);
     expect(existsSync(p)).toBe(true);
+  });
+});
+
+describe("翻訳参考資料の旧バージョン期限切れ", () => {
+  // バケットはバージョニング有効。このルールが無いと、資料を削除しても本体が旧バージョンとして
+  // 残り続ける (= 消したつもりで消えていない)。資料は上書きしかされないので旧版に価値はない。
+  it("assets/materials/ の非現行バージョンが 1 日で消える", () => {
+    const t = synth();
+    t.hasResourceProperties("AWS::S3::Bucket", {
+      LifecycleConfiguration: {
+        Rules: Match.arrayWith([
+          Match.objectLike({
+            Id: "expire-materials-old-versions",
+            Prefix: MATERIALS_PREFIX,
+            Status: "Enabled",
+            NoncurrentVersionExpiration: { NoncurrentDays: 1 },
+            ExpiredObjectDeleteMarker: true,
+          }),
+        ]),
+      },
+    });
   });
 });
