@@ -101,3 +101,52 @@ describe("削除の完了を待つこと (Lambda の凍結対策)", () => {
     expect(ended.status).toBe("ended");
   });
 });
+
+describe("live / scheduled の副作用も完了を待つ", () => {
+  // onGoLive も onWarmupSchedule も動的 import + SDK 呼び出しなので、投げっぱなしだと
+  // cold start では特に完走しない。落ちても静かに遅延するだけなので気づけない。
+  it("onGoLive の完了後に setStatus が返る", async () => {
+    let done = false;
+    const events = createEventService({
+      repo: new MemoryEventRepository(),
+      newId: () => "evt-live",
+      now: () => 1_000_000,
+      onGoLive: async () => {
+        await new Promise((r) => setTimeout(r, 20));
+        done = true;
+      },
+    });
+    const e = await newEvent(events);
+    await events.setStatus(e.id, "live");
+    expect(done).toBe(true);
+  });
+
+  it("onWarmupSchedule の完了後に setStatus が返る", async () => {
+    let done = false;
+    const events = createEventService({
+      repo: new MemoryEventRepository(),
+      newId: () => "evt-sched",
+      now: () => 1_000_000,
+      onWarmupSchedule: async () => {
+        await new Promise((r) => setTimeout(r, 20));
+        done = true;
+      },
+    });
+    const e = await newEvent(events);
+    await events.setStatus(e.id, "scheduled");
+    expect(done).toBe(true);
+  });
+
+  it("副作用が失敗しても遷移は成功する", async () => {
+    const events = createEventService({
+      repo: new MemoryEventRepository(),
+      newId: () => "evt-boom",
+      now: () => 1_000_000,
+      onGoLive: async () => {
+        throw new Error("lambda down");
+      },
+    });
+    const e = await newEvent(events);
+    expect((await events.setStatus(e.id, "live")).status).toBe("live");
+  });
+});
