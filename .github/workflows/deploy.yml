@@ -36,7 +36,7 @@ jobs:
 
     steps:
       - uses: actions/checkout@v7
-      - uses: pnpm/action-setup@v6
+      - uses: pnpm/action-setup@v6.0.9
       - uses: voidzero-dev/setup-vp@v1
         with:
           node-version: "24"
