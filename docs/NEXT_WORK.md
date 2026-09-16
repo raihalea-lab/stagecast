@@ -504,8 +504,20 @@ refresh token の実装だけで体感が改善するかを見てから判断す
 - ✅ **`OrchestratorAlarmTopic` の購読先を用意した** (2026-09-17)。`user-config.ts` に
   `opsEmail` を設定するとメール購読が付く。**設定するまでアラームは誰にも届かない**ので、
   デプロイ前に必ず設定すること (2026-09-17 時点で実際に購読者ゼロだった)
-- 残 2: **メディア層の `AlarmTopic`** (`event-media-stack.ts`) は購読者ゼロのまま。
-  Slack webhook を使うなら `user-config.ts` に設定項目を足すところから
+- 残 2: **メディア層のアラームは購読する手段が無い**。`event-media-stack.ts` は
+  **イベントごとに新しい SNS Topic を作る**ので、コメントの「運用者が後で email/Slack を
+  購読する想定」が成立しない (イベント終了でトピックごと消える)。TaskHealth /
+  CaptionLatency / RtmpDisconnect / SinkError / TranslateError の 5 種が全部この状態。
+
+  直すなら **per-event トピックをやめ、制御層の長寿命トピックに publish する**のが筋。
+  RenderTemplateFunction は既に env を受け取っているので ARN を渡すのは容易だが、
+  **トピック側のリソースポリシーで `cloudwatch.amazonaws.com` からの publish を
+  許可する必要がある**。ここを間違えるとスタック作成が失敗し、**配信が始められなくなる**
+  (D15/D16 と同じ失敗クラス) ので、実機確認とセットで進めること。
+
+- 残 3: **`budgetEmail` が未設定**。仕組みはあるが設定されていないため、
+  月額 50 USD の 80% / 100% 通知も**誰にも届いていない** (2026-09-17 時点で購読者ゼロを確認)。
+  `infra/user-config.ts` に書くだけ (L3 とセットで対応)
 
 ### N4. 配信前リハーサル機能
 
@@ -567,8 +579,10 @@ D1-D12 の 12 PR で完了 (2026-06-24)。[ADR 0013](decisions/0013-design-syste
 
 ### L3. コスト監視と上限設定
 
-- ✅ **AWS Budgets は実装済み** (`stagecast-monthly-cost`, 既定 50 USD, ACTUAL 80% / FORECASTED 100%)。
-  通知先は専用の `CostAlarmTopic` (`budgetEmail` 指定時にメール購読が付く)
+- ✅ **AWS Budgets は実装済み** (`stagecast-monthly-cost`, 既定 50 USD, ACTUAL 80% / FORECASTED 100%)
+- ⚠️ **ただし通知先が未設定なので誰にも届いていない** (2026-09-17 に購読者ゼロを確認)。
+  `infra/user-config.ts` に `budgetEmail` を書くだけで有効になる。
+  コスト暴走を検知する仕組みが「作ってあるのに効いていない」状態なので、最優先で設定すること
 - ✅ **ended になったスタックは毎 tick の reconcile が destroy している** (`reconcile.ts`)。
   「ended 後 24h 残る」ケースは既に起きない
 - 残: **終了操作を忘れて live のまま 24h 超えたイベント**の強制 destroy。
