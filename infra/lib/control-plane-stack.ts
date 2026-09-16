@@ -84,6 +84,33 @@ export function resolveCfnValidateWasm(): string {
   return path.join(path.dirname(pkg), "bindings_wasm_bg.wasm");
 }
 
+/** RenderTemplateFunction のエントリ (テストが同じものをバンドルできるよう公開する)。 */
+export const RENDER_TEMPLATE_ENTRY = path.join(
+  __dirname,
+  "..",
+  "..",
+  "services",
+  "media-orchestrator",
+  "src",
+  "render-template-handler.ts",
+);
+
+/**
+ * ESM バンドルに CJS のグローバルを用意する banner。
+ *
+ * aws-cdk-lib は synth 中に `require` と `__dirname` を使う。ESM には無いので、
+ * これが無いと **Lambda の中でだけ** ReferenceError になる (2026-09-16 に本番で発生)。
+ * テストが同じ banner でバンドルして実行できるよう公開している (D15)。
+ */
+export const RENDER_TEMPLATE_BANNER = [
+  "import{createRequire}from'node:module';",
+  "import{fileURLToPath}from'node:url';",
+  "import{dirname}from'node:path';",
+  "const require=createRequire(import.meta.url);",
+  "const __filename=fileURLToPath(import.meta.url);",
+  "const __dirname=dirname(__filename);",
+].join("");
+
 export class ControlPlaneStack extends Stack {
   constructor(scope: Construct, id: string, props?: ControlPlaneStackProps) {
     super(scope, id, props);
@@ -883,15 +910,7 @@ export class ControlPlaneStack extends Stack {
     const cfnValidateWasmPath = resolveCfnValidateWasm();
 
     const renderTemplateFn = new lambdaNodejs.NodejsFunction(this, "RenderTemplateFunction", {
-      entry: path.join(
-        __dirname,
-        "..",
-        "..",
-        "services",
-        "media-orchestrator",
-        "src",
-        "render-template-handler.ts",
-      ),
+      entry: RENDER_TEMPLATE_ENTRY,
       handler: "handler",
       runtime: lambda.Runtime.NODEJS_24_X,
       bundling: {
@@ -901,14 +920,7 @@ export class ControlPlaneStack extends Stack {
         externalModules: ["@aws-sdk/*"],
         // ESM バンドルには CJS のグローバルが無い。aws-cdk-lib は synth 中に
         // `__dirname` 相対でファイルを読むので、shim が無いと ReferenceError で落ちる。
-        banner: [
-          "import{createRequire}from'node:module';",
-          "import{fileURLToPath}from'node:url';",
-          "import{dirname}from'node:path';",
-          "const require=createRequire(import.meta.url);",
-          "const __filename=fileURLToPath(import.meta.url);",
-          "const __dirname=dirname(__filename);",
-        ].join(""),
+        banner: RENDER_TEMPLATE_BANNER,
         commandHooks: {
           beforeBundling: () => [],
           beforeInstall: () => [],
