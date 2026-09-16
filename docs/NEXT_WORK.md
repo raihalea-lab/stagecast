@@ -706,3 +706,17 @@ ADR 0017 D-2 は「字幕が不要なイベントでは CaptionWorker を起動�
 3. `toDesiredEvent` で `captionEnabled` を埋める
 
 ADR 0023 D-2 の実装が済んでいるので、**上の 3 点だけで -35% が実際に効く**ようになる。
+
+### D15. Lambda 内 CDK synth の実行確認がどこでも走っていない
+
+RenderTemplateFunction は Lambda の中で `app.synth()` する (ADR 0023 D-1)。ここは **ESM バンドル**
+なので、aws-cdk-lib が `__dirname` 相対でファイルを読むたびに壊れる。2026-09-16 に実際に壊れた
+(2.260 → 2.269 で `CloudFormationValidatePlugin` が増え、WASM が読めず全イベントの配信開始が停止。PR #236)。
+
+痛いのは **本番でイベントを開始するまで誰も気づかない**こと。`cdk synth` も `vp run -r test` も、
+バンドルを「実行」はしないので素通りする。PR #236 で足したテストは WASM の在処しか見ていないので、
+次に aws-cdk-lib が `__dirname` 依存を増やしたらまた同じことが起きる。
+
+やること: `cdk.out/asset.*/index.mjs` を実際に import して `handler()` を叩く
+`*.integration.test.ts` を用意する (手順は PR #236 の検証で使ったものと同じ)。
+少なくとも aws-cdk-lib を上げる PR では必ず走らせる。
