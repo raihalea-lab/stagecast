@@ -334,11 +334,15 @@ aws secretsmanager update-secret --secret-id stagecast/youtube \
   - `AudioStream`(ReadableStream) に整合。string indirection を撤廃し `import type` へ (ADR 0006 D-7)。
 - 実 SDK 経路の疎通確認は R3 (Playwright) で行う。
 
-### D4. Cognito Hosted UI ドメインの衝突リスク
+### D4. Cognito Hosted UI のドメイン ✅ リスクなしと判明 (2026-09-17)
 
-現状: `stagecast-admin-{account}` で domain prefix を組む。AWS 全体で一意なので、
-他者が同じ account suffix を使った場合に衝突 (実際にはほぼ無い)。**ACM カスタムドメイン
-に切替えれば回避** (R6 でやる)。
+現状: `stagecast-admin-{account}` で domain prefix を組む (`control-plane-stack.ts`)。
+
+**衝突は起きない。** AWS アカウント ID は全世界で一意なので、他者がこの prefix を取ることは
+原理的にない。この項目は**リスクとしては閉じてよい**。
+
+カスタムドメインにしたい動機があるとすれば、衝突回避ではなく**ログイン画面の URL を
+自社ドメインにしたい (ブランディング)** ほう。必要になったら ACM + Cognito カスタムドメインで対応する。
 
 ### D5. `EventMediaStack` の Valkey serverlessCacheName が 40 文字上限 ✅ (`claude/livekit-stage3` で対応)
 
@@ -779,6 +783,30 @@ RenderTemplateFunction は Lambda の中で `app.synth()` する (ADR 0023 D-1)�
 
 やること: `cdk.out/asset.*/index.mjs` を実際に実行して `handler()` を叩くテストを用意する
 (手順は PR #236 の検証で使ったものと同じ)。少なくとも aws-cdk-lib を上げる PR では必ず走らせる。
+
+### D17. pre-push フックが CI と重複し、push に 10 分以上かかる
+
+2026-09-17 に CI を再有効化した (PR #246) 結果、`.git/hooks/pre-push` が
+**CI とまったく同じチェック** (lint → build → typecheck → test → cdk synth) を
+ローカルでも走らせる形になった。push のたびに 10 分以上待つ。
+
+フック自身のコメントも「CI (ci.yml) は一時無効化し、push 前にここで検証する」のままで、
+前提が変わったことを反映していない。
+
+**もう 1 つ、実害のある問題がある。** フックは `CDK_DEFAULT_ACCOUNT` を渡して synth するため、
+**AWS 認証が切れていると、push しようとしているコードと無関係な理由で失敗する**
+(`StackAccountRegionNotSpecified`)。CI 側は PR #246 でこれを外して直したが、フックは直していない。
+2026-09-17 の作業中に実際に踏んだ。
+
+選択肢:
+
+1. **フックを軽くする** (lint + typecheck だけ残す)。重い検証は CI に任せる。push は速くなるが、
+   壊れた状態を push してから気づく
+2. **フックをやめる**。CI が同じことをする
+3. **フックから `CDK_DEFAULT_*` を外すだけ**にして重さは許容する (最小の修正。認証切れの問題だけ消える)
+
+`.git/hooks/` はリポジトリで共有されない**ローカル設定**なので、運用者が決めること。
+共有したいなら `.husky/` などに移して `core.hooksPath` を設定する必要がある。
 
 ### D16. スタックが立たない障害が無言で進行する (provision 失敗が見えない) ✅ 1-2 対応済み (2026-09-17)
 
