@@ -48,7 +48,11 @@ R12-followup-1〜22 で **stage-web から SFU への WebRTC 接続** が完了 
    - 残: **S3 録画ファイル出力**は control-api `startRoomCompositeEgress` が現状 `streamOutputs` のみで `fileOutputs` 未指定のため別タスク (R14 として識別、 下記参照)
    - cleanup PR: 検証用 `debug.enable_chrome_logging: true` + `logging.level: debug` を info に戻す + 本 NEXT_WORK.md / ADR 0010 D-7 / memory `r12-livekit-fargate-gotchas` を更新
 
-2. **R14 (新規): Egress の fileOutputs (S3 録画) 追加**
+2. **R14: Egress の fileOutputs (S3 録画) 追加 ✅ 実装済み (2026-09-17 に確認)**
+   - `services/control-api/src/lambda.ts` の `startRoomCompositeEgress` は既に `stream` と `file` を併用している
+   - `RECORDINGS_BUCKET_NAME` も配線済みで、S3 に実際の録画 (mp4 55MB) が残っていることを確認した
+   - `{egress_id}` がリテラル展開される問題も `randomUUID` で対処済み (P-14-followup-1)
+   - 以下は起票時の記録:
    - 現状の `services/control-api/src/lambda.ts:178-187` は `StreamOutput` (RTMP) のみ
    - `sdk.EncodedFileOutput({...})` を追加し、 ControlPlane の `AssetsBucket` 配下 `recordings/{eventId}/` プレフィックスに書き出す
    - SFU TaskRole は既に S3 PutObject 権限を持つ (ADR 0010 D-5) ので追加権限は不要
@@ -368,7 +372,20 @@ AssetsBucket はどの Distribution の origin でもないため循環参照に
 完了基準: 実機で (1) stage-web からデッキ PDF をアップロードできる、(2) composer-template が
 そのデッキを描画できる、(3) admin-web の素材アップロードが通る。
 
-### D10. 公開ルート一覧が control-api と CDK で二重管理になっている
+### D10. 公開ルート一覧が control-api と CDK で二重管理になっている ✅ 対応済み (2026-09-17)
+
+> **2026-09-17: 対応済み**。`packages/shared/public-routes.json` を単一の正にした。
+>
+> - infra はこれを回して `CfnRoute` を生成する (一覧の写経をやめた)
+> - infra テストは **NONE ルートの集合が一覧と完全一致**することを見る。
+>   「含む」だけの検査だと公開ルートを増やしたときに気づけない (管理者パスが JWT を素通りしうる)
+> - control-api テストは一覧の各ルートが **404 にならない**ことを見る (一覧の腐りを検出)
+> - `app.ts` の `requireAdmin` の直前に境界コメントを置いた
+>
+> JSON なのは infra が CJS で、ESM 専用の `@stagecast/shared` を require できないため。
+>
+> **残: 「app.ts に足して一覧に入れ忘れる」方向は依然すり抜ける。**
+> ルーターが if チェーンである限り静的に検出できない。テーブル化するかは別途判断。
 
 `services/control-api/src/http/app.ts` の `requireAdmin` より前のルート (招待トークン認証) は、
 `infra/lib/control-plane-stack.ts` の公開ルート一覧にも登録しないと API Gateway の JWT authorizer に

@@ -84,6 +84,17 @@ export function resolveCfnValidateWasm(): string {
   return path.join(path.dirname(pkg), "bindings_wasm_bg.wasm");
 }
 
+/**
+ * JWT authorizer を通さない公開ルート (ADR 0001 D-10)。
+ *
+ * 正は `packages/shared/public-routes.json`。JSON なのは、infra が CJS で
+ * `@stagecast/shared` (ESM 専用・`exports` に `require` 条件が無い) を読めないため。
+ * control-api 側のテストが同じ JSON を読み、各ルートに実際に届くことを確認している。
+ */
+export const PUBLIC_ROUTES: string[] = (
+  require("../../packages/shared/public-routes.json") as { routes: string[] }
+).routes;
+
 /** RenderTemplateFunction のエントリ (テストが同じものをバンドルできるよう公開する)。 */
 export const RENDER_TEMPLATE_ENTRY = path.join(
   __dirname,
@@ -672,39 +683,10 @@ export class ControlPlaneStack extends Stack {
       },
     });
 
-    // 公開ルート (招待トークン検証 / 入室 / プレビュー token) — 招待 URL でアクセスする
-    // モデレーター/登壇者用 (4.1, R17-Phase3 / ADR 0012 D-6)。
-    // API Gateway の JWT を通さず、control-api 内で招待トークンを検証する。
-    // OPTIONS (preflight) は $default (JWT) ルートに吸い込まれて 401 になるため、
-    // 明示的に NONE で登録して Lambda に流す。Lambda 側は OPTIONS を即 204 返却する。
-    // API Gateway の corsConfiguration が CORS ヘッダ (Allow-Origin 等) を自動付与する。
-    // POST /preview-token は stage-web の PreviewWindow が招待トークンで叩く (R17-Phase3)。
-    for (const route of [
-      "POST /invites/verify",
-      "POST /join",
-      "POST /preview-token",
-      // stage-web の演出/ステージ管理ルート (招待トークン認証, Phase 1〜4)。
-      // ワイルドカードにすると将来の管理者パスまで JWT を素通りするので個別に列挙する。
-      "POST /presentation/speakers/{speakerId}",
-      "POST /stage/assets",
-      "POST /stage/assets/download-url",
-      // 事前アップロードスライド (PDF) のデッキ (F-3, DESIGN.md 5.2)。
-      // control-api 側で invite-token を検証し、moderator 以外は 403 で弾く。
-      "POST /stage/materials/upload-url",
-      "POST /stage/materials/download-url",
-      // 投影状態 (ADR 0022 D-1)。ここを足し忘れると $default の JWT authorizer が
-      // 招待トークンの呼び出しを 401 で弾く (ADR 0001 D-10 の罠)。
-      "POST /stage/presentation/state",
-      "POST /stage/presentation/slide",
-      "POST /stage/presets",
-      "POST /stage/presets/list",
-      "DELETE /stage/presets/{presetId}",
-      "POST /event-requests",
-      // request-web のトップが認証なしで叩く (App.tsx の pending リクエスト一覧)。
-      "GET /event-requests/public",
-      "GET /events/public",
-      "OPTIONS /{proxy+}",
-    ]) {
+    // 公開ルートは packages/shared/public-routes.json が単一の正 (ADR 0001 D-10)。
+    // ここに書き忘れると $default の JWT authorizer に弾かれ、Lambda に届く前に 401 になる。
+    // control-api 側のテストが「一覧の各ルートに実際に届くこと」を確認している。
+    for (const route of PUBLIC_ROUTES) {
       new apigwv2.CfnRoute(this, `PublicRoute${route.replace(/[^A-Za-z0-9]/g, "_")}`, {
         apiId: httpApi.ref,
         routeKey: route,

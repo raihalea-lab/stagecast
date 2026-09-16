@@ -1,0 +1,34 @@
+{
+  "$doc": [
+    "API Gateway の Cognito JWT authorizer を通さないルートの一覧 (ADR 0001 D-10)。",
+    "",
+    "招待 URL で入るモデレーター/登壇者は Cognito のアカウントを持たない。これらのルートは",
+    "control-api 内で招待トークンを検証する。ここに書き忘れると $default ルートの JWT",
+    "authorizer に弾かれ、**Lambda に届く前に 401 になる**。実際に 3 回踏んでいる。",
+    "",
+    "ここが単一の正。infra がこれを回して CfnRoute を生成し、control-api のテストが",
+    "各ルートに実際に届くことを確認する。JSON なのは infra が CJS で、ESM 専用の",
+    "@stagecast/shared を require できないため。",
+    "",
+    "ワイルドカードにしないこと。将来の管理者パスまで JWT を素通りさせてしまう。"
+  ],
+  "routes": [
+    "POST /invites/verify",
+    "POST /join",
+    "POST /preview-token",
+    "POST /presentation/speakers/{speakerId}",
+    "POST /stage/assets",
+    "POST /stage/assets/download-url",
+    "POST /stage/materials/upload-url",
+    "POST /stage/materials/download-url",
+    "POST /stage/presentation/state",
+    "POST /stage/presentation/slide",
+    "POST /stage/presets",
+    "POST /stage/presets/list",
+    "DELETE /stage/presets/{presetId}",
+    "POST /event-requests",
+    "GET /event-requests/public",
+    "GET /events/public",
+    "OPTIONS /{proxy+}"
+  ]
+}
