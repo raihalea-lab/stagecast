@@ -12,7 +12,7 @@ import {
   type MaterialsContext,
 } from "@stagecast/shared";
 import { buildMaterialsContext, type ExtractedMaterial } from "./build-context.js";
-import { syncGlossary, terminologyName, type SyncGlossaryDeps } from "./glossary.js";
+import { removeGlossaries, syncGlossary, type SyncGlossaryDeps } from "./glossary.js";
 import type { CaptionLanguages, ObjectStore, TextExtractor } from "./types.js";
 
 const log = createLogger({ component: "materials-extract" });
@@ -69,7 +69,7 @@ export async function rebuildEventContext(
     // 資料が無い状態で古い _context.json を残すと、消した資料の用語が効き続ける。
     await store.remove(contextKey);
     if (deps.glossary) {
-      await deps.glossary.terminology.remove(terminologyName(eventId)).catch(() => {});
+      await removeGlossaries(eventId, deps.glossary.languages.targets, deps.glossary.terminology);
     }
     log.info("materials context removed", { eventId });
     return null;
