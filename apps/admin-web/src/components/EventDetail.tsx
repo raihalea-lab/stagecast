@@ -593,7 +593,9 @@ export function EventDetail(props: {
       .list(event.id)
       .then(setMaterialList)
       .catch(() => setMaterialList([]));
-  }, [materials, event.id]);
+    // status も見る: 配信終了で資料はサーバ側から消えるので (PR #240)、
+    // ここを event.id だけにすると「もう無いファイル」が一覧に残り続ける。
+  }, [materials, event.id, event.status]);
 
   useEffect(loadMaterials, [loadMaterials]);
 
