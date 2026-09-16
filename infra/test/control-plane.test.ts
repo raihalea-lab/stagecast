@@ -673,3 +673,32 @@ describe("削除を本当の削除にする (バージョニング対策)", () =
     });
   });
 });
+
+describe("運用アラームの通知先 (D16 の実効性)", () => {
+  // アラームを作っても購読者がいなければ誰にも届かない。2026-09-17 時点で実際に
+  // OrchestratorAlarmTopic の購読者はゼロで、D16 で足したアラームが鳴っても気づけなかった。
+  it("opsEmail を設定するとアラームトピックにメール購読が付く", () => {
+    const app = new App({
+      context: {
+        "hosted-zone:account=111111111111:domainName=example.com:region=ap-northeast-1": {
+          Id: "/hostedzone/ZTESTEXAMPLE",
+          Name: "example.com.",
+        },
+      },
+    });
+    const stack = new ControlPlaneStack(app, "OpsEmailStack", {
+      env: { account: "111111111111", region: "ap-northeast-1" },
+      userConfig: { mediaHostedZoneName: "example.com", opsEmail: "ops@example.com" },
+    });
+    Template.fromStack(stack).hasResourceProperties("AWS::SNS::Subscription", {
+      Protocol: "email",
+      Endpoint: "ops@example.com",
+    });
+  });
+
+  it("opsEmail 未設定なら購読を作らない (他人のアドレスに送らない)", () => {
+    // 既定の synth には opsEmail を渡していない。email 購読はコスト用の budgetEmail 分だけ。
+    const subs = Object.values(synth().findResources("AWS::SNS::Subscription"));
+    expect(subs.filter((s) => s.Properties.Protocol === "email")).toHaveLength(0);
+  });
+});

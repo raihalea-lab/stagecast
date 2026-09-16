@@ -13,6 +13,10 @@ const config: UserConfig = {
 
   // コストアラート通知先メールアドレス。
   // budgetEmail: "ops@example.com",
+
+  // 運用アラームの通知先メールアドレス (スタックが立たない等)。
+  // **未設定だとアラームは誰にも届かない** (SNS に publish されて消えるだけ)。
+  // opsEmail: "ops@example.com",
 };
 
 export default config;
