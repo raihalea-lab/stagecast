@@ -64,6 +64,5 @@ export {
   Volume2,
   VolumeX,
   X,
-  Youtube,
   Zap,
 } from "lucide-react";
