@@ -93,7 +93,10 @@ Amazon Translate の Custom Terminology に `ImportTerminology` する。
 - 抽出 Lambda は `_context.json` を書いた**後**に用語集を登録するので、その隙にワーカーが
   起動すると `ResourceNotFoundException` になる。翻訳側で**用語集なしの 1 回だけの
   やり直し**を入れてレースを潰す
-- イベント終了時に `DeleteTerminology` する (アカウントの用語集数には上限がある)
+- イベント終了時に **reconcile Lambda** が `stagecast-{eventId}-*` を `ListTerminologies` で
+  拾って `DeleteTerminology` する。消さないと イベント数 × 言語数 で溜まり、アカウントの
+  用語集数の上限に当たって新しいイベントの用語集が作れなくなる。スタック破棄と同じ
+  「desired に無いイベント」のループで回すので、終了経路を二重に持たずに済む
 
 > **実測: 日本語ソースでも効く。ただし取りこぼしがある (best-effort)。**
 > AWS のドキュメントは CJK ソースの用語集について「テキスト中で区切られている場合のみ
@@ -140,7 +143,8 @@ Amazon Translate の Custom Terminology に `ImportTerminology` する。
 | 場所                                | 変更                                                                                                                                                                                                                                                                                                                                                                                                                                |
 | ----------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `infra`                             | `MaterialsExtractFunction` を追加。S3 イベント通知 (`assets/materials/`)。抽出 Lambda のロール: S3 get/put (prefix 限定)・`bedrock:InvokeModel`・`translate:ImportTerminology` / `DeleteTerminology`。**Phase 2 では用語集の言語ペアを決めるためにイベントの字幕設定が要るので、`dynamodb:GetItem` と events テーブル名の env も足す**。`SharedCaptionTaskRole` に `s3:GetObject` (prefix 限定)。字幕ワーカーに `ASSETS_BUCKET` env |
-| `services/control-api`              | `POST /events/{id}/materials/upload-url` (admin)・一覧・削除。`/stage/decks/upload-url` を materials に統合。イベント終了時に `DeleteTerminology`                                                                                                                                                                                                                                                                                   |
+| `services/control-api`              | `POST /events/{id}/materials/upload-url` (admin)・一覧・削除。`/stage/decks/upload-url` を materials に統合                                                                                                                                                                                                                                                                                                                         |
+| `services/media-orchestrator`       | イベント終了時 (desired に無いイベント) に翻訳用語集を回収する。`translate:ListTerminologies` / `DeleteTerminology`                                                                                                                                                                                                                                                                                                                 |
 | `services/materials-extract` (新規) | 抽出・用語集生成・`_context.json` 書き出し・`ImportTerminology`。外部依存はインターフェース + fake                                                                                                                                                                                                                                                                                                                                  |
 | `services/caption-pipeline`         | `_context.json` の読み込みと 60 秒更新。`AmazonTranslateTranslator` に `TerminologyNames`。`LlmAdapter.translate` に文脈 (資料プレフィックス + 直近発話) を渡す。Bedrock アダプタでキャッシュポイント                                                                                                                                                                                                                               |
 | `apps/admin-web`                    | イベント設定に「翻訳参考資料」の登録 UI (既存アセットライブラリの経路を流用)                                                                                                                                                                                                                                                                                                                                                        |
@@ -266,7 +270,7 @@ Phase 1 は既定の `transcribe` イベントには効かない。Phase 2 で�
 2. ~~Bedrock prompt caching の最小トークン数と TTL~~ → 上記のとおり実測済み
 3. ~~`ImportTerminology` の反映遅延~~ → 99ms。ただしゼロではないので、字幕ワーカー側に
    用語集なしのフォールバックを入れてある。**アカウントあたりの用語集数の上限は未確認** (既定 100)。
-   イベント終了時の `DeleteTerminology` で回収する
+   イベント終了時に reconcile Lambda が `stagecast-{eventId}-*` を回収する (実装済み)
 4. テストは外部接続なしで完結させる (CLAUDE.md テスト方針)。S3・Bedrock・Translate は
    インターフェース + fake
 
