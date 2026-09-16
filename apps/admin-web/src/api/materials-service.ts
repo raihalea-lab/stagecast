@@ -4,6 +4,7 @@
  * イベント準備の段階で資料 (PDF・PPTX・原稿) を登録しておくと、抽出 Lambda が
  * テキストを取り出し、字幕ワーカーが翻訳の文脈として使う。
  */
+import type { TokenProvider } from "./types.js";
 
 /** 登録済みの資料 1 件。 */
 export interface MaterialItem {
@@ -41,17 +42,18 @@ export interface MaterialsService {
 export class HttpMaterialsService implements MaterialsService {
   constructor(
     private readonly baseUrl: string,
-    private readonly getToken: () => string | undefined,
+    private readonly getToken: TokenProvider,
   ) {}
 
-  private authHeaders(): Record<string, string> {
-    const token = this.getToken();
+  private async authHeaders(): Promise<Record<string, string>> {
+    // Cognito 利用時は期限前の更新が走るので非同期 (D11)。
+    const token = await this.getToken();
     return token ? { authorization: `Bearer ${token}` } : {};
   }
 
   async list(eventId: string): Promise<MaterialItem[]> {
     const res = await fetch(`${this.baseUrl}/events/${eventId}/materials`, {
-      headers: this.authHeaders(),
+      headers: await this.authHeaders(),
     });
     if (!res.ok) throw new Error(`list materials failed: ${res.status}`);
     return ((await res.json()) as { materials: MaterialItem[] }).materials;
@@ -63,7 +65,7 @@ export class HttpMaterialsService implements MaterialsService {
 
     const presign = await fetch(`${this.baseUrl}/events/${eventId}/materials/upload-url`, {
       method: "POST",
-      headers: { "content-type": "application/json", ...this.authHeaders() },
+      headers: { "content-type": "application/json", ...(await this.authHeaders()) },
       body: JSON.stringify({ filename: file.name, contentType }),
     });
     if (!presign.ok) {
@@ -84,7 +86,7 @@ export class HttpMaterialsService implements MaterialsService {
   async remove(eventId: string, assetId: string): Promise<void> {
     const res = await fetch(`${this.baseUrl}/events/${eventId}/materials/${assetId}`, {
       method: "DELETE",
-      headers: this.authHeaders(),
+      headers: await this.authHeaders(),
     });
     if (!res.ok) throw new Error(`delete material failed: ${res.status}`);
   }
