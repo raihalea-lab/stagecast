@@ -2,7 +2,12 @@ import { describe, expect, it } from "vitest";
 import { decodeStageMessage } from "@stagecast/shared";
 import { StageController } from "./stage-controller.js";
 import { FakeRoomConnector, type ParticipantSnapshot } from "./lib/room.js";
-import type { JoinResponse, StageClient } from "./api/stage-client.js";
+import type {
+  JoinResponse,
+  PresentationSnapshot,
+  SlideStateUpdate,
+  StageClient,
+} from "./api/stage-client.js";
 import type { SpeakerVisibility } from "@stagecast/shared";
 
 /** identity だけが意味を持つテスト用の participant。 */
@@ -34,6 +39,18 @@ class FakeStageClient implements StageClient {
     visibility: SpeakerVisibility,
   ): Promise<void> {
     this.visibilityCalls.push({ eventId, speakerId, visibility });
+  }
+  /** ADR 0022 D-1: 投影状態はサーバーが持つ。フェイクはメモリに置く。 */
+  presentation: PresentationSnapshot = { eventId: "evt-1", speakers: [] };
+  async getPresentationState(): Promise<PresentationSnapshot> {
+    return this.presentation;
+  }
+  async setSlideState(
+    _inviteToken: string,
+    update: SlideStateUpdate,
+  ): Promise<PresentationSnapshot> {
+    this.presentation = { ...this.presentation, ...update };
+    return this.presentation;
   }
   async listAssets() {
     return [];

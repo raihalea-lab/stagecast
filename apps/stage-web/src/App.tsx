@@ -19,7 +19,9 @@ import type { RuntimeConfig } from "./config.js";
 import {
   decodeStageMessage,
   isSameDeck,
+  materialKey,
   type AssetMetadata,
+  type DeckRef,
   type EffectConfig,
   type LayoutKind,
   type Preset,
@@ -170,6 +172,8 @@ export function App(props: {
   const replayDeckRef = useRef<() => Promise<void>>(async () => {});
   // 受信ハンドラも mount 時に 1 回だけ登録するので、現在のデッキ URL を ref で読む。
   const deckUrlRef = useRef<string | undefined>(undefined);
+  // ADR 0022 D-1: 投影中のデッキ参照。ページ送りのたびにサーバーへ添えて送る。
+  const deckAssetRef = useRef<DeckRef | undefined>(undefined);
   const [muteNotice, setMuteNotice] = useState<string | undefined>();
   const [roomState, setRoomState] = useState<RoomState>("stopped");
   const [egressState, setEgressState] = useState<EgressState>("idle");
@@ -369,7 +373,7 @@ export function App(props: {
       const { resolvePdfPageCount } = await import("./lib/pdf-pages.js");
       const totalPages = await resolvePdfPageCount(file);
 
-      const { uploadUrl, key } = await client.getMaterialUploadUrl(inviteToken, file.name);
+      const { assetId, uploadUrl, key } = await client.getMaterialUploadUrl(inviteToken, file.name);
       const putRes = await fetch(uploadUrl, {
         method: "PUT",
         body: file,
@@ -385,11 +389,50 @@ export function App(props: {
       // setDeck が deck を 1 ページ目に戻すので setDeckUrl より先に呼ぶ
       // (setDeckUrl は totalPages を維持する)。composer も slide-deck 受信で 1 に戻る。
       controller.setDeck(totalPages);
+      // ADR 0022 D-2: 体感を落とさないため DataChannel の通知を先に出し、永続化は後。
+      // 失敗しても通知済みのクライアントには影響しない (後から入る側が古い状態を読むだけ)。
       await controller.setDeckUrl(downloadUrl);
       setPage(1);
+      deckAssetRef.current = { assetId, filename: file.name, pageCount: totalPages };
+      void client
+        .setSlideState(inviteToken, {
+          slideSource: "uploaded",
+          slidePage: 1,
+          deck: deckAssetRef.current,
+        })
+        .catch(() => {});
     },
     [client, inviteToken, controller],
   );
+
+  /**
+   * 入室時にサーバーの投影状態を読んで復元する (ADR 0022 D-1)。
+   *
+   * 投影の正はサーバーにあるので、**配り直しを待たずに**現在のデッキとページが分かる。
+   * これが無いと、モデレーターが再読み込みしただけで手元からデッキが消え、
+   * 投影中なのにページを送れなくなる。
+   */
+  useEffect(() => {
+    if (!session || !inviteToken) return;
+    let cancelled = false;
+    void (async () => {
+      const state = await client.getPresentationState(inviteToken).catch(() => undefined);
+      if (cancelled || !state) return;
+      if (state.slideSource !== "uploaded" || !state.deck || !state.deckUrl) return;
+      deckAssetRef.current = state.deck;
+      deckUrlRef.current = state.deckUrl;
+      deckUrlIssuedAtRef.current = Date.now();
+      setDeckKey(materialKey(state.eventId, state.deck.assetId, state.deck.filename));
+      setDeckUrl(state.deckUrl);
+      setDeckTotalPages(state.deck.pageCount);
+      controller.setDeck(state.deck.pageCount);
+      const restored = controller.applyRemotePage(state.slidePage ?? 1);
+      setPage(restored);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [session, inviteToken, client, controller]);
 
   // 投影中のデッキ状態を配り直す (F-3)。slide-deck は一度きりの broadcast なので、
   // 「デッキ投入 → 配信開始」の順で操作されると後から来た composer が投影を受け取れない。
@@ -423,6 +466,29 @@ export function App(props: {
     return () => clearInterval(timer);
   }, [session, deckKey, deckUrl]);
 
+  /**
+   * ページ送りをサーバーに永続化する (ADR 0022 D-1, D-2)。
+   *
+   * DataChannel の通知は `controller.slideNext/Prev` が既に出しているので、ここは
+   * 待たない。永続化が失敗しても、その場のクライアントには影響しない
+   * (後から入る側が一時的に古いページを読むだけで、次の操作で収束する)。
+   */
+  const persistPage = useCallback(
+    (nextPage: number): number => {
+      if (inviteToken && deckAssetRef.current) {
+        void client
+          .setSlideState(inviteToken, {
+            slideSource: "uploaded",
+            slidePage: nextPage,
+            deck: deckAssetRef.current,
+          })
+          .catch(() => {});
+      }
+      return nextPage;
+    },
+    [client, inviteToken],
+  );
+
   // 投影解除: composer はデッキが載っている間 slide レイアウトを固定するので、
   // grid / 画面共有メインに戻すには明示的に解除する必要がある (F-3)。
   const handleClearDeck = useCallback(async () => {
@@ -431,7 +497,10 @@ export function App(props: {
     setDeckUrl(undefined);
     setDeckTotalPages(1);
     setPage(1);
-  }, [controller]);
+    deckAssetRef.current = undefined;
+    // 解除もサーバーに反映する。残すと後から入ったクライアントが解除済みの PDF を読む。
+    if (inviteToken) void client.setSlideState(inviteToken, {}).catch(() => {});
+  }, [controller, client, inviteToken]);
 
   const wrap = useCallback(
     (fn: () => Promise<unknown>) => async () => {
@@ -731,7 +800,7 @@ export function App(props: {
           variant="ghost"
           size="icon-sm"
           disabled={busy || page <= 1}
-          onClick={wrap(async () => setPage(await controller.slidePrev()))}
+          onClick={wrap(async () => setPage(persistPage(await controller.slidePrev())))}
           aria-label="前のスライド"
         >
           <ChevronLeft className="size-4" />
@@ -746,7 +815,7 @@ export function App(props: {
           variant="ghost"
           size="icon-sm"
           disabled={busy || page >= deckTotalPages}
-          onClick={wrap(async () => setPage(await controller.slideNext()))}
+          onClick={wrap(async () => setPage(persistPage(await controller.slideNext())))}
           aria-label="次のスライド"
         >
           <ChevronRight className="size-4" />
