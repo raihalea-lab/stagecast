@@ -5,7 +5,11 @@ import { describe, expect, it } from "vitest";
 import { App } from "aws-cdk-lib";
 import { Match, Template } from "aws-cdk-lib/assertions";
 import { MATERIALS_PREFIX } from "@stagecast/shared";
-import { ControlPlaneStack, resolveCfnValidateWasm } from "../lib/control-plane-stack";
+import {
+  ControlPlaneStack,
+  PUBLIC_ROUTES,
+  resolveCfnValidateWasm,
+} from "../lib/control-plane-stack";
 
 /**
  * synth 結果は使い回す。
@@ -210,20 +214,7 @@ describe("ControlPlaneStack", () => {
       AuthorizationType: "NONE",
     });
     // 演出/ステージ管理ルートも招待トークン認証なので JWT をバイパスする。
-    for (const routeKey of [
-      "POST /presentation/speakers/{speakerId}",
-      "POST /stage/assets",
-      "POST /stage/assets/download-url",
-      // ADR 0021: 翻訳参考資料。
-      "POST /stage/materials/upload-url",
-      "POST /stage/materials/download-url",
-      // ADR 0022 D-1: 投影状態。
-      "POST /stage/presentation/state",
-      "POST /stage/presentation/slide",
-      "POST /stage/presets",
-      "POST /stage/presets/list",
-      "DELETE /stage/presets/{presetId}",
-    ]) {
+    for (const routeKey of PUBLIC_ROUTES) {
       template.hasResourceProperties("AWS::ApiGatewayV2::Route", {
         RouteKey: routeKey,
         AuthorizationType: "NONE",
@@ -343,25 +334,9 @@ describe("ControlPlaneStack", () => {
     const publicKeys = routes
       .filter((r) => r.Properties.AuthorizationType === "NONE")
       .map((r) => r.Properties.RouteKey as string);
-    for (const key of [
-      "POST /invites/verify",
-      "POST /join",
-      "POST /preview-token",
-      "POST /presentation/speakers/{speakerId}",
-      "POST /stage/assets",
-      "POST /stage/assets/download-url",
-      "POST /stage/materials/upload-url",
-      "POST /stage/materials/download-url",
-      "POST /stage/presets",
-      "POST /stage/presets/list",
-      "DELETE /stage/presets/{presetId}",
-      "POST /event-requests",
-      "GET /event-requests/public",
-      "GET /events/public",
-      "OPTIONS /{proxy+}",
-    ]) {
-      expect(publicKeys).toContain(key);
-    }
+    // **集合として一致**することを見る。含むだけの検査だと、公開ルートを増やしたときに
+    // 気づけない (= 管理者パスが JWT を素通りしていても通ってしまう)。
+    expect([...publicKeys].sort()).toEqual([...PUBLIC_ROUTES].sort());
     // 管理者ルートは $default (JWT) に落とす。公開ルートに管理者パスを混ぜない。
     expect(publicKeys.some((k) => k.includes("$default"))).toBe(false);
     template.hasResourceProperties("AWS::ApiGatewayV2::Route", {
