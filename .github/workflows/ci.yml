@@ -1,8 +1,14 @@
 name: CI
 
-# ローカル pre-push フックで同等のチェックを実行するため一時無効化。
-# 戻すときは workflow_dispatch を on.push / on.pull_request に戻す。
+# ローカル pre-push フックだけでは**素通りする経路がある**ので CI を戻した (2026-09-17)。
+# dependabot PR は GitHub 上でマージされるためフックを一度も通らない。実際、
+# aws-cdk-lib 2.269 の更新がノーチェックで main に入り、本番の配信開始が全停止した (PR #236)。
+# `--no-verify` や GitHub 上の直接編集も同様に素通りする。
+# このリポジトリは public なので標準ランナーは無料 (分数を消費しない)。
 on:
+  push:
+    branches: [main]
+  pull_request:
   workflow_dispatch:
 
 # 同じブランチ/PR の古い run は新しい push でキャンセル。main は守る。
@@ -46,11 +52,9 @@ jobs:
         run: vp run -r test
 
       # T10: CDK synth でテンプレ生成の健全性を CI でも確認する。
-      # CDK_DEFAULT_* を渡さないと bin/app.ts が environment-agnostic に synth する
-      # (実 AWS 認証は不要)。NodejsFunction / ReconcileFunction の esbuild バンドルが
-      # 走るが、ローカルテストでも同じ経路を通っているので追加コストは小さい。
+      #
+      # **CDK_DEFAULT_* を渡さないこと**。渡すとスタックが具体的なアカウントに紐づき、
+      # 共有 VPC の availability-zones ルックアップが実 AWS 認証を要求して落ちる。
+      # 未指定なら environment-agnostic に synth されるので認証は要らない。
       - name: CDK synth (infra)
-        env:
-          CDK_DEFAULT_ACCOUNT: "111111111111"
-          CDK_DEFAULT_REGION: "ap-northeast-1"
         run: vp run --filter @stagecast/infra synth -- --quiet
