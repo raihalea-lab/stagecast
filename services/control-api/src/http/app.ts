@@ -5,11 +5,12 @@
  * トランスポート固有の変換は adapter (index.ts) 側で行う。これにより外部接続なしの
  * 単体テストが容易になる。
  */
-import { materialsPrefix, parseMaterialKey } from "@stagecast/shared";
+import { materialKey, materialsPrefix, parseMaterialKey } from "@stagecast/shared";
 import type {
   AssetMetadata,
   InvitedRole,
   Preset,
+  PresentationState,
   SlideSource,
   SpeakerVisibility,
 } from "@stagecast/shared";
@@ -111,6 +112,25 @@ export function createApp(deps: AppDeps) {
     return auth.verify(req.headers["authorization"] ?? req.headers["Authorization"]);
   }
 
+  /**
+   * 投影状態に、デッキの署名付き GET URL を添えて返す (ADR 0022 D-1)。
+   *
+   * 署名は失効するので**保存しない**。読むたびに発行する。これにより
+   * 「10 分ごとに配り直して署名を更新する」回避策が要らなくなる。
+   */
+  async function withDeckUrl(
+    state: PresentationState,
+  ): Promise<PresentationState & { deckUrl?: string }> {
+    if (!state.deck || !deps.artifactStore) return state;
+    const key = materialKey(state.eventId, state.deck.assetId, state.deck.filename);
+    try {
+      return { ...state, deckUrl: await deps.artifactStore.presignGet(key) };
+    } catch {
+      // 資料が消えていても状態自体は返す (画面を真っ白にしない)。
+      return state;
+    }
+  }
+
   async function route(req: HttpRequest): Promise<HttpResponse> {
     // OPTIONS (CORS preflight) は API Gateway の corsConfiguration が CORS ヘッダを付けるが、
     // $default ルート (JWT) が OPTIONS を吸い込むため、Lambda まで到達する。
@@ -204,6 +224,35 @@ export function createApp(deps: AppDeps) {
         return json(400, { error: "visibility must be 'live' or 'standby'" });
       }
       return json(200, await presentation.setSpeakerVisibility(eventId, speakerId, visibility));
+    }
+
+    // 公開: 投影状態の取得・更新 (invite-token 認証, ADR 0022 D-1)。
+    //
+    // 投影の正はサーバーにある。後から入った登壇者・モデレーターはこれを読めば
+    // 現在のデッキとページが分かるので、DataChannel の配り直しに頼らなくてよい。
+    if (segments[0] === "stage" && segments[1] === "presentation") {
+      const inviteToken = String(body.inviteToken ?? "");
+      const verified = await invites.verify(inviteToken);
+      if (!verified.valid) return json(401, { ok: false, reason: verified.reason });
+      const eventId = verified.eventId;
+
+      // 取得は speaker にも許す。自分がめくるために現在ページを知る必要がある (ADR 0022 D-1)。
+      if (req.method === "POST" && segments[2] === "state") {
+        return json(200, await withDeckUrl(await presentation.getState(eventId)));
+      }
+      // 更新は moderator と speaker の両方。PR #218 で登壇者もめくれるようにした。
+      if (req.method === "POST" && segments[2] === "slide") {
+        if (verified.role !== "moderator" && verified.role !== "speaker") {
+          return json(403, { error: "only moderator or speaker can change the slide" });
+        }
+        const next = await presentation.setSlide(
+          eventId,
+          body.slideSource as SlideSource | undefined,
+          body.slidePage as number | undefined,
+          body.deck,
+        );
+        return json(200, await withDeckUrl(next));
+      }
     }
 
     // 公開: stage-web からアセット一覧取得 (invite-token 認証, Phase 3)。

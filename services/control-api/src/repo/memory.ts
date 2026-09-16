@@ -19,6 +19,7 @@ import type {
   PresetRepository,
   PresentationRepository,
 } from "./types.js";
+import { applySlide, type SlideUpdate } from "./types.js";
 
 export class MemoryEventRepository implements EventRepository {
   private readonly store = new Map<string, EventDefinition>();
@@ -107,13 +108,9 @@ export class MemoryPresentationRepository implements PresentationRepository {
     return structuredClone(s);
   }
 
-  async setSlide(
-    eventId: string,
-    slide: Pick<PresentationState, "slideSource" | "slidePage">,
-  ): Promise<PresentationState> {
+  async setSlide(eventId: string, slide: SlideUpdate): Promise<PresentationState> {
     const s = this.ensure(eventId);
-    s.slideSource = slide.slideSource;
-    s.slidePage = slide.slidePage;
+    applySlide(s, slide);
     return structuredClone(s);
   }
 }

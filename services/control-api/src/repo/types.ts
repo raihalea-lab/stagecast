@@ -46,6 +46,28 @@ export interface EventRequestRepository {
   delete(id: string): Promise<void>;
 }
 
+/**
+ * 投影状態の更新分 (ADR 0022 D-1)。
+ * `deck` は `slideSource === "uploaded"` のときだけ意味を持つ。解除時は全部 undefined。
+ */
+export type SlideUpdate = Pick<
+  PresentationState,
+  "slideSource" | "slidePage" | "deck" | "slideUpdatedAtMs"
+>;
+
+/**
+ * 投影状態を状態オブジェクトに反映する。
+ *
+ * `undefined` のフィールドは**消す**。投影解除 (`setSlide(eventId, undefined)`) で
+ * デッキが残ると、解除したはずの PDF を後から入ったクライアントが読んでしまう。
+ */
+export function applySlide(state: PresentationState, slide: SlideUpdate): void {
+  state.slideSource = slide.slideSource;
+  state.slidePage = slide.slidePage;
+  state.deck = slide.deck;
+  state.slideUpdatedAtMs = slide.slideUpdatedAtMs;
+}
+
 export interface PresentationRepository {
   get(eventId: string): Promise<PresentationState | undefined>;
   setSpeakerVisibility(
@@ -54,10 +76,7 @@ export interface PresentationRepository {
     visibility: SpeakerVisibility,
     nowMs: number,
   ): Promise<PresentationState>;
-  setSlide(
-    eventId: string,
-    slide: Pick<PresentationState, "slideSource" | "slidePage">,
-  ): Promise<PresentationState>;
+  setSlide(eventId: string, slide: SlideUpdate): Promise<PresentationState>;
 }
 
 export interface AssetMetadataRepository {
