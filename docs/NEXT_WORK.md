@@ -708,7 +708,15 @@ ADR 0017 D-2 は「字幕が不要なイベントでは CaptionWorker を起動�
 
 ADR 0023 D-2 の実装が済んでいるので、**上の 3 点だけで -35% が実際に効く**ようになる。
 
-### D15. Lambda 内 CDK synth の実行確認がどこでも走っていない
+### D15. Lambda 内 CDK synth の実行確認がどこでも走っていない ✅ 対応済み (2026-09-17)
+
+> **2026-09-17: 対応済み**。`infra/test/render-template-bundle.test.ts` を追加した。
+> CDK に本番と同じ条件でバンドルさせ、その成果物を**子プロセスの素の Node で実行**して
+> テンプレートが返ることを検証する。テスト側で esbuild を呼び直すとスタック側とズレても
+> 気づけないので、`Template.fromStack` を通して実際の `afterBundling` まで走らせている。
+> 退行の検出は実際に確認済み: banner の `__dirname` シムを外す / WASM のコピーを外す、
+> どちらでもこのテストが落ちる。通常の `vp run -r test` で走るので、aws-cdk-lib を上げる
+> PR では pre-push フックが自動的に拾う。
 
 RenderTemplateFunction は Lambda の中で `app.synth()` する (ADR 0023 D-1)。ここは **ESM バンドル**
 なので、aws-cdk-lib が `__dirname` 相対でファイルを読むたびに壊れる。2026-09-16 に実際に壊れた
@@ -718,9 +726,10 @@ RenderTemplateFunction は Lambda の中で `app.synth()` する (ADR 0023 D-1)�
 バンドルを「実行」はしないので素通りする。PR #236 で足したテストは WASM の在処しか見ていないので、
 次に aws-cdk-lib が `__dirname` 依存を増やしたらまた同じことが起きる。
 
-やること: `cdk.out/asset.*/index.mjs` を実際に import して `handler()` を叩く
-`*.integration.test.ts` を用意する (手順は PR #236 の検証で使ったものと同じ)。
-少なくとも aws-cdk-lib を上げる PR では必ず走らせる。
+以下は起票時の記録:
+
+やること: `cdk.out/asset.*/index.mjs` を実際に実行して `handler()` を叩くテストを用意する
+(手順は PR #236 の検証で使ったものと同じ)。少なくとも aws-cdk-lib を上げる PR では必ず走らせる。
 
 ### D16. スタックが立たない障害が無言で進行する (provision 失敗が見えない)
 
