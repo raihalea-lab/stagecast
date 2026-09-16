@@ -100,6 +100,9 @@ export function Composer(props: Props) {
         deckAssetIdRef.current = undefined;
         return;
       }
+      // egress のログ (headless Chrome の console) に残す。START_RECORDING と同じ経路で拾える。
+      // eslint-disable-next-line no-console
+      console.log("ROOM_METADATA_APPLIED", meta.deck.assetId, meta.slidePage ?? 1);
       if (deckAssetIdRef.current !== meta.deck.assetId) {
         deckAssetIdRef.current = meta.deck.assetId;
         slideUrlRef.current = meta.deckUrl;
