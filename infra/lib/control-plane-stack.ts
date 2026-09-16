@@ -1,3 +1,4 @@
+import { createRequire } from "node:module";
 import * as path from "node:path";
 import {
   Stack,
@@ -69,6 +70,20 @@ export interface ControlPlaneStackProps extends StackProps {
  * メディア層・翻訳層 (SFU/Egress/字幕/Valkey) はここには置かない。それらはイベント単位で
  * 動的に起動・破棄するため別スタック (event-media-stack) として扱う (DESIGN.md 7.1, ADR D-6)。
  */
+
+/**
+ * `@aws/cloudformation-validate` の WASM の実体パスを返す。
+ *
+ * aws-cdk-lib 2.269 以降、synth は既定で CloudFormationValidatePlugin を走らせ、この
+ * WASM を `__dirname` 相対で読む。RenderTemplateFunction は Lambda 内で synth するので
+ * バンドルの隣に置く必要がある (ADR 0023 D-1 のテンプレ生成分離)。
+ */
+export function resolveCfnValidateWasm(): string {
+  const fromCdk = createRequire(require.resolve("aws-cdk-lib/package.json"));
+  const pkg = fromCdk.resolve("@aws/cloudformation-validate/package.json");
+  return path.join(path.dirname(pkg), "bindings_wasm_bg.wasm");
+}
+
 export class ControlPlaneStack extends Stack {
   constructor(scope: Construct, id: string, props?: ControlPlaneStackProps) {
     super(scope, id, props);
@@ -851,6 +866,10 @@ export class ControlPlaneStack extends Stack {
     // --- テンプレート生成 Lambda (D1) ---
     // CDK synth (= aws-cdk-lib 同梱で ~34MB) は **この Lambda にのみ**閉じ込め、60s tick の
     // reconcile 本体のバンドルを小さく保つ。reconcile からは invoke されるだけ。
+    // aws-cdk-lib に同梱されている WASM。バージョンを上げて場所が変わったらここで落ちる
+    // (本番で初めて気づくより、synth で落ちた方がよい)。
+    const cfnValidateWasmPath = resolveCfnValidateWasm();
+
     const renderTemplateFn = new lambdaNodejs.NodejsFunction(this, "RenderTemplateFunction", {
       entry: path.join(
         __dirname,
@@ -868,8 +887,26 @@ export class ControlPlaneStack extends Stack {
         minify: true,
         format: lambdaNodejs.OutputFormat.ESM,
         externalModules: ["@aws-sdk/*"],
-        banner:
-          "import{createRequire}from'node:module';const require=createRequire(import.meta.url);",
+        // ESM バンドルには CJS のグローバルが無い。aws-cdk-lib は synth 中に
+        // `__dirname` 相対でファイルを読むので、shim が無いと ReferenceError で落ちる。
+        banner: [
+          "import{createRequire}from'node:module';",
+          "import{fileURLToPath}from'node:url';",
+          "import{dirname}from'node:path';",
+          "const require=createRequire(import.meta.url);",
+          "const __filename=fileURLToPath(import.meta.url);",
+          "const __dirname=dirname(__filename);",
+        ].join(""),
+        commandHooks: {
+          beforeBundling: () => [],
+          beforeInstall: () => [],
+          // aws-cdk-lib 2.269 から synth 時に CloudFormationValidatePlugin が既定で走り、
+          // `${__dirname}/bindings_wasm_bg.wasm` を読む。バンドルには含まれないので
+          // 手で隣に置く。置かないと provision が毎回 ENOENT で失敗する。
+          afterBundling: (_i: string, outputDir: string) => [
+            `cp ${cfnValidateWasmPath} ${outputDir}/`,
+          ],
+        },
       },
       memorySize: 1024, // CDK synth ピーク用
       timeout: Duration.minutes(1),
