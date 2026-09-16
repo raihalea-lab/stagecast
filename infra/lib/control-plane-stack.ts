@@ -638,6 +638,10 @@ export class ControlPlaneStack extends Stack {
       // control-api 側で invite-token を検証し、moderator 以外は 403 で弾く。
       "POST /stage/materials/upload-url",
       "POST /stage/materials/download-url",
+      // 投影状態 (ADR 0022 D-1)。ここを足し忘れると $default の JWT authorizer が
+      // 招待トークンの呼び出しを 401 で弾く (ADR 0001 D-10 の罠)。
+      "POST /stage/presentation/state",
+      "POST /stage/presentation/slide",
       "POST /stage/presets",
       "POST /stage/presets/list",
       "DELETE /stage/presets/{presetId}",
