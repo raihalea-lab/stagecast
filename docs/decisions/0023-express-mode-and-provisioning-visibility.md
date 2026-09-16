@@ -120,3 +120,20 @@ Express モードは全商用リージョンで追加料金なしで使える。
 
 - [Deploy AWS CloudFormation stacks faster with express mode](https://docs.aws.amazon.com/AWSCloudFormation/latest/UserGuide/cloudformation-express-mode.html)
 - [Accelerate your infrastructure deployments by up to 4x with AWS CloudFormation Express mode](https://aws.amazon.com/blogs/aws/accelerate-your-infrastructure-deployments-by-up-to-4x-with-aws-cloudformation-express-mode/)
+
+## 実配信での検証 (2026-09-16, 実 AWS)
+
+イベント `test1` で配信を立てて実測:
+
+| 項目                           | 実測                                                    |
+| ------------------------------ | ------------------------------------------------------- |
+| スタック作成 (CREATE_COMPLETE) | **89 秒** (07:05:39 → 07:07:08)                         |
+| `ready` 到達まで               | **154 秒** (07:05:39 → 07:08:13)                        |
+| phase の遷移 (D-3)             | ✅ `none` → `creating` → `ready`                        |
+| サービス単位の可視化 (D-3)     | ✅ `sfu: 0/1` / `captionworker: 1/1` が個別に見えた     |
+| タスク引き上げ (D-2)           | ✅ CaptionWorker が先に 1/1、SFU を待つ状態が正しく出た |
+| スタック破棄                   | ✅ イベント終了後に `DELETE_IN_PROGRESS` へ             |
+
+CaptionWorker がスタック完成前に 1/1 になっており、**D-2 の「CREATE_IN_PROGRESS でも
+引き上げる」が効いている**ことが確認できた。stage-web 側もバックオフ再試行で待機し、
+`ready` 到達後に入室できた (ADR 0008 D-3)。
