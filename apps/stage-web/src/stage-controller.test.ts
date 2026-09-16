@@ -55,10 +55,10 @@ class FakeStageClient implements StageClient {
     };
   }
   async deletePreset() {}
-  async getDeckUploadUrl() {
+  async getMaterialUploadUrl() {
     return { assetId: "deck-1", key: "assets/decks/evt-1/deck-1.pdf", uploadUrl: "https://put" };
   }
-  async getDeckDownloadUrl() {
+  async getMaterialDownloadUrl() {
     return "https://signed/deck.pdf";
   }
 }
@@ -116,7 +116,7 @@ describe("StageController (DESIGN.md 4.1, F-1, F-3)", () => {
     await ctrl.setDeckUrl("https://signed/deck.pdf");
     expect(room.publishedData).toHaveLength(1);
     const msg = decodeStageMessage(room.publishedData[0]!);
-    expect(msg).toEqual({ type: "slide-deck", url: "https://signed/deck.pdf" });
+    expect(msg).toEqual({ type: "slide-deck", url: "https://signed/deck.pdf", totalPages: 1 });
   });
 
   it("setDeck で入れた総ページ数は setDeckUrl 後も維持される (F-3, 5.2)", async () => {
@@ -153,6 +153,7 @@ describe("StageController (DESIGN.md 4.1, F-1, F-3)", () => {
     expect(decodeStageMessage(room.publishedData.at(-1)!)).toEqual({
       type: "slide-deck",
       url: "https://signed/deck.pdf?renewed",
+      totalPages: 3,
     });
     // composer は slide-deck で 1 ページ目に戻るので、現在ページを追送する。
     expect(room.slides.at(-1)).toEqual({ type: "slide-page", page: 2 });
@@ -177,6 +178,23 @@ describe("StageController (DESIGN.md 4.1, F-1, F-3)", () => {
     room.emitDisconnect();
     room.emitParticipantsChanged([p("moderator")]);
     expect(seen.at(-1)).toEqual(["moderator"]);
+  });
+
+  it("applyRemotePage は publish せずに自分のデッキ位置だけ同期する (F-3, 5.2)", async () => {
+    const room = new FakeRoomConnector();
+    const ctrl = new StageController(new FakeStageClient(speakerJoin), room);
+    await ctrl.join("token");
+    ctrl.setDeck(13);
+
+    // 他のクライアントが 5 ページ目に送った、という受信を再現する。
+    expect(ctrl.applyRemotePage(5)).toBe(5);
+    expect(room.slides).toHaveLength(0);
+    expect(room.publishedData).toHaveLength(0);
+
+    // 同期後の「次へ」は 6 ページ目から続く (同期しないと 2 に戻ってしまう)。
+    expect(await ctrl.slideNext()).toBe(6);
+    // 総ページ数を超える指定は最終ページに丸める。
+    expect(ctrl.applyRemotePage(99)).toBe(13);
   });
 
   it("1 ページ目を投影中の republishDeck は余計な slide-page を送らない (F-3, 5.2)", async () => {
