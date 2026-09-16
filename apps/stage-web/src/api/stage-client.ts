@@ -8,7 +8,15 @@
  * (ADR 0008 D-3)。本クライアントは自動で exponential backoff してリトライし、最終的に
  * 200 もしくは別エラーが返るのを待つ。UI には onRetry で進捗を伝える。
  */
-import type { AssetMetadata, InvitedRole, Preset, SpeakerVisibility } from "@stagecast/shared";
+import type {
+  AssetMetadata,
+  DeckRef,
+  InvitedRole,
+  PresentationState,
+  Preset,
+  SlideSource,
+  SpeakerVisibility,
+} from "@stagecast/shared";
 
 /**
  * R12-followup-19 / ADR 0011 案 E: TURN/STUN server。
@@ -88,6 +96,23 @@ export interface StageClient {
   }>;
   /** 事前アップロードスライド (PDF) の署名付き GET URL を取得する (F-3, 5.2)。 */
   getMaterialDownloadUrl(inviteToken: string, assetKey: string): Promise<string>;
+  /**
+   * 投影状態を読む (ADR 0022 D-1)。入室時に呼べば現在のデッキとページが分かる。
+   * `deckUrl` は署名付きで、読むたびにサーバーが発行し直す。
+   */
+  getPresentationState(inviteToken: string): Promise<PresentationSnapshot>;
+  /** 投影状態を書く (ADR 0022 D-1)。`slideSource` を省略すると投影解除。 */
+  setSlideState(inviteToken: string, update: SlideStateUpdate): Promise<PresentationSnapshot>;
+}
+
+/** control-api が返す投影状態 (署名付き URL 付き)。 */
+export type PresentationSnapshot = PresentationState & { deckUrl?: string };
+
+/** 投影状態の更新内容。 */
+export interface SlideStateUpdate {
+  slideSource?: SlideSource;
+  slidePage?: number;
+  deck?: DeckRef;
 }
 
 /** ADR 0008 D-3: exponential backoff スケジュール (秒)。 */
@@ -260,6 +285,30 @@ export class HttpStageClient implements StageClient {
       throw new Error(`getMaterialUploadUrl failed (${res.status}): ${msg}`);
     }
     return (await res.json()) as { assetId: string; key: string; uploadUrl: string };
+  }
+
+  async getPresentationState(inviteToken: string): Promise<PresentationSnapshot> {
+    return this.postStage("/stage/presentation/state", { inviteToken }, "getPresentationState");
+  }
+
+  async setSlideState(
+    inviteToken: string,
+    update: SlideStateUpdate,
+  ): Promise<PresentationSnapshot> {
+    return this.postStage("/stage/presentation/slide", { inviteToken, ...update }, "setSlideState");
+  }
+
+  private async postStage<T>(path: string, body: unknown, label: string): Promise<T> {
+    const res = await fetch(`${this.baseUrl}${path}`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    if (!res.ok) {
+      const msg = await res.text().catch(() => res.statusText);
+      throw new Error(`${label} failed (${res.status}): ${msg}`);
+    }
+    return (await res.json()) as T;
   }
 
   async getMaterialDownloadUrl(inviteToken: string, assetKey: string): Promise<string> {
