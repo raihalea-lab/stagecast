@@ -1,6 +1,6 @@
 # 0021. 登壇資料を翻訳の参考資料として使う
 
-- ステータス: 提案
+- ステータス: 採用 (実装済み。実 AWS 上での検証は未実施)
 - 日付: 2026-09-16
 - 関連: DESIGN.md 5.2 (スライド投影) / 6.2 (字幕の二経路) / F-3 / ADR 0007 (字幕レジリエンス) / ADR 0022 (投影状態)
 - 後方互換: **不要** (既存の `/stage/decks/*` と `assets/decks/` prefix は廃止する)
@@ -56,8 +56,13 @@ S3 イベント通知 (`OBJECT_CREATED` / `OBJECT_REMOVED`) を張る。制御�
 - **`pdfjs-dist/legacy/build/pdf.mjs` を使う。** 通常ビルドは Node で
   `hashOriginal.toHex is not a function` で落ちる (pdf.js 自身が「Node では legacy を使え」と
   警告を出す)。esbuild のバンドル対象もこちらに向ける
-- `@napi-rs/canvas` は `optionalDependencies` なので、インストール時に除外すればバンドルに
-  入らない。テキスト抽出では参照されない
+- `@napi-rs/canvas` は `optionalDependencies` なので `externalModules` に入れてバンドルから
+  外す。テキスト抽出では参照されない (読み込み失敗の警告がログに出るだけ)
+- **worker は静的 import して `globalThis.pdfjsWorker` に載せる。** pdf.js は worker を
+  `await import(GlobalWorkerOptions.workerSrc)` で読み、既定値が `"./pdf.worker.mjs"` という
+  相対パスなので、esbuild で 1 ファイルに束ねた後は `Setting up fake worker failed` になる。
+  `globalThis.pdfjsWorker` は pdf.js が動的 import より先に見るフックで、ここに置けば
+  追加ファイルの同梱が要らない。**bundle 後にしか起きないので `cdk synth` では検知できない**
 - 出力: `assets/materials/{eventId}/_context.json`
   ```
   { version, updatedAt,
@@ -76,14 +81,31 @@ S3 イベント通知 (`OBJECT_CREATED` / `OBJECT_REMOVED`) を張る。制御�
 **低遅延経路 (Amazon Translate)**: 抽出 Lambda が資料の全文から **用語集** を LLM で 1 回生成し、
 Amazon Translate の Custom Terminology に `ImportTerminology` する。
 
-- 用語集名: `stagecast-{eventId}`。`MergeStrategy: OVERWRITE` で資料変更のたびに置き換える
+- 用語集名: `stagecast-{eventId}-{target}`。`MergeStrategy: OVERWRITE` で資料変更のたびに
+  置き換える
 - 対象: 固有名詞・技術用語・略語に限定し、**最大 200 件**。一般語を入れると exact match で
   過剰適用され、かえって訳が壊れる
-- 言語: イベントの `sourceLanguage` → `languages` の各 target を 1 つの CSV に (先頭列が source)
+- 言語: Amazon Translate の **CSV は 2 列 (source, target 1 つ)** しか受け付けない。複数
+  ターゲットを 1 ファイルに入れるには TMX が要るので、**ターゲット言語ごとに用語集を分ける**
 - 生成モデル: プロジェクト既定の Claude Sonnet 4.5 (`us-east-1`)
-- 字幕ワーカーは `TranslateTextCommand` に `TerminologyNames: ["stagecast-{eventId}"]` を添える。
-  用語集が未生成なら添えない (存在しない名前を指定するとエラーになる)
-- イベント終了時に `DeleteTerminology` する (アカウントの用語集数には上限がある)
+- 字幕ワーカーは `TranslateTextCommand` に `TerminologyNames: ["stagecast-{eventId}-{target}"]`
+  を添える。資料が無いイベントでは添えない (存在しない名前を指定するとエラーになる)
+- 抽出 Lambda は `_context.json` を書いた**後**に用語集を登録するので、その隙にワーカーが
+  起動すると `ResourceNotFoundException` になる。翻訳側で**用語集なしの 1 回だけの
+  やり直し**を入れてレースを潰す
+- イベント終了時に **reconcile Lambda** が `stagecast-{eventId}-*` を `ListTerminologies` で
+  拾って `DeleteTerminology` する。消さないと イベント数 × 言語数 で溜まり、アカウントの
+  用語集数の上限に当たって新しいイベントの用語集が作れなくなる。スタック破棄と同じ
+  「desired に無いイベント」のループで回すので、終了経路を二重に持たずに済む
+
+> **実測: 日本語ソースでも効く。ただし取りこぼしがある (best-effort)。**
+> AWS のドキュメントは CJK ソースの用語集について「テキスト中で区切られている場合のみ
+> 一致する」と読める記述をしているが、実 AWS で測ると **ja → en でも大半の文脈で置換された**
+> (14 文中 11 文。下の「スパイク結果」参照)。一方で同じ語が別の文では空振りする
+> (`配信基盤の設計について話します` は効いたが `エージェントの設計について話します` は効かない)。
+> **確実な置換ではなく best-effort** と理解して使う。訳語が揺れて困る語が残る場合は、
+> Transcribe の Custom Vocabulary (音声認識側の語彙) への振り替えを検討する。
+> 品質重視経路 (LLM) 側はこの制限を受けない。
 
 **品質重視経路 (LLM)**: 字幕ワーカーが `_context.json` の全文を system prompt の**固定
 プレフィックス**として渡す。用語集も同じプレフィックスに含め、両経路の用語を揃える。
@@ -118,15 +140,16 @@ Amazon Translate の Custom Terminology に `ImportTerminology` する。
 
 ## 変更範囲
 
-| 場所 | 変更 |
-| --- | --- |
-| `infra` | `MaterialsExtractFunction` を追加。S3 イベント通知 (`assets/materials/`)。抽出 Lambda のロール: S3 get/put (prefix 限定)・`bedrock:InvokeModel`・`translate:ImportTerminology` / `DeleteTerminology`。`SharedCaptionTaskRole` に `s3:GetObject` (prefix 限定)。字幕ワーカーに `ASSETS_BUCKET` env |
-| `services/control-api` | `POST /events/{id}/materials/upload-url` (admin)・一覧・削除。`/stage/decks/upload-url` を materials に統合。イベント終了時に `DeleteTerminology` |
-| `services/materials-extract` (新規) | 抽出・用語集生成・`_context.json` 書き出し・`ImportTerminology`。外部依存はインターフェース + fake |
-| `services/caption-pipeline` | `_context.json` の読み込みと 60 秒更新。`AmazonTranslateTranslator` に `TerminologyNames`。`LlmAdapter.translate` に文脈 (資料プレフィックス + 直近発話) を渡す。Bedrock アダプタでキャッシュポイント |
-| `apps/admin-web` | イベント設定に「翻訳参考資料」の登録 UI (既存アセットライブラリの経路を流用) |
-| `apps/stage-web` | デッキ投入先を materials prefix に変更 |
-| `packages/shared` | 用語集 CSV と `_context.json` の型 |
+| 場所                                | 変更                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| ----------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `infra`                             | `MaterialsExtractFunction` を追加。S3 イベント通知 (`assets/materials/`)。抽出 Lambda のロール: S3 get/put (prefix 限定)・`bedrock:InvokeModel`・`translate:ImportTerminology` / `DeleteTerminology`。**Phase 2 では用語集の言語ペアを決めるためにイベントの字幕設定が要るので、`dynamodb:GetItem` と events テーブル名の env も足す**。`SharedCaptionTaskRole` に `s3:GetObject` (prefix 限定)。字幕ワーカーに `ASSETS_BUCKET` env |
+| `services/control-api`              | `POST /events/{id}/materials/upload-url` (admin)・一覧・削除。`/stage/decks/upload-url` を materials に統合                                                                                                                                                                                                                                                                                                                         |
+| `services/media-orchestrator`       | イベント終了時 (desired に無いイベント) に翻訳用語集を回収する。`translate:ListTerminologies` / `DeleteTerminology`                                                                                                                                                                                                                                                                                                                 |
+| `services/materials-extract` (新規) | 抽出・用語集生成・`_context.json` 書き出し・`ImportTerminology`。外部依存はインターフェース + fake                                                                                                                                                                                                                                                                                                                                  |
+| `services/caption-pipeline`         | `_context.json` の読み込みと 60 秒更新。`AmazonTranslateTranslator` に `TerminologyNames`。`LlmAdapter.translate` に文脈 (資料プレフィックス + 直近発話) を渡す。Bedrock アダプタでキャッシュポイント                                                                                                                                                                                                                               |
+| `apps/admin-web`                    | イベント設定に「翻訳参考資料」の登録 UI (既存アセットライブラリの経路を流用)                                                                                                                                                                                                                                                                                                                                                        |
+| `apps/stage-web`                    | デッキ投入先を materials prefix に変更                                                                                                                                                                                                                                                                                                                                                                                              |
+| `packages/shared`                   | 用語集 CSV と `_context.json` の型                                                                                                                                                                                                                                                                                                                                                                                                  |
 
 ## 影響・トレードオフ
 
@@ -151,6 +174,19 @@ Amazon Translate の Custom Terminology に `ImportTerminology` する。
 - テキストが取れない資料 (画像だけのスライド、アウトライン化された文字) では効かない。
   OCR は範囲外
 
+## 実装メモ
+
+- 抽出は `services/materials-extract` (S3 イベント通知 → `_context.json`)。
+  用語集の生成もここで行う (資料の全文が手元にあるため)
+- 字幕ワーカーは `MaterialsContextStore` で `_context.json` を読み、`LLMEngine` が
+  `LlmAdapter.translate` の第 4 引数として文脈を渡す
+- Bedrock アダプタは文脈を `system` ブロックに置き `cache_control` を付ける。
+  `user` に混ぜると翻訳対象と紛れる
+- 低遅延経路は `AmazonTranslateTranslator` の第 2 引数に用語集名を渡す。
+  `_context.json` が存在するときだけ名前を渡す (存在しない名前はエラーになる)
+- `us.` 接頭辞の推論プロファイルは US リージョンからしか使えないので、抽出 Lambda が
+  ap-northeast-1 でも Bedrock クライアントは `BEDROCK_REGION` (既定 us-east-1) に向ける
+
 ## 段階
 
 1. **Phase 1**: 資料の登録 (admin-web / stage-web 統合) + 抽出 Lambda (PDF) + LLM 経路の
@@ -164,16 +200,18 @@ Phase 1 は既定の `transcribe` イベントには効かない。Phase 2 で�
 
 `docswell-5QR21Y.pdf` (13 ページ, 2.5MB, 日本語, フォント埋め込み済み) で実測:
 
-| 項目 | 結果 |
-| --- | --- |
-| テキスト抽出 | **成功**。日本語が文字化けせず取れた |
-| 所要時間 | 91ms (13 ページ全体, 読み込み 33ms 含む) |
-| RSS | 136MB |
-| 抽出文字数 | 3,345 字 (13 ページ合計) |
-| canvas | **不要**。参照されない |
-| CMap | **不要**。有り/無しで出力は同一 (3,345 字で一致) |
+| 項目         | 結果                                             |
+| ------------ | ------------------------------------------------ |
+| テキスト抽出 | **成功**。日本語が文字化けせず取れた             |
+| 所要時間     | 91ms (13 ページ全体, 読み込み 33ms 含む)         |
+| RSS          | 136MB                                            |
+| 抽出文字数   | 3,345 字 (13 ページ合計)                         |
+| canvas       | **不要**。参照されない                           |
+| CMap         | **不要**。有り/無しで出力は同一 (3,345 字で一致) |
 
 - ビルドは `legacy` を使うこと (上記 D-2)
+- esbuild で bundle + minify した状態でも同じ結果を確認済み (13 ページ / 60ms / RSS 97MB)。
+  worker の差し込みが無いと bundle 後だけ失敗するので、実装時はバンドル後の動作確認まで行う
 - 3,345 字は D-2 の上限 (1 資料 30,000 字) に対して十分小さい。通常のスライドなら上限に
   当たらない
 - 実行時間から、Lambda のメモリは 512MB〜1024MB で足りる見込み (実 Lambda での確認は
@@ -183,14 +221,97 @@ Phase 1 は既定の `transcribe` イベントには効かない。Phase 2 で�
 
 スパイクのスクリプト: `docs/spikes/pdf-text-extract.mjs`
 
-## 実装前に確認すること
+## スパイク結果 2: Translate 用語集と Bedrock prompt caching (2026-09-16, 実 AWS)
 
-1. `TranslateText` に `TerminologyNames` を渡すときの IAM 要件 (`translate:GetTerminology` が
-   要るか)
-2. Bedrock prompt caching の最小トークン数と TTL (Sonnet 4.5)
-3. `ImportTerminology` の反映遅延と、アカウントあたりの用語集数の上限
+実アカウント (ap-northeast-1 / us-east-1) で実測。スクリプト: `docs/spikes/translate-glossary.mjs`
+
+### Custom Terminology
+
+| 項目                               | 結果                                         |
+| ---------------------------------- | -------------------------------------------- |
+| 2 列 CSV + `Directionality: "UNI"` | **通る**                                     |
+| `ImportTerminology` の反映遅延     | **99ms** (登録直後の 1 回目の呼び出しで成功) |
+| ja → en での置換                   | **14 文中 11 文で効いた**                    |
+
+空振りした文と、効いた文の対比:
+
+| 文                                     | 結果   |
+| -------------------------------------- | ------ |
+| `配信基盤の設計について話します。`     | 効いた |
+| `エージェントの設計について話します。` | 空振り |
+| `字幕の設計について話します。`         | 空振り |
+| `エージェントを作ります。`             | 効いた |
+| `エージェントが動きます。`             | 効いた |
+| `字幕を表示します。`                   | 効いた |
+| `この字幕は正確です。`                 | 空振り |
+
+同じ語でも文脈によって効いたり効かなかったりする。**確実な置換ではなく best-effort**。
+「区切られていないと効かない」という単純な規則ではない (`配信基盤の…` は効いている)。
+
+### Bedrock prompt caching (Claude Sonnet 4.5, us-east-1)
+
+日本語 2,453 字の system ブロックに `cache_control: { type: "ephemeral" }` を付けて 2 回呼んだ:
+
+| 回     | `cache_creation_input_tokens` | `cache_read_input_tokens` |
+| ------ | ----------------------------- | ------------------------- |
+| 1 回目 | 1,613                         | 0                         |
+| 2 回目 | 0                             | **1,613**                 |
+
+- **効く**。TTL は `ephemeral_5m` (5 分)。字幕は連続して流れるので温まったままになる
+- 日本語は **約 0.66 トークン/字**。Sonnet 4.5 の最小 1,024 トークンは **日本語 1,550 字相当**。
+  資料がこれより短いとキャッシュされない (その場合も正しく動く。コストが下がらないだけ)
+- スパイクの PDF (3,345 字) は最小を十分超える
+
+## 確認が済んだこと
+
+1. ~~`TranslateText` に `TerminologyNames` を渡すときの IAM 要件~~ →
+   `translate:GetTerminology` を先回りで付与した。管理者権限での実測では要否を判定できないため、
+   **付けたまま**にする (読み取り専用なので害はない)
+2. ~~Bedrock prompt caching の最小トークン数と TTL~~ → 上記のとおり実測済み
+3. ~~`ImportTerminology` の反映遅延~~ → 99ms。ただしゼロではないので、字幕ワーカー側に
+   用語集なしのフォールバックを入れてある。**アカウントあたりの用語集数の上限は未確認** (既定 100)。
+   イベント終了時に reconcile Lambda が `stagecast-{eventId}-*` を回収する (実装済み)
 4. テストは外部接続なしで完結させる (CLAUDE.md テスト方針)。S3・Bedrock・Translate は
    インターフェース + fake
+
+## スパイク結果 3: バンドル済み Lambda の通し検証 (2026-09-16, 実 AWS)
+
+**CDK がデプロイするのと同じバンドル成果物** (`cdk synth` が出す `asset.<hash>/index.mjs`) を、
+使い捨ての S3 バケット + DynamoDB テーブルに対して実行した。
+スクリプト: `docs/spikes/materials-extract-e2e.mjs`
+
+資料は `docswell-5QR21Y.pdf` (13 ページ)、イベントは ja → en。
+
+| 確認項目                                      | 結果                                               |
+| --------------------------------------------- | -------------------------------------------------- |
+| S3 イベント → 抽出 → `_context.json`          | **成功** (1 資料 / 3,442 字 / 13 ページ)           |
+| バンドル後の pdf.js で日本語が取れるか        | **成功** (文字化けなし)                            |
+| Bedrock で用語集を生成                        | **成功** (47 語を抽出)                             |
+| `ImportTerminology`                           | **成功** (`stagecast-{eventId}-en`)                |
+| 実資料の用語集が翻訳に効くか                  | **効いた** (`専門支部` → `Special Interest Group`) |
+| 資料削除で `_context.json` と用語集が消えるか | **両方消えた**                                     |
+| `_context.json` の PUT で無限ループしないか   | **しない** (何もせず返る)                          |
+| 所要時間 (1 資料)                             | **12.3 秒**                                        |
+
+読み取れたこと:
+
+- **所要時間の大半は Bedrock の用語集生成** (抽出は 91ms、全体 12.3 秒)。
+  `NodejsFunction` の既定タイムアウトは 3 秒なので、**`timeout: Duration.minutes(5)` が無いと
+  `_context.json` を書いた直後に殺されて用語集だけが永久に作られない**。しかも品質重視経路は
+  動いてしまうので失敗が見えにくい。設定してあることを確認した
+- **LLM が 47 語返して、用語集に載ったのは 6 語**。`buildTerminologyCsv` が「訳語 == 原語」の行を
+  落としているため。技術資料は `AWS` / `FreeRTOS` のように原語のまま使う語が多く、この
+  フィルタが実際に効いている (載せても置換されないので件数を食うだけ)
+- `@napi-rs/canvas` が見つからない旨の警告が出るが、テキスト抽出では使われないので無害。
+  Lambda のログにも出る
+
+## 未検証
+
+- **デプロイした実 Lambda 上での実行**。バンドル成果物そのものは上記のとおり実 AWS の
+  S3 / Bedrock / Translate に対して通っているので、残るのは S3 イベント通知の配線と
+  Lambda ランタイム固有の差分のみ
+- 字幕ワーカーが `_context.json` を読んで**実配信で**翻訳品質が上がることの確認
+- イベント終了時の用語集回収 (reconcile Lambda) の実 AWS での動作。ロジックは単体テスト済み
 
 ## 範囲外
 

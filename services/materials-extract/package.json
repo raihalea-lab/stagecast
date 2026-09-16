@@ -1,5 +1,5 @@
 {
-  "name": "@stagecast/media-orchestrator",
+  "name": "@stagecast/materials-extract",
   "version": "0.1.0",
   "private": true,
   "type": "module",
@@ -12,18 +12,15 @@
     "clean": "rm -rf dist *.tsbuildinfo"
   },
   "dependencies": {
-    "@aws-sdk/client-cloudformation": "^3.1068.0",
+    "@aws-sdk/client-bedrock-runtime": "^3.1068.0",
     "@aws-sdk/client-dynamodb": "^3.1068.0",
-    "@aws-sdk/client-ec2": "^3.1068.0",
-    "@aws-sdk/client-ecs": "^3.1068.0",
-    "@aws-sdk/client-lambda": "^3.1068.0",
+    "@aws-sdk/client-s3": "^3.1068.0",
+    "@aws-sdk/client-translate": "^3.1068.0",
     "@aws-sdk/lib-dynamodb": "^3.1068.0",
-    "@stagecast/infra": "workspace:*",
-    "@stagecast/shared": "workspace:*"
+    "@stagecast/shared": "workspace:*",
+    "pdfjs-dist": "^6.3.289"
   },
   "devDependencies": {
-    "@aws-sdk/client-route-53": "^3.1075.0",
-    "@aws-sdk/client-translate": "^3.1132.0",
     "@types/aws-lambda": "^8.10.162",
     "@types/node": "^25.9.2",
     "typescript": "^6.0.3",

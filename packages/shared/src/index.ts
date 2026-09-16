@@ -15,3 +15,4 @@ export * from "./timeout.js";
 export * from "./settings.js";
 export * from "./layout-protocol.js";
 export * from "./event-request.js";
+export * from "./materials.js";
