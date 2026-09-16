@@ -25,6 +25,7 @@ import {
   aws_cloudwatch_actions as cwActions,
   aws_sns as sns,
   aws_s3_deployment as s3deploy,
+  aws_s3_notifications as s3n,
   aws_route53 as route53,
   aws_budgets as budgets,
   aws_sns_subscriptions as snsSubscriptions,
@@ -116,6 +117,42 @@ export class ControlPlaneStack extends Stack {
       ],
     });
 
+    // --- 翻訳参考資料の抽出 Lambda (ADR 0021 D-2) ---
+    // assets/materials/ に資料が置かれたら、そのイベント分の _context.json を作り直す。
+    // 字幕ワーカーがこれを読んで翻訳の文脈に使う (ADR 0021 D-6)。
+    const materialsExtractFn = new lambdaNodejs.NodejsFunction(this, "MaterialsExtractFunction", {
+      entry: path.join(__dirname, "..", "..", "services", "materials-extract", "src", "handler.ts"),
+      handler: "handler",
+      runtime: lambda.Runtime.NODEJS_24_X,
+      architecture: lambda.Architecture.ARM_64,
+      bundling: {
+        target: "node24",
+        minify: true,
+        format: lambdaNodejs.OutputFormat.ESM,
+        // pdfjs-dist は legacy ビルドを bundle に含める (Node で必須, ADR 0021 D-2)。
+        // @napi-rs/canvas は pdfjs-dist の optionalDependency で、テキスト抽出では
+        // 呼ばれない require() の中にしか現れない。external にして bundle から外す。
+        externalModules: ["@aws-sdk/*", "@napi-rs/canvas"],
+        banner:
+          "import{createRequire}from'node:module';const require=createRequire(import.meta.url);",
+      },
+      // スパイク実測: 13 ページ PDF で 91ms / RSS 136MB (ADR 0021)。
+      memorySize: 1024,
+      timeout: Duration.minutes(5),
+      tracing: lambda.Tracing.ACTIVE,
+      environment: {
+        ASSETS_BUCKET: assetsBucket.bucketName,
+      },
+    });
+    // 資料の読み取りと _context.json の読み書き。prefix を絞って他の成果物には触らせない。
+    assetsBucket.grantReadWrite(materialsExtractFn, "assets/materials/*");
+    // 自分が書いた _context.json でも起動するが、handler 側で弾いている (無限ループ防止)。
+    for (const eventType of [s3.EventType.OBJECT_CREATED, s3.EventType.OBJECT_REMOVED]) {
+      assetsBucket.addEventNotification(eventType, new s3n.LambdaDestination(materialsExtractFn), {
+        prefix: "assets/materials/",
+      });
+    }
+
     // --- 字幕ワーカーのコンテナイメージ (R4, ADR 0019) ---
     // ADR 0005 D-3 の GHA build/push + 専用 ECR は廃止し、Caddy と同じく DockerImageAsset で
     // cdk deploy 時にビルド・push する。Dockerfile は pnpm workspace のため monorepo ルートを
@@ -181,6 +218,14 @@ export class ControlPlaneStack extends Stack {
           "bedrock:InvokeModelWithResponseStream",
         ],
         resources: ["*"],
+      }),
+    );
+    // ADR 0021 D-6: 字幕ワーカーは翻訳参考資料の _context.json を S3 から直接読む
+    // (Fargate 上で招待トークンを持たず control-api を叩けないため)。prefix を絞る。
+    sharedCaptionTaskRole.addToPolicy(
+      new iam.PolicyStatement({
+        actions: ["s3:GetObject"],
+        resources: [assetsBucket.arnForObjects("assets/materials/*")],
       }),
     );
 
