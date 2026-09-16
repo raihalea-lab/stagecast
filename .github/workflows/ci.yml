@@ -19,7 +19,7 @@ jobs:
       # pnpm のバージョンは package.json の packageManager から解決する
       # (二重指定すると ERR_PNPM_BAD_PM_VERSION になるため version は指定しない)。
       # setup-vp は Node の取得は面倒を見るが、pnpm 本体は別途セットアップが必要。
-      - uses: pnpm/action-setup@v6
+      - uses: pnpm/action-setup@v6.0.9
 
       # Vite+ CLI 導入 + Node.js セットアップ + 依存インストールまでを一括。
       # - node-version: 24 で actions/setup-node の代わりに vp env が Node を用意
