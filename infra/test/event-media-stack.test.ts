@@ -211,6 +211,39 @@ describe("EventMediaStack (DESIGN.md 7.1/7.3, N-5)", () => {
   });
 });
 
+describe("EventMediaStack の ECS service 名 (ADR 0023 D-2)", () => {
+  /** reconcile が DescribeServices/UpdateService で名指しするので、規約名を固定する。 */
+  function synthShared(): Template {
+    const app = new App();
+    const stack = new EventMediaStack(app, eventMediaStackName("evt-shared"), {
+      env: { account: "111111111111", region: "ap-northeast-1" },
+      eventId: "evt-shared",
+      captionEngine: "transcribe",
+      customCaptionApi: false,
+      sharedClusterName: "stagecast-shared",
+    });
+    return Template.fromStack(stack);
+  }
+
+  it("per-event Cluster では sfu / captionworker の固定名になる", () => {
+    const template = synth();
+    template.hasResourceProperties("AWS::ECS::Service", { ServiceName: "sfu" });
+    template.hasResourceProperties("AWS::ECS::Service", { ServiceName: "captionworker" });
+  });
+
+  it("共有 Cluster では eventId 付きの名前になる (衝突回避)", () => {
+    const template = synthShared();
+    template.hasResourceProperties("AWS::ECS::Service", { ServiceName: "sfu-evt-shared" });
+    template.hasResourceProperties("AWS::ECS::Service", {
+      ServiceName: "captionworker-evt-shared",
+    });
+  });
+
+  it("CaptionWorker の service 名を Output に出す", () => {
+    synth().hasOutput("CaptionWorkerServiceName", { Value: "captionworker" });
+  });
+});
+
 describe("EventMediaStack captionDesiredCount (ADR 0017 D-2)", () => {
   it("captionDesiredCount=0 なら CaptionWorker Service だけ DesiredCount 0 になる", () => {
     const app = new App();

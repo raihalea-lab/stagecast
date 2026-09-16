@@ -57,3 +57,19 @@ describe("classifyStackStatus (T4)", () => {
     expect(classifyStackStatus("WEIRD_STATE")).toBe("failed");
   });
 });
+
+describe("classifyStackStatus: ROLLBACK 中の扱い (ADR 0023 D-2)", () => {
+  // ROLLBACK_*_IN_PROGRESS は末尾一致で in_progress に落ちる。ここを failed にすると
+  // planReconcile が巻き戻し中のスタックへ DeleteStack を撃つので、分類は変えない。
+  // 代わりに handler 側が stack.status の "ROLLBACK" を見てサービス引き上げを止める。
+  it("ROLLBACK 中は in_progress のまま (分類を変えると destroy が走る)", () => {
+    expect(classifyStackStatus("ROLLBACK_IN_PROGRESS")).toBe("in_progress");
+    expect(classifyStackStatus("UPDATE_ROLLBACK_IN_PROGRESS")).toBe("in_progress");
+  });
+
+  it("巻き戻しが終われば failed (destroy → 再作成に載る)", () => {
+    expect(classifyStackStatus("ROLLBACK_COMPLETE")).toBe("failed");
+    expect(classifyStackStatus("UPDATE_ROLLBACK_COMPLETE")).toBe("failed");
+    expect(classifyStackStatus("ROLLBACK_FAILED")).toBe("failed");
+  });
+});
