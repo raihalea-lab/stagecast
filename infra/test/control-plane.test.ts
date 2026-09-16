@@ -18,9 +18,16 @@ import {
  * 呼ぶとテストごとにそれを払うことになり、CI の 5 秒タイムアウトに引っかかる
  * (実際に落ちた)。アサーションは読み取りしかしないので共有して問題ない。
  */
-let synthed: Template | undefined;
+let synthed: { base: Template; withOpsEmail: Template } | undefined;
 
-function synth(): Template {
+/**
+ * 既定構成と `opsEmail` 設定済み構成を **同じ App で** 作る。
+ *
+ * App を分けると Lambda の esbuild バンドルが 2 回走る。同一 App なら資産ハッシュが同じ
+ * ぶんは使い回されるので、2 つ目のスタックはほぼ増分コストで済む。
+ * (App を分けたときは CI で 5 秒、負荷の高いマシンでは 120 秒でもタイムアウトした)
+ */
+function synthAll(): { base: Template; withOpsEmail: Template } {
   if (synthed) return synthed;
   const app = new App({
     context: {
@@ -31,12 +38,24 @@ function synth(): Template {
       },
     },
   });
-  const stack = new ControlPlaneStack(app, "TestControlPlane", {
-    env: { account: "111111111111", region: "ap-northeast-1" },
+  const env = { account: "111111111111", region: "ap-northeast-1" };
+  const base = new ControlPlaneStack(app, "TestControlPlane", {
+    env,
     userConfig: { mediaHostedZoneName: "example.com" },
   });
-  synthed = Template.fromStack(stack);
+  const withOpsEmail = new ControlPlaneStack(app, "TestControlPlaneOpsEmail", {
+    env,
+    userConfig: { mediaHostedZoneName: "example.com", opsEmail: "ops@example.com" },
+  });
+  synthed = {
+    base: Template.fromStack(base),
+    withOpsEmail: Template.fromStack(withOpsEmail),
+  };
   return synthed;
+}
+
+function synth(): Template {
+  return synthAll().base;
 }
 
 describe("ControlPlaneStack", () => {
@@ -678,25 +697,11 @@ describe("運用アラームの通知先 (D16 の実効性)", () => {
   // アラームを作っても購読者がいなければ誰にも届かない。2026-09-17 時点で実際に
   // OrchestratorAlarmTopic の購読者はゼロで、D16 で足したアラームが鳴っても気づけなかった。
   it("opsEmail を設定するとアラームトピックにメール購読が付く", () => {
-    const app = new App({
-      context: {
-        "hosted-zone:account=111111111111:domainName=example.com:region=ap-northeast-1": {
-          Id: "/hostedzone/ZTESTEXAMPLE",
-          Name: "example.com.",
-        },
-      },
-    });
-    const stack = new ControlPlaneStack(app, "OpsEmailStack", {
-      env: { account: "111111111111", region: "ap-northeast-1" },
-      userConfig: { mediaHostedZoneName: "example.com", opsEmail: "ops@example.com" },
-    });
-    Template.fromStack(stack).hasResourceProperties("AWS::SNS::Subscription", {
+    synthAll().withOpsEmail.hasResourceProperties("AWS::SNS::Subscription", {
       Protocol: "email",
       Endpoint: "ops@example.com",
     });
-    // 2 つ目のスタックを synth するので全 Lambda の esbuild が走る。キャッシュの無い CI では
-    // 既定の 5 秒を超える (実際に落ちた)。memo 化した `synth()` とは別物なので個別に伸ばす。
-  }, 120_000);
+  });
 
   it("opsEmail 未設定なら購読を作らない (他人のアドレスに送らない)", () => {
     // 既定の synth には opsEmail を渡していない。email 購読はコスト用の budgetEmail 分だけ。
