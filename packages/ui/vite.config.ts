@@ -1,7 +1,6 @@
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
-import tailwindcss from "tailwindcss";
-import autoprefixer from "autoprefixer";
+import tailwindcss from "@tailwindcss/postcss";
 
 /**
  * packages/ui の vite 設定 (preview ページ用)。
@@ -13,8 +12,9 @@ export default defineConfig({
   root: "preview",
   plugins: [react()],
   css: {
+    // Tailwind v4: プラグインは @tailwindcss/postcss。autoprefixer は内蔵されたので不要。
     postcss: {
-      plugins: [tailwindcss(), autoprefixer()],
+      plugins: [tailwindcss()],
     },
   },
 });
