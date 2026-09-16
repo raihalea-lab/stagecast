@@ -652,3 +652,24 @@ describe("reconcile 失敗のアラーム (NEXT_WORK D16)", () => {
     });
   });
 });
+
+describe("削除を本当の削除にする (バージョニング対策)", () => {
+  // バケットはバージョニング有効。旧バージョンを消すルールが無いと、DeleteObject は
+  // 削除マーカーを付けるだけで実体が残り続ける = 削除請求に応えられない。
+  // 2026-09-17 の法務テンプレート突合で、録画と字幕がこの状態だと判明した。
+  it("プレフィックス無指定の旧バージョン失効ルールがある (録画・字幕を含む)", () => {
+    const t = synth();
+    t.hasResourceProperties("AWS::S3::Bucket", {
+      LifecycleConfiguration: {
+        Rules: Match.arrayWith([
+          Match.objectLike({
+            Id: "expire-old-versions",
+            Status: "Enabled",
+            NoncurrentVersionExpiration: { NoncurrentDays: 7 },
+            ExpiredObjectDeleteMarker: true,
+          }),
+        ]),
+      },
+    });
+  });
+});
