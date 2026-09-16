@@ -1,5 +1,6 @@
 import { createRequire } from "node:module";
 import * as path from "node:path";
+import { MATERIALS_PREFIX } from "@stagecast/shared";
 import {
   Stack,
   type StackProps,
@@ -128,6 +129,16 @@ export class ControlPlaneStack extends Stack {
             { storageClass: s3.StorageClass.INFREQUENT_ACCESS, transitionAfter: Duration.days(30) },
             { storageClass: s3.StorageClass.GLACIER, transitionAfter: Duration.days(90) },
           ],
+        },
+        {
+          // 翻訳参考資料は「最新だけに価値がある」(上書きアップロードしかされない)。
+          // バケットはバージョニング有効なので、これが無いと削除しても本体が旧バージョンとして
+          // 残り続ける = 消したつもりで消えていない、かつ課金され続ける。
+          // 最短は 1 日 (S3 の下限)。削除マーカーも残さず片付ける。
+          id: "expire-materials-old-versions",
+          prefix: MATERIALS_PREFIX,
+          noncurrentVersionExpiration: Duration.days(1),
+          expiredObjectDeleteMarker: true,
         },
       ],
     });

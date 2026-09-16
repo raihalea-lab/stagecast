@@ -65,6 +65,8 @@ export function createEventService(deps: {
   newId: () => string;
   now: () => number;
   cleanupStorage?: (eventId: string) => Promise<void>;
+  /** イベント終了時に翻訳参考資料を消す (録画と字幕は残す)。 */
+  cleanupMaterials?: (eventId: string) => Promise<void>;
   onGoLive?: (eventId: string) => Promise<void>;
   /** ADR 0015 Phase 4: スケジュール事前ウォームアップ。startsAt=string で作成、null で削除。 */
   onWarmupSchedule?: (eventId: string, startsAt: string | null) => Promise<void>;
@@ -168,6 +170,12 @@ export function createEventService(deps: {
     // ADR 0015 Phase 2: live 遷移時に reconcile Lambda を直接起動し、EventBridge 検知遅延 (0-60s) をスキップ。
     if (status === "live") {
       deps.onGoLive?.(eventId).catch(() => {});
+    }
+    // 終了したら翻訳参考資料を消す。用語集と同じタイミングで揃える。
+    // 失敗しても配信終了そのものは成功させる (ここで失敗を返すと、状態は ended なのに
+    // 呼び出し側にはエラーが見える)。取り残した資料はイベント削除でも回収できる。
+    if (status === "ended") {
+      deps.cleanupMaterials?.(eventId).catch(() => {});
     }
     // ADR 0015 Phase 4: scheduled 遷移時にウォームアップスケジュールを作成。
     // scheduled 以外への遷移時はスケジュールを削除。

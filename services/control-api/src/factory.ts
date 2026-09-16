@@ -5,6 +5,7 @@
  * (PROMPT 共通ルール)。本番では DynamoDB 実装・Cognito 検証器に差し替える。
  */
 import { randomUUID } from "node:crypto";
+import { materialsPrefix } from "@stagecast/shared";
 import { FakeAdminAuthVerifier, type AdminAuthVerifier } from "./auth/admin-auth.js";
 import {
   MemoryAssetMetadataRepository,
@@ -115,8 +116,22 @@ export function buildControlApi(config: FactoryConfig = {}) {
     config.artifactStore ?? (storeBucket ? new S3ArtifactStore(storeBucket) : undefined);
   const cleanupStorage = cleanupStore
     ? async (eventId: string) => {
-        const prefixes = [`recordings/${eventId}/`, `captions/${eventId}/`];
+        const prefixes = [
+          `recordings/${eventId}/`,
+          `captions/${eventId}/`,
+          // 翻訳参考資料。ここが抜けていたのでイベントを削除しても資料が S3 に残っていた。
+          materialsPrefix(eventId),
+        ];
         await Promise.all(prefixes.map((p) => cleanupStore.deletePrefix(p)));
+      }
+    : undefined;
+
+  // イベント終了時は**資料だけ**消す。録画と字幕は成果物として残す (Artifacts タブが読む)。
+  // `_context.json` と Translate の用語集は、この削除の S3 通知から materials-extract が
+  // 連鎖的に片付ける (ADR 0021)。
+  const cleanupMaterials = cleanupStore
+    ? async (eventId: string) => {
+        await cleanupStore.deletePrefix(materialsPrefix(eventId));
       }
     : undefined;
 
@@ -125,6 +140,7 @@ export function buildControlApi(config: FactoryConfig = {}) {
     newId,
     now,
     cleanupStorage,
+    cleanupMaterials,
     onGoLive: config.onGoLive,
     onWarmupSchedule: config.onWarmupSchedule,
   });
