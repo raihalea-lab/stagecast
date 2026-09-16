@@ -14,6 +14,7 @@ describe("toDesiredEvent (gsi-live item → DesiredEvent)", () => {
     expect(toDesiredEvent(item)).toEqual({
       eventId: "evt-1",
       captionEngine: "llm",
+      captionEnabled: true,
       customCaptionApi: true,
       rtmpUrl: "rtmp://a/b",
       streamKeyRef: "stagecast/sk",
@@ -24,6 +25,7 @@ describe("toDesiredEvent (gsi-live item → DesiredEvent)", () => {
     expect(toDesiredEvent({ id: "evt-2" })).toEqual({
       eventId: "evt-2",
       captionEngine: "transcribe",
+      captionEnabled: true,
       customCaptionApi: false,
       rtmpUrl: undefined,
       streamKeyRef: undefined,
@@ -71,5 +73,21 @@ describe("classifyStackStatus: ROLLBACK 中の扱い (ADR 0023 D-2)", () => {
     expect(classifyStackStatus("ROLLBACK_COMPLETE")).toBe("failed");
     expect(classifyStackStatus("UPDATE_ROLLBACK_COMPLETE")).toBe("failed");
     expect(classifyStackStatus("ROLLBACK_FAILED")).toBe("failed");
+  });
+});
+
+describe("toDesiredEvent: 字幕オフの配線 (ADR 0017 D-2)", () => {
+  // ここが埋まっていないと reconcile が常に captionEnabled=true として扱い、
+  // ADR 0017 の -35% が永久に効かない (D14 で実際にそうなっていた)。
+  it("caption.enabled=false を captionEnabled に伝える", () => {
+    const d = toDesiredEvent({ id: "e1", caption: { engine: "transcribe", enabled: false } });
+    expect(d.captionEnabled).toBe(false);
+  });
+
+  it("未指定は有効扱い (既存イベントの字幕を黙って止めない)", () => {
+    expect(toDesiredEvent({ id: "e1", caption: { engine: "transcribe" } }).captionEnabled).toBe(
+      true,
+    );
+    expect(toDesiredEvent({ id: "e1" }).captionEnabled).toBe(true);
   });
 });

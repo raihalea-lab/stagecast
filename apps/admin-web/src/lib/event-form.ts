@@ -13,6 +13,11 @@ export interface EventFormValues {
   title: string;
   startsAt: string;
   endsAt?: string;
+  /**
+   * 字幕を出すか (ADR 0017 D-2)。オフにすると CaptionWorker を起動しないので
+   * イベント 1 本あたりのコストが約 35% 下がる。
+   */
+  captionEnabled: boolean;
   /** 字幕の対応言語。 */
   languages: LanguageCode[];
   /** YouTube へ送出する 1 言語 (DESIGN.md 2.3, 6.3.1)。 */
@@ -40,6 +45,7 @@ export function defaultFormValues(startsAt?: string): EventFormValues {
     title: "",
     startsAt: startsAt ?? "",
     endsAt: startsAt ? computeDefaultEndsAt(startsAt) : "",
+    captionEnabled: true,
     languages: ["ja", "en"],
     youtubeLanguage: "ja",
     engine: "transcribe",
@@ -65,9 +71,12 @@ export function validateForm(values: EventFormValues): FormValidation {
   const errors: string[] = [];
   if (!values.title.trim()) errors.push("タイトルは必須です");
   if (!values.startsAt) errors.push("開催日時は必須です");
-  if (values.languages.length === 0) errors.push("対応言語を 1 つ以上選択してください");
-  if (!values.languages.includes(values.youtubeLanguage)) {
-    errors.push("YouTube 送出言語は対応言語に含めてください");
+  // 字幕オフなら言語は使われないので問わない。設定は残しておき、オンに戻せば効く。
+  if (values.captionEnabled) {
+    if (values.languages.length === 0) errors.push("対応言語を 1 つ以上選択してください");
+    if (!values.languages.includes(values.youtubeLanguage)) {
+      errors.push("YouTube 送出言語は対応言語に含めてください");
+    }
   }
   if (values.endsAt && values.startsAt && Date.parse(values.endsAt) < Date.parse(values.startsAt)) {
     errors.push("終了日時は開始日時より後にしてください");
@@ -78,10 +87,12 @@ export function validateForm(values: EventFormValues): FormValidation {
 /** フォーム値を制御 API の CreateEventInput へ変換する。 */
 export function toCreateEventInput(values: EventFormValues): CreateEventInput {
   const caption = {
+    enabled: values.captionEnabled,
     languages: values.languages,
     youtubeLanguage: values.youtubeLanguage,
     engine: values.engine,
-    customApiEnabled: values.customApiEnabled,
+    // 字幕オフなら独自配信 API も意味がない。設定として残さない。
+    customApiEnabled: values.captionEnabled && values.customApiEnabled,
   };
   if (!isValidCaptionSettings(caption)) {
     throw new Error("invalid caption settings");

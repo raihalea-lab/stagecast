@@ -5,6 +5,7 @@
  * admin-web は OpenStageButton で stage-web を開くだけ。
  */
 import { useCallback, useEffect, useState } from "react";
+import { isCaptionEnabled } from "@stagecast/shared";
 import type {
   AssetMetadata,
   EventDefinition,
@@ -837,7 +838,14 @@ export function EventDetail(props: {
                 ID: <code className="text-xs">{event.id}</code>
               </p>
               {event.startsAt && <p>開催日時: {event.startsAt}</p>}
-              {event.caption && <p>字幕エンジン: {event.caption.engine}</p>}
+              {event.caption && (
+                <p>
+                  字幕:{" "}
+                  {isCaptionEnabled(event.caption)
+                    ? `オン (${event.caption.engine})`
+                    : "オフ (字幕ワーカーを起動しない)"}
+                </p>
+              )}
               {event.media?.livekitUrl && (
                 <p>
                   LiveKit URL: <code className="text-xs">{event.media.livekitUrl}</code>
