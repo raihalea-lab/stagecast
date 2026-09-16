@@ -332,7 +332,7 @@ async function upsertRoute53ARecord(
  * ないので触らない (他システムの用語集を消さないための境界)。
  */
 export function eventIdFromTerminologyName(name: string): string | undefined {
-  const m = /^stagecast-([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})-.+$/i.exec(
+  const m = /^stagecast-([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})-.+$/.exec(
     name,
   );
   return m?.[1];
@@ -361,11 +361,25 @@ export function createTerminologySweepDeps(
   tableName: string,
   dynamo: DynamoDBDocumentClient,
 ): TerminologySweepDeps {
+  // SDK の読み込みとクライアント生成は 1 回だけ。棚卸しは毎 tick 走るので、
+  // 用語集 1 件ごとにクライアントを作らない。
+  let translate: Promise<{
+    client: import("@aws-sdk/client-translate").TranslateClient;
+    ListTerminologiesCommand: typeof import("@aws-sdk/client-translate").ListTerminologiesCommand;
+    DeleteTerminologyCommand: typeof import("@aws-sdk/client-translate").DeleteTerminologyCommand;
+  }>;
+  const getTranslate = () => {
+    translate ??= import("@aws-sdk/client-translate").then((m) => ({
+      client: new m.TranslateClient({}),
+      ListTerminologiesCommand: m.ListTerminologiesCommand,
+      DeleteTerminologyCommand: m.DeleteTerminologyCommand,
+    }));
+    return translate;
+  };
+
   return {
     listNames: async () => {
-      const { TranslateClient, ListTerminologiesCommand } =
-        await import("@aws-sdk/client-translate");
-      const client = new TranslateClient({});
+      const { client, ListTerminologiesCommand } = await getTranslate();
       const names: string[] = [];
       let nextToken: string | undefined;
       do {
@@ -395,20 +409,29 @@ export function createTerminologySweepDeps(
               },
             },
           }),
-        )) as { Responses?: Record<string, { pk?: string; status?: string }[]> };
+        )) as {
+          Responses?: Record<string, { pk?: string; status?: string }[]>;
+          UnprocessedKeys?: Record<string, { Keys?: { pk?: string }[] }>;
+        };
         for (const item of res.Responses?.[tableName] ?? []) {
           const id = item.pk?.slice("EVENT#".length);
           // status が無い行は壊れているので、消さない側に倒す (誤削除より残留を選ぶ)。
           if (id) found.set(id, { status: item.status ?? "unknown" });
+        }
+        // スロットリング等で引けなかったキーは「行が無い」と区別がつかない。
+        // 引けなかっただけなのに削除済みと見なすと、**配信中のイベントの用語集を消す**。
+        // 判定不能として残す側に倒し、次の tick でやり直す。
+        for (const key of res.UnprocessedKeys?.[tableName]?.Keys ?? []) {
+          const id = key.pk?.slice("EVENT#".length);
+          if (id) found.set(id, { status: "unknown" });
         }
       }
       // BatchGetItem は存在しない行を返さない。引けなかった = 削除済み。
       return new Map(eventIds.map((id) => [id, found.get(id)]));
     },
     remove: async (name) => {
-      const { TranslateClient, DeleteTerminologyCommand } =
-        await import("@aws-sdk/client-translate");
-      await new TranslateClient({}).send(new DeleteTerminologyCommand({ Name: name }));
+      const { client, DeleteTerminologyCommand } = await getTranslate();
+      await client.send(new DeleteTerminologyCommand({ Name: name }));
     },
   };
 }

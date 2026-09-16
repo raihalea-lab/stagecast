@@ -32,6 +32,10 @@ describe("eventIdFromTerminologyName (ADR 0021 D-3)", () => {
     expect(eventIdFromTerminologyName(`stagecast-${EVT_A}-en`)).toBe(EVT_A);
   });
 
+  it("大文字の UUID は作らないので拾わない (生成側と厳密に対にする)", () => {
+    expect(eventIdFromTerminologyName(`stagecast-${EVT_A.toUpperCase()}-en`)).toBeUndefined();
+  });
+
   it("stagecast の用語集でなければ undefined (他システムのものを消さない)", () => {
     expect(eventIdFromTerminologyName("someone-elses-glossary")).toBeUndefined();
     expect(eventIdFromTerminologyName("stagecast-not-a-uuid-en")).toBeUndefined();
@@ -88,6 +92,16 @@ describe("sweepTerminologies (ADR 0021 D-3)", () => {
     expect(removed).toEqual([]);
     // 引くイベントが無いので DynamoDB も叩かない。
     expect(looked).toEqual([]);
+  });
+
+  it("照会できなかったイベントの用語集は消さない (スロットリングで誤削除しない)", async () => {
+    // BatchGetItem の UnprocessedKeys は「行が無い」と区別がつかない。
+    // 判定不能として status:"unknown" を返す実装に合わせ、残ることを確認する。
+    const { d, removed } = deps([`stagecast-${EVT_A}-en`], {
+      [EVT_A]: { status: "unknown" },
+    });
+    expect(await sweepTerminologies(d)).toEqual([]);
+    expect(removed).toEqual([]);
   });
 
   it("イベントの照会は 1 回にまとめる (用語集ごとに引かない)", async () => {
