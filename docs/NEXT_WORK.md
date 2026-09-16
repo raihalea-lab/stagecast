@@ -1,5 +1,12 @@
 # 次フェーズ作業ロードマップ
 
+> ⚠️ **この文書は腐る。着手前にコードを確認すること。**
+> 2026-09-17 に全項目を実装と突き合わせたところ、**「未対応」と書かれている項目の多くが
+> 実は実装済み**だった (R14 の S3 録画、D10、D8 の大半、L3 の Budgets、N7 の 4 項目中 2 つ、
+> O4 の Custom Resource、P1/P2 は 3 ヶ月前にマージ済み)。
+> 実装したら**その場でここを直す**か、直せないなら「未確認」と書くこと。
+> 古い「未対応」は、やらなくていい作業をやらせるか、あるべき機能を無いものと誤認させる。
+
 > 2026-06-15 起票。`docs/REMAINING_WORK.md` (T1〜T10) の **次** に来る作業を、
 > 本ファイルでまとめて管理する。意思決定は [ADR 0005](./decisions/0005-media-layer-rollout.md) を参照。
 >
@@ -246,7 +253,7 @@ R12-followup-1〜22 で **stage-web から SFU への WebRTC 接続** が完了 
   vp run --filter @stagecast/infra cdk bootstrap aws://<account>/us-east-1   # Bedrock 用
   ```
 - [ ] Bedrock のモデルアクセス申請 (`us.anthropic.claude-sonnet-4-5-...`) を us-east-1 で実施
-- [x] **AWS Budgets でアカウント全体に月額アラート設定済み (2026-06-20)** — CDK で実装 (デフォルト 30 USD、80% で WARN・100% 予測で CRITICAL、専用 SNS Topic `CostAlarmTopic`)。`-c budgetEmail=foo@example.com -c budgetMonthlyUsd=50` で変更可能
+- [x] **AWS Budgets でアカウント全体に月額アラート設定済み (2026-06-20)** — CDK で実装 (デフォルト 50 USD、80% で WARN・100% 予測で CRITICAL、専用 SNS Topic `CostAlarmTopic`)。`-c budgetEmail=foo@example.com -c budgetMonthlyUsd=50` で変更可能
 
 ### O2. GitHub OIDC IAM Role の作成 (deploy.yml が引き受ける)
 
@@ -260,17 +267,27 @@ R12-followup-1〜22 で **stage-web から SFU への WebRTC 接続** が完了 
 
 参考: `.github/workflows/deploy.yml` の `permissions: id-token: write` と `aws-actions/configure-aws-credentials@v6` 部分。
 
-### O3. main ブランチ保護
+### O3. main ブランチ保護 ✅ 対応済み (2026-09-17)
 
-- [ ] GitHub Settings → Branches で `main` に branch protection rule
-  - Require pull request reviews (1 approval) ※ 個人開発なら省略可
-  - Require status checks: `build-test`
-  - Restrict who can push to matching branches
-  - Require linear history (rebase or squash 強制)
+- [x] PR 必須 (main への直 push は拒否される。実地確認済み)
+- [x] Require status checks: `build-test` (CI 再有効化とセット)
+- [x] `required_conversation_resolution` / force push 禁止 / ブランチ削除禁止
+- [x] auto-merge とマージ後のブランチ自動削除を有効化
+      (チェック必須にすると手動マージが詰まるため、`gh pr merge --auto` 運用に揃えた)
+- 見送り: **承認必須** (`required_approving_review_count: 0`)。実質 1 人開発なので詰まらせない
+- 見送り: **管理者にも適用** (`enforce_admins: false`)。緊急時に迂回できる余地を残す
+- 見送り: linear history。現状すべて merge commit で運用しているため
 
-### O4. Cognito 管理者ユーザーの作成 (S2 一時手順)
+### O4. Cognito 管理者ユーザーの作成
 
-R6 で Custom Resource 化されるまでの暫定手順:
+**Custom Resource 化は済んでいる** (`AdminBootstrapFunction` / `AdminBootstrap`,
+`infra/lib/control-plane-stack.ts`)。デプロイ時に context で渡せば自動で作られる:
+
+```bash
+cdk deploy -c initialAdmins=admin@example.com,ops@example.com
+```
+
+`initialAdmins` を渡さなかった場合は、従来どおり手動で作る:
 
 ```bash
 aws cognito-idp admin-create-user \
@@ -346,8 +363,15 @@ reconcile Lambda 自身は `cloudformation:*` (スタック操作) + `iam:PassRo
   バックオフ再試行し、全滅しても **パイプラインを止めず計測+ログのみ** (best-effort, N-2)
 - ✅ reconcile の `describeStacks` (CFN ポーリング読取) も `withRetry` でラップ。一過性スロットリングで
   1 tick を諦めない。`createStack` は非冪等なので意図的に対象外
-- 残: エンジン側 (Transcribe/Translate/Bedrock) の一過性エラー再試行は二重字幕回避を考慮しつつ別途。
-  YouTube ingest など他の外部呼び出しにも `withRetry` を横展開
+- ✅ エンジン側 (Transcribe/Translate/Bedrock) も `withRetry` 済み
+  (`engines/transcribe-engine.ts` / `engines/llm-engine.ts`、恒久エラー判定は `aws/aws-errors.ts`)
+- ✅ YouTube ingest も済 (`sinks/youtube-publisher.ts` が 5xx/408/429 を retryable にマークし、
+  `pipeline.ts` の `withRetry` + `withTimeout` 配下で送出)
+- 残 1: **control-api の LiveKit API 呼び出し** (`RoomServiceClient` / `EgressClient`) に再試行が無い。
+  ただし `startEgress` は非冪等 (二重に張ると RTMP が 2 本出る) ので、再試行前に
+  「すでに動いている Egress が無いか」を確認する必要がある
+- 残 2: **ストリーミング音声認識の再接続**。`StartStreamTranscription` は長時間ストリームなので
+  `withRetry` で包めない。切れたら再接続する設計 (音声の欠落と字幕の重複をどう扱うか) が要る
 
 ### D9. AssetsBucket に CORS 設定が無く、ブラウザからの直接アクセスが通らない ✅ 対応済み (2026-09-16 実機確認)
 
@@ -468,7 +492,14 @@ refresh token の実装だけで体感が改善するかを見てから判断す
   に切替え。pino は使わず Lambda/Fargate バンドルを軽く保つ。caption-worker / audio-source /
   media-composer / reconcile で採用。CloudWatch Logs Insights で `eventId` 絞り込み可。
   EMF メトリクス出力 (`metrics.ts`) は別フォーマットなので据え置き
-- Slack 通知 webhook を SNS Topic に subscribe (現状は SNS Topic を作っただけで購読者ゼロ) (未)
+- ✅ **アラームとダッシュボードは実装済み** (2026-09-17 に確認。この項目に書かれていなかった):
+  - 制御層: `StaleStackAlarm` (放置スタック) と `ReconcileStepErrorAlarm` (provision 失敗, D16)
+  - メディア層 (`event-media-stack.ts`): TaskHealth / CaptionLatency / RtmpDisconnect /
+    SinkError / TranslateError の 5 種 + CloudWatch Dashboard
+- 残 1: **Fargate の X-Ray** (Lambda 4 つは `tracing: ACTIVE` 済み)
+- 残 2: **Ops 系トピックの購読先**。`CostAlarmTopic` は `budgetEmail` を渡せばメール購読が付くが、
+  `OrchestratorAlarmTopic` とメディア層の `AlarmTopic` は**購読者ゼロ**なので誰にも届かない。
+  Slack webhook を使うなら `user-config.ts` に設定項目を足すところから
 
 ### N4. 配信前リハーサル機能
 
@@ -499,8 +530,12 @@ D1-D12 の 12 PR で完了 (2026-06-24)。[ADR 0013](decisions/0013-design-syste
   (navigator + AudioContext 実装) / `components/DeviceCheck.tsx`。選択は localStorage に保存し、
   `RoomConnector.setPreferredDevices` 経由で publish 時の capture device に反映
 - ✅ SFU 切断の検知 → 入室画面へ戻し再入室を促す (`RoomConnector.onDisconnected`)
-- 接続失敗時のフォールバック (Audio only モード) (未)
-- カメラのライブプレビュー / セッション中のデバイス切替 / 自動再接続 (未)
+- ✅ **カメラのライブプレビュー** は実装済み (`components/DeviceCheck.tsx` の `openCameraPreview`)
+- ✅ **自動再接続** も実装済み (LiveKit 内蔵の再接続を `onReconnecting` / `onReconnected` で
+  ハンドリングし、`ReconnectingBanner` と StatusPill で状態を出す)
+- 残: **セッション中のデバイス切替** (`livekit-room.ts` は `setPreferredDevices` のみで、
+  接続後に切り替える経路が無い)
+- 残: **接続失敗時の Audio only フォールバック**
 
 ---
 
@@ -521,38 +556,30 @@ D1-D12 の 12 PR で完了 (2026-06-24)。[ADR 0013](decisions/0013-design-syste
 
 ### L3. コスト監視と上限設定
 
-- AWS Budgets で月額 USD 上限を設定 (O1 と重複)
-- 暴走したイベントスタックが残らないよう、`reconcile` に **タイムアウト機能** を追加検討
-  (ended 後 24h 残っている stack は強制 destroy)
+- ✅ **AWS Budgets は実装済み** (`stagecast-monthly-cost`, 既定 50 USD, ACTUAL 80% / FORECASTED 100%)。
+  通知先は専用の `CostAlarmTopic` (`budgetEmail` 指定時にメール購読が付く)
+- ✅ **ended になったスタックは毎 tick の reconcile が destroy している** (`reconcile.ts`)。
+  「ended 後 24h 残る」ケースは既に起きない
+- 残: **終了操作を忘れて live のまま 24h 超えたイベント**の強制 destroy。
+  現状は `findStaleStacks` が**検知して警告するだけ** (`StaleStackAlarm` が鳴る)。
+  自動で壊すかは「配信中かもしれないものを落としてよいか」の判断なので、
+  アラームを人が見る運用のままにするのも選択肢
 
 ---
 
-## P: 未マージ PR
+## P: 未マージ PR ✅ 解消済み (2026-09-17 に確認)
 
-### P1. #8: vite 5.4.21 → 8.0.16
+**オープンな PR は 0 件**。以下は過去の記録。
 
-- 状態: CI pass / mergeable / +197 -220 行
-- ADR 0004 で Vite 8 (Vite+ 経由) に既に切替済みのため、これは **dependabot の追従**
-- 影響: dev のみ (devDep)。マージ推奨
+- **P1 (#8 vite 5.4.21 → 8.0.16)**: 2026-06-20 にマージ済み。現在 `vite@8.0.16` が解決されている
+- **P2 (#7 @types/node 24 → 25)**: 2026-06-20 にマージしたが、その後
+  `ab3bd75` で**意図的に 24 系へ戻した**。Lambda / Fargate のランタイムが Node 24 なので、
+  型定義も 24 に揃える (CLAUDE.md「触らない方が良いもの」参照)。
+  **当時の「rebase してマージ」という推奨は覆っている。上げないこと。**
 
-### P2. #7: @types/node 24.13.2 → 25.9.3
-
-- 状態: CI pass / **CONFLICTING** (PR #9 マージで lockfile が動いた) / +61 -61 行
-- @types/node の 25 系は Node.js 24 LTS と互換あり
-- 影響: dev のみ。rebase してからマージ
-
-### 着手手順
-
-```bash
-# P1 (conflict 無し)
-gh pr merge 8 --merge --delete-branch
-
-# P2 (rebase 必要)
-gh pr update-branch 7    # or 手動 rebase
-gh pr merge 7 --merge --delete-branch
-
-# Dependabot のグループ化 (D6) を一緒にやっておくと将来の PR 数が減る
-```
+dependabot は週 1 (月曜) で動き、cooldown (通常 7 日 / メジャー 14 日) を設けてある
+(`.github/dependabot.yml`)。2026-09-17 に CI を再有効化したので、**dependabot PR にも
+チェックが付く**ようになった (それまでは素通りしていて、実際に本番が壊れた → PR #236)。
 
 ---
 
@@ -666,7 +693,7 @@ D / L / N は R を進めながら **思い出した時に PR を切る** のが
 どちらにせよ、**ローカルと CI で解決される Node が違う**のは他の依存でも同じ問題を起こすので、
 一度決めておきたい。jsdom 30 への更新はこれが片付いてから。
 
-### D13. vite-plus 0.3 系に上げられない (dependabot #199)
+### D13. vite-plus 0.3 系に上げられない
 
 **結論: 現時点では上げられない。0.1.24 のまま据え置く。**
 
