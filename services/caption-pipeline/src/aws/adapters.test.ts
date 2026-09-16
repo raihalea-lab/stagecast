@@ -23,6 +23,33 @@ describe("AmazonTranslateTranslator", () => {
     expect(await t.translate("x", "ja", "ja")).toBe("x");
     expect(send).not.toHaveBeenCalled();
   });
+
+  it("ターゲット言語ごとの用語集を渡す (ADR 0021 D-3)", async () => {
+    const send = vi.fn().mockResolvedValue({ TranslatedText: "Hello" });
+    const t = new AmazonTranslateTranslator({ send } as unknown as TranslateClient, "evt-1");
+    await t.translate("こんにちは", "ja", "en");
+    expect(send.mock.calls[0][0].input).toMatchObject({
+      TerminologyNames: ["stagecast-evt-1-en"],
+    });
+  });
+
+  it("用語集がまだ無ければ用語集なしでやり直す (登録レース)", async () => {
+    const missing = Object.assign(new Error("nope"), { name: "ResourceNotFoundException" });
+    const send = vi
+      .fn()
+      .mockRejectedValueOnce(missing)
+      .mockResolvedValueOnce({ TranslatedText: "Hello" });
+    const t = new AmazonTranslateTranslator({ send } as unknown as TranslateClient, "evt-1");
+    expect(await t.translate("こんにちは", "ja", "en")).toBe("Hello");
+    expect(send.mock.calls[1][0].input.TerminologyNames).toBeUndefined();
+  });
+
+  it("用語集と無関係なエラーはやり直さない", async () => {
+    const send = vi.fn().mockRejectedValue(new Error("boom"));
+    const t = new AmazonTranslateTranslator({ send } as unknown as TranslateClient, "evt-1");
+    await expect(t.translate("こんにちは", "ja", "en")).rejects.toThrow("boom");
+    expect(send).toHaveBeenCalledTimes(1);
+  });
 });
 
 describe("BedrockLlmAdapter", () => {

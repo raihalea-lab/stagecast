@@ -70,6 +70,7 @@ describe("EventMediaStack (DESIGN.md 7.1/7.3, N-5)", () => {
               "transcribe:StartStreamTranscriptionWebSocket",
               "transcribe:StartStreamTranscription",
               "translate:TranslateText",
+              "translate:GetTerminology",
               "bedrock:InvokeModel",
               "bedrock:InvokeModelWithResponseStream",
             ],
