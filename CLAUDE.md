@@ -70,3 +70,6 @@ StreamYard 型 YouTube ライブ配信プラットフォーム (`stagecast`) の
 - `overrides.esbuild: ">=0.28.1"` (Vite+ 0.1.x 内部 esbuild の CVE-fix)
 - `infra/cdk.json` の `app: "npx tsx bin/app.ts"` (ts-node 廃止後の CDK エントリ)
 - 各 backend package の `types: ["node"]` (TS 6 + pnpm 11 で auto-discovery が効かない補正)
+- **`@types/node` のメジャー** (`^24`)。Lambda / Fargate のランタイムが Node 24 なので、
+  型定義も 24 に揃える。上げると Node 24 に無い API が型チェックを通ってしまい、
+  デプロイして初めて落ちる。ランタイムを上げるときに一緒に上げること
