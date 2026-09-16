@@ -132,11 +132,16 @@ export function presentationToItem(state: PresentationState): Item {
 }
 
 export function itemToPresentation(item: Item): PresentationState {
+  // フィールドは明示的に読む (item には pk/sk/type も混ざっているため)。
+  // **投影状態を足したらここにも足すこと**。書き込みは `...state` なので保存はされるが、
+  // 読み出しが漏れると「書けたのに読み戻すと消えている」という形で壊れる (ADR 0022)。
   return {
     eventId: item.eventId as string,
     speakers: (item.speakers as PresentationState["speakers"]) ?? [],
     slideSource: item.slideSource as PresentationState["slideSource"],
     slidePage: item.slidePage as number | undefined,
+    deck: item.deck as PresentationState["deck"],
+    slideUpdatedAtMs: item.slideUpdatedAtMs as number | undefined,
   };
 }
 

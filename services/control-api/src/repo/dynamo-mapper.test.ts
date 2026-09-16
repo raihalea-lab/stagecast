@@ -62,11 +62,15 @@ describe("dynamo single-table mapping (DESIGN.md 3.1)", () => {
   });
 
   it("round-trips presentation state under the event partition", () => {
+    // 投影状態は**全フィールド**を載せる。読み出しは明示列挙なので、
+    // ここに足し忘れると「書けたのに読み戻すと消えている」抜けを見逃す (ADR 0022)。
     const state: PresentationState = {
       eventId: "evt-1",
       speakers: [{ speakerId: "a", visibility: "live", updatedAtMs: 5 }],
       slideSource: "uploaded",
       slidePage: 3,
+      deck: { assetId: "a-1", filename: "deck.pdf", pageCount: 13 },
+      slideUpdatedAtMs: 1700,
     };
     const item = presentationToItem(state);
     expect(item.pk).toBe("EVENT#evt-1");
