@@ -14,6 +14,7 @@ import {
   type AdminAuthVerifier,
 } from "./auth/admin-auth.js";
 import { DefaultLiveKitTokenMinter, type LiveKitTokenMinter } from "./auth/livekit-minter.js";
+import type { RoomMetadataPublisher } from "./http/app.js";
 import { buildControlApi } from "./factory.js";
 import { createKvsIceServerProvider } from "./ice/kvs-provider.js";
 import type { App } from "./http/app.js";
@@ -124,6 +125,16 @@ export async function buildControlApiFromEnv(options: BuildFromEnvOptions = {}):
   // - LIVEKIT_SECRET_ARN があれば egressStarter (livekitUrl は per-event で渡される) を構築
   // - YOUTUBE_SECRET_ARN があれば streamKeyResolver を構築
   // どちらかが欠ければ HTTP 層が 503 を返す。
+  // ADR 0022 D-1: 投影状態を room metadata に載せる (composer が読む唯一の経路)。
+  // LiveKit の URL はイベントごとなので、書く直前に events テーブルから引く。
+  const metadataTable = env.METADATA_TABLE_NAME;
+  const roomMetadata = metadataTable
+    ? resolveRoomMetadataPublisher(env, async (eventId) => {
+        const { dynamoRepositories } = await import("./repo/dynamo.js");
+        const ev = await dynamoRepositories(metadataTable).eventRepo.get(eventId);
+        return ev?.media?.livekitUrl;
+      })
+    : undefined;
   const egressStarter = resolveEgressStarter(env, secrets);
   const streamKeyResolver = resolveStreamKeyResolver(env, secrets);
   // R12-followup-19: KVS_SIGNALING_CHANNEL_ARN があれば KVS WebRTC TURN provider を構築。
@@ -190,6 +201,7 @@ export async function buildControlApiFromEnv(options: BuildFromEnvOptions = {}):
   return buildControlApi({
     inviteSecret,
     livekitMinter,
+    ...(roomMetadata ? { roomMetadata } : {}),
     auth,
     settings,
     egressStarter,
@@ -198,6 +210,33 @@ export async function buildControlApiFromEnv(options: BuildFromEnvOptions = {}):
     ...(onGoLive ? { onGoLive } : {}),
     ...(onWarmupSchedule ? { onWarmupSchedule } : {}),
   });
+}
+
+/**
+ * 投影状態を LiveKit の room metadata に載せるアダプタ (ADR 0022 D-1)。
+ *
+ * LiveKit の HTTP URL は**イベントごと**に違う (`events.media.livekitUrl`) ので、
+ * 書く直前にイベントから引く。まだ room が無い (配信前) イベントでは何もしない:
+ * room が作られた後に stage-web が入室して状態を書き直すので、そこで追いつく。
+ */
+function resolveRoomMetadataPublisher(
+  env: NodeJS.ProcessEnv,
+  lookupLiveKitUrl: (eventId: string) => Promise<string | undefined>,
+): RoomMetadataPublisher | undefined {
+  const apiKey = env.LIVEKIT_API_KEY;
+  const apiSecret = env.LIVEKIT_API_SECRET;
+  if (!apiKey || !apiSecret) return undefined;
+  return {
+    async publish(eventId, metadata) {
+      const wsUrl = await lookupLiveKitUrl(eventId);
+      if (!wsUrl) return;
+      // RoomServiceClient は HTTP(S) を取る。LiveKit の URL は ws(s) で保持している。
+      const httpUrl = wsUrl.replace(/^ws/, "http");
+      const sdk = await import("livekit-server-sdk");
+      const client = new sdk.RoomServiceClient(httpUrl, apiKey, apiSecret);
+      await client.updateRoomMetadata(eventId, metadata);
+    },
+  };
 }
 
 /**
