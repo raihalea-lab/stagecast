@@ -185,6 +185,8 @@ export class ControlPlaneStack extends Stack {
           // バケットはバージョニング有効なので、これが無いと削除しても本体が旧バージョンとして
           // 残り続ける = 消したつもりで消えていない、かつ課金され続ける。
           // 最短は 1 日 (S3 の下限)。削除マーカーも残さず片付ける。
+          // 上の `expire-old-versions` (7 日) と範囲が重なるが、**S3 は短い方を適用する**ので
+          // ここは 1 日で効く (https://docs.aws.amazon.com/AmazonS3/latest/userguide/lifecycle-conflicts.html)。
           id: "expire-materials-old-versions",
           // `MATERIALS_PREFIX` (packages/shared) と同じ値。infra は CJS で shared は ESM 専用の
           // ため import できないので直書きする。ズレたらテストが落ちる。
