@@ -18,6 +18,7 @@ import { PreviewWindow } from "./components/PreviewWindow.js";
 import type { RuntimeConfig } from "./config.js";
 import {
   decodeStageMessage,
+  isSameDeck,
   type AssetMetadata,
   type EffectConfig,
   type LayoutKind,
@@ -167,6 +168,8 @@ export function App(props: {
   const deckUrlIssuedAtRef = useRef(0);
   // 入室検知ハンドラは mount 時に 1 回だけ登録するので、最新の replayDeck を ref 越しに呼ぶ。
   const replayDeckRef = useRef<() => Promise<void>>(async () => {});
+  // 受信ハンドラも mount 時に 1 回だけ登録するので、現在のデッキ URL を ref で読む。
+  const deckUrlRef = useRef<string | undefined>(undefined);
   const [muteNotice, setMuteNotice] = useState<string | undefined>();
   const [roomState, setRoomState] = useState<RoomState>("stopped");
   const [egressState, setEgressState] = useState<EgressState>("idle");
@@ -210,6 +213,24 @@ export function App(props: {
           next.set(msg.speakerId, msg.visibility);
           return next;
         });
+      } else if (msg.type === "slide-deck") {
+        // モデレーターが投入したデッキを登壇者も持つ (F-3)。これが無いと登壇者は総ページ数を
+        // 知らず、自分でめくれない。同じデッキの配り直し (15 秒ごと) は無視する
+        // ── 無視しないと投影中に自分のページ表示が 1 に戻り続ける。
+        if (deckUrlRef.current && isSameDeck(deckUrlRef.current, msg.url)) return;
+        deckUrlRef.current = msg.url;
+        setDeckUrl(msg.url);
+        setDeckTotalPages(msg.totalPages);
+        controller.setDeck(msg.totalPages);
+        setPage(1);
+      } else if (msg.type === "slide-page") {
+        setPage(controller.applyRemotePage(msg.page));
+      } else if (msg.type === "slide-hide") {
+        deckUrlRef.current = undefined;
+        setDeckUrl(undefined);
+        setDeckTotalPages(1);
+        controller.setDeck(1);
+        setPage(1);
       } else if (msg.type === "chat") {
         setChatMessages((prev) => {
           if (prev.some((m) => m.id === msg.id)) return prev;
@@ -387,6 +408,10 @@ export function App(props: {
   useEffect(() => {
     replayDeckRef.current = replayDeck;
   }, [replayDeck]);
+
+  useEffect(() => {
+    deckUrlRef.current = deckUrl;
+  }, [deckUrl]);
 
   // egress composer は hidden participant で入室を検知できないので、定期配布で拾う。
   useEffect(() => {
@@ -648,7 +673,9 @@ export function App(props: {
   // スライド操作は moderator 限定。control-api の /stage/decks/upload-url は moderator 以外を
   // 403 で返し、デッキ URL / 総ページ数を持つのも投入した端末だけなので、speaker ビューには
   // 押しても何も起きないボタンを置かない (moderator ビューからのみ描画する)。
-  const slideControls = (
+  // デッキの投入・解除はモデレーター専用。control-api が deck の presign を moderator
+  // ロールに限っている ("only moderator can access decks") ので、登壇者に出しても押せない。
+  const deckControls = (
     <>
       <input
         ref={deckInputRef}
@@ -691,12 +718,19 @@ export function App(props: {
           <X className="size-4" />
         </Button>
       )}
+    </>
+  );
+
+  // ページ送りは登壇者にも出す。自分の発表を自分でめくれないと画面共有に対する優位が
+  // 無くなる (F-3, DESIGN.md 5.2)。デッキ状態は slide-deck の受信で同期している。
+  const slidePageControls = deckUrl && (
+    <>
       <div className="mx-1 h-6 w-px bg-line-1" aria-hidden />
       <div className="flex items-center gap-1">
         <Button
           variant="ghost"
           size="icon-sm"
-          disabled={busy || !deckUrl || page <= 1}
+          disabled={busy || page <= 1}
           onClick={wrap(async () => setPage(await controller.slidePrev()))}
           aria-label="前のスライド"
         >
@@ -711,7 +745,7 @@ export function App(props: {
         <Button
           variant="ghost"
           size="icon-sm"
-          disabled={busy || !deckUrl || page >= deckTotalPages}
+          disabled={busy || page >= deckTotalPages}
           onClick={wrap(async () => setPage(await controller.slideNext()))}
           aria-label="次のスライド"
         >
@@ -1017,7 +1051,8 @@ export function App(props: {
         controlBar={
           <ControlBar>
             {mediaControls}
-            {slideControls}
+            {deckControls}
+            {slidePageControls}
             <div className="flex-1" />
             {leaveButton}
           </ControlBar>
@@ -1104,6 +1139,7 @@ export function App(props: {
       controlBar={
         <ControlBar>
           {mediaControls}
+          {slidePageControls}
           <div className="flex-1" />
           <Sheet>
             <SheetTrigger asChild>
