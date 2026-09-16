@@ -319,6 +319,34 @@ async function upsertRoute53ARecord(
   );
 }
 
+/**
+ * 終了したイベントの翻訳用語集を消す (ADR 0021 D-3)。
+ *
+ * 用語集は `stagecast-{eventId}-{target}` という名前でターゲット言語ごとに作られる。
+ * 消さないと イベント数 × 言語数 で溜まり、アカウントの上限に当たって新しいイベントの
+ * 用語集が作れなくなる。言語の一覧を引き直さずに済むよう、名前の接頭辞で拾う。
+ */
+export async function deleteEventTerminologies(eventId: string): Promise<number> {
+  const { TranslateClient, ListTerminologiesCommand, DeleteTerminologyCommand } =
+    await import("@aws-sdk/client-translate");
+  const client = new TranslateClient({});
+  const prefix = `stagecast-${eventId}-`;
+  let deleted = 0;
+  let nextToken: string | undefined;
+  do {
+    const listed = await client.send(
+      new ListTerminologiesCommand({ MaxResults: 100, NextToken: nextToken }),
+    );
+    for (const t of listed.TerminologyPropertiesList ?? []) {
+      if (!t.Name?.startsWith(prefix)) continue;
+      await client.send(new DeleteTerminologyCommand({ Name: t.Name }));
+      deleted++;
+    }
+    nextToken = listed.NextToken;
+  } while (nextToken);
+  return deleted;
+}
+
 async function deleteRoute53ARecord(hostedZoneId: string, recordName: string): Promise<void> {
   const { Route53Client, ListResourceRecordSetsCommand, ChangeResourceRecordSetsCommand } =
     await import("@aws-sdk/client-route-53");
@@ -595,6 +623,18 @@ export async function handler(
     if (a.kind !== "deleting") continue;
     await d.mediaPublisher.clear(a.eventId);
     log.info("media clear", { eventId: a.eventId });
+  }
+
+  // ADR 0021 D-3: 終了したイベントの翻訳用語集を回収する。
+  // 失敗しても reconcile 全体は止めない (次の tick で拾い直せる)。
+  for (const a of actual) {
+    if (desiredIds.has(a.eventId) || a.kind === "deleting") continue;
+    try {
+      const deleted = await deleteEventTerminologies(a.eventId);
+      if (deleted > 0) log.info("terminology cleanup", { eventId: a.eventId, deleted });
+    } catch (err) {
+      log.error("terminology cleanup failed", { eventId: a.eventId, err });
+    }
   }
 
   // ADR 0016 D-3: Route53 クリーンアップ

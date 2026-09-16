@@ -993,7 +993,16 @@ export class ControlPlaneStack extends Stack {
     );
     reconcileFn.addToRolePolicy(
       new iam.PolicyStatement({
-        actions: ["route53:ChangeResourceRecordSets"],
+        // deleteRoute53ARecord は DELETE の前に現在値を引くので List も要る。
+        actions: ["route53:ChangeResourceRecordSets", "route53:ListResourceRecordSets"],
+        resources: ["*"],
+      }),
+    );
+    // ADR 0021 D-3: イベント終了時に翻訳用語集を回収する
+    // (消さないと イベント数 × 言語数 で溜まり、アカウント上限に当たる)。
+    reconcileFn.addToRolePolicy(
+      new iam.PolicyStatement({
+        actions: ["translate:ListTerminologies", "translate:DeleteTerminology"],
         resources: ["*"],
       }),
     );
