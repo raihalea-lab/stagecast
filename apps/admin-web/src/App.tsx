@@ -106,11 +106,16 @@ export function App(props: {
     () => (cognito ? new CognitoAuthClient(cognitoConfig(cognito)) : undefined),
     [cognito],
   );
-  const getIdToken = useCallback(
-    (): string | undefined =>
-      authClient?.getTokens()?.idToken ?? sessionStorage.getItem("stagecast.idToken") ?? undefined,
-    [authClient],
-  );
+  // Cognito 使用時は期限前に refresh token で更新する (D11)。Cognito 無効時 (ローカル等) は素読み。
+  // ログイン画面へ倒すのは "expired" (refresh token が無い/失効した) のときだけ。通信断で更新に
+  // 失敗しただけならセッションは生きているので、401 エラーを見せて次の操作で復帰させる。
+  const getIdToken = useCallback(async (): Promise<string | undefined> => {
+    if (!authClient) return sessionStorage.getItem("stagecast.idToken") ?? undefined;
+    const result = await authClient.getValidToken();
+    if (result.status === "ok") return result.tokens.idToken;
+    if (result.status === "expired") setAuth({ status: "anonymous" });
+    return undefined;
+  }, [authClient]);
 
   const client = useMemo(
     () => props.client ?? new HttpControlApiClient(apiBaseUrl, getIdToken),
@@ -180,7 +185,9 @@ export function App(props: {
           if (!cancelled) setAuth({ status: "authenticated" });
           return;
         }
-        if (authClient.getTokens()) {
+        // 期限切れでも refresh token が生きていればログインし直さずに復帰できる (D11)。
+        // 更新できなかった理由が一時的なものなら、ログイン画面に落とさず復帰に賭ける。
+        if ((await authClient.getValidToken()).status !== "expired") {
           if (!cancelled) setAuth({ status: "authenticated" });
           return;
         }
@@ -193,6 +200,18 @@ export function App(props: {
       cancelled = true;
     };
   }, [authClient]);
+
+  // 放置中も期限前に更新しておく (D11)。API 呼び出し時にも更新は走るが、そちらは待ち時間になる。
+  // タイマーはタブ非アクティブ時に絞られるため、期限そのものの判定は getValidToken 側に任せる。
+  useEffect(() => {
+    if (!authClient || auth.status !== "authenticated") return;
+    const timer = setInterval(() => {
+      void authClient.getValidToken().then((result) => {
+        if (result.status === "expired") setAuth({ status: "anonymous" });
+      });
+    }, 60_000);
+    return () => clearInterval(timer);
+  }, [authClient, auth.status]);
 
   const refresh = useCallback(async () => {
     const [list, reqs] = await Promise.all([
