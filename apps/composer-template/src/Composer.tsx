@@ -20,7 +20,12 @@ import {
   type RemoteParticipant,
   type RemoteTrackPublication,
 } from "livekit-client";
-import { decodeStageMessage, isSameDeck, type LayoutKind } from "@stagecast/shared";
+import {
+  decodeRoomMetadata,
+  decodeStageMessage,
+  isSameDeck,
+  type LayoutKind,
+} from "@stagecast/shared";
 import { Grid } from "./layouts/Grid.js";
 import { Pip } from "./layouts/Pip.js";
 import { ScreenShareMain } from "./layouts/ScreenShareMain.js";
@@ -61,6 +66,8 @@ export function Composer(props: Props) {
   const [slidePage, setSlidePage] = useState(1);
   // 再配布の判定に使う現在のデッキ URL (state 更新関数の外で同期的に読むため ref で持つ)。
   const slideUrlRef = useRef<string | undefined>(undefined);
+  // ADR 0022 D-1: 投影中のデッキ。metadata の再適用で PDF を読み直さないための同一性キー。
+  const deckAssetIdRef = useRef<string | undefined>(undefined);
 
   const applySlideDeck = useCallback((url: string) => {
     // 同じデッキの配り直しは無視する (読み直すと配信画面がちらつく)。
@@ -75,6 +82,36 @@ export function Composer(props: Props) {
     setSlideUrl(undefined);
     setSlidePage(1);
   }, []);
+  /**
+   * room metadata から投影状態を反映する (ADR 0022 D-1)。
+   *
+   * composer は制御 API を叩けないので、これが「状態を読む」唯一の経路。接続時に必ず
+   * 届くので、デッキ投入 → 配信開始の順で操作されても投影を取りこぼさない。
+   *
+   * 同一性は **assetId** で見る。署名付き URL は再発行のたびに変わるので、URL で比べると
+   * 同じ PDF を読み直して配信画面がちらつく。
+   */
+  const applyRoomMetadata = useCallback(
+    (raw: string | undefined) => {
+      const meta = decodeRoomMetadata(raw);
+      if (!meta) return;
+      if (meta.slideSource !== "uploaded" || !meta.deck || !meta.deckUrl) {
+        clearSlideDeck();
+        deckAssetIdRef.current = undefined;
+        return;
+      }
+      // egress のログ (headless Chrome の console) に残す。START_RECORDING と同じ経路で拾える。
+      // eslint-disable-next-line no-console
+      console.log("ROOM_METADATA_APPLIED", meta.deck.assetId, meta.slidePage ?? 1);
+      if (deckAssetIdRef.current !== meta.deck.assetId) {
+        deckAssetIdRef.current = meta.deck.assetId;
+        slideUrlRef.current = meta.deckUrl;
+        setSlideUrl(meta.deckUrl);
+      }
+      setSlidePage(meta.slidePage ?? 1);
+    },
+    [clearSlideDeck],
+  );
 
   // postMessage ブリッジ: 同一 identity の DataChannel エコー問題を回避
   useEffect(() => {
@@ -166,6 +203,8 @@ export function Composer(props: Props) {
         if (cancelled) return;
         setState("connected");
         refresh();
+        // ADR 0022 D-1: 入室した時点の投影状態を読む (配り直しを待たない)。
+        applyRoomMetadata(room.metadata);
         // R15-followup-1: Egress に「描画開始」を通知する (pkg/source/web.go の
         // startRecordingLog 監視で GStreamer pipeline が playing 状態に遷移する)。
         // eslint-disable-next-line no-console
@@ -178,6 +217,9 @@ export function Composer(props: Props) {
         // R15-followup-1: Egress に「録画終了」を通知する。
         // eslint-disable-next-line no-console
         console.log("END_RECORDING");
+      })
+      .on(RoomEvent.RoomMetadataChanged, (metadata: string) => {
+        if (!cancelled) applyRoomMetadata(metadata);
       })
       .on(RoomEvent.ParticipantConnected, refresh)
       .on(RoomEvent.ParticipantDisconnected, refresh)

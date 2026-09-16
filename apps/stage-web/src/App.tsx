@@ -80,8 +80,14 @@ import {
   X,
 } from "@stagecast/ui/icons";
 
-/** デッキ状態を配り直す間隔 (F-3)。後から起動した composer がこの間隔内で追いつく。 */
-const DECK_REPLAY_INTERVAL_MS = 15_000;
+/**
+ * デッキ状態を配り直す間隔 (F-3, ADR 0022 D-1)。
+ *
+ * composer は room metadata で状態を読むようになったので、**追いつくための配り直しは不要**。
+ * 残っているのは署名付き URL の更新のためだけ (presign は 15 分で失効する)。
+ * 元は 15 秒だった。
+ */
+const DECK_REPLAY_INTERVAL_MS = 5 * 60_000;
 /** 署名付き GET URL を取り直す閾値。control-api の presign は 15 分で失効する。 */
 const DECK_URL_MAX_AGE_MS = 10 * 60_000;
 // participant の入室通知は「room に join した」時点で届くので、相手の composer が
@@ -444,9 +450,15 @@ export function App(props: {
     if (!session || !inviteToken || !deckKey || !deckUrl) return;
     let url = deckUrl;
     if (Date.now() - deckUrlIssuedAtRef.current > DECK_URL_MAX_AGE_MS) {
-      url = await client.getMaterialDownloadUrl(inviteToken, deckKey);
-      deckUrlIssuedAtRef.current = Date.now();
-      setDeckUrl(url);
+      // **読むだけ**。getPresentationState が presign し直し、room metadata も貼り直す
+      // (ADR 0022 D-1)。ここで状態を書き戻すと、他の人がめくった直後に手元の古いページで
+      // 上書きしてしまい、composer の投影が 1 ページ戻る。
+      const state = await client.getPresentationState(inviteToken);
+      if (state.deckUrl) {
+        url = state.deckUrl;
+        deckUrlIssuedAtRef.current = Date.now();
+        setDeckUrl(url);
+      }
     }
     await controller.republishDeck(url);
   }, [session, client, inviteToken, deckKey, deckUrl, controller]);
@@ -459,7 +471,8 @@ export function App(props: {
     deckUrlRef.current = deckUrl;
   }, [deckUrl]);
 
-  // egress composer は hidden participant で入室を検知できないので、定期配布で拾う。
+  // 署名付き URL を失効前に更新する (ADR 0022 D-1)。更新した URL は setSlideState 経由で
+  // room metadata にも載るので、後から起動する composer は常に生きた URL を読む。
   useEffect(() => {
     if (!session || !deckKey || !deckUrl) return;
     const timer = setInterval(() => {

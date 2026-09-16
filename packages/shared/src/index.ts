@@ -7,6 +7,7 @@ export * from "./caption.js";
 export * from "./roles.js";
 export * from "./invite.js";
 export * from "./presentation.js";
+export * from "./room-metadata.js";
 export * from "./event.js";
 export * from "./pipeline.js";
 export * from "./logger.js";

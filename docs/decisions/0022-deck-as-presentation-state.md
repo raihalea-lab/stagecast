@@ -1,6 +1,6 @@
 # 0022. 投影状態の正を PresentationState に置く
 
-- ステータス: 一部採用 (D-1 / D-2 実装済み。composer 側は未着手 — 下記「実装状況」)
+- ステータス: 採用 (D-1 / D-2 実装済み。D-3 は不採用の決定、D-4 は後続)
 - 日付: 2026-09-16
 - 関連: DESIGN.md 5.1 / 5.2 / 5.3 / F-3 / F-4 / ADR 0021 (翻訳参考資料)
 - 影響を受ける実装: PR #215, #218 (本 ADR の採用で一部が不要になる)
@@ -137,11 +137,33 @@ ADR 0021 の翻訳は資料全体を文脈にするので投影状態に依存�
 `deck.assetId` / `deck.filename` はそのまま S3 キーに組み立てられるので、区切り文字と `..` を
 弾いている (通すと他イベントの資料を指す参照を保存できる)。
 
+- **D-1**: composer は **LiveKit の room metadata** で投影状態を読む。接続時に必ず届き、
+  更新も `RoomMetadataChanged` で拾えるので、CORS も追加の認証も要らない。
+  control-api が `setSlide` のたびに `RoomServiceClient.updateRoomMetadata` で書く。
+  LiveKit の URL はイベントごとなので書く直前に events テーブルから引き、
+  **room がまだ無い (配信前) イベントでは何もしない** — stage-web が入室したときに
+  書き直すので、そこで追いつく
+- **D-1**: composer の同一性判定を URL から **`deck.assetId`** に変えた。署名は再発行の
+  たびに変わるので、URL で比べると同じ PDF を読み直して配信画面がちらつく
+
 ### 未
 
-- **composer が状態を読む経路**。したがって **15 秒の配り直しはまだ消せない**
-  (下記「確認した結果」)。`isSameDeck` / `applyRemotePage` / `SlideDeckMessage.totalPages` も
-  composer が読めるようになるまで残す
+- **15 秒の配り直しは 5 分に下げたが、消してはいない。** composer は metadata で状態を
+  読めるようになったので「追いつくための配り直し」は不要になったが、**署名付き URL の
+  更新**のために残っている (`presignGet` の既定は 15 分で失効)。更新は
+  `setSlideState` 経由で行い、手元の URL と metadata の URL がずれないようにした。
+
+  更新は `POST /stage/presentation/state` (**読み取り**) で行う。moderator が読むと
+  presign し直して room metadata も貼り直すので、**クライアントは状態を書き戻さない**。
+  書き戻すと、他の人がめくった直後に手元の古いページで上書きして
+  composer の投影が 1 ページ戻る、というレースになる。
+
+  消し切るには presign の有効期限を延ばす必要があるが、**Lambda の実行ロール資格情報の
+  寿命に縛られる**ため、延ばせる上限は実測しないと分からない。デプロイ後に測る。
+
+- `isSameDeck` は stage-web 側にまだ残る (受信側の重複判定)。composer からは外した
+- `SlideDeckMessage.totalPages` も残す。speaker の stage-web が「デッキが載った」ことを
+  即座に知る経路がこれしかない (speaker は metadata を読まない)
 
 ## 実装前に確認すること (結果)
 

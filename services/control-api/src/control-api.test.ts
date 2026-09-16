@@ -1,4 +1,5 @@
 import { describe, expect, it, beforeEach } from "vitest";
+import { decodeRoomMetadata } from "@stagecast/shared";
 import type { CaptionSettings } from "@stagecast/shared";
 import { buildControlApi } from "./factory.js";
 import type { App, HttpRequest } from "./http/app.js";
@@ -290,6 +291,61 @@ describe("control-api integration (in-memory)", () => {
     // ページを送るのに必要な情報は渡すが、PDF そのものには手が届かない。
     expect(asSpeaker.body).toMatchObject({ slidePage: 1, deck: { pageCount: 3 } });
     expect((asSpeaker.body as { deckUrl?: string }).deckUrl).toBeUndefined();
+  });
+
+  it("投影状態を room metadata に載せる (composer が読む唯一の経路, ADR 0022 D-1)", async () => {
+    const published: { eventId: string; metadata: string }[] = [];
+    const metaApp = buildControlApi({
+      auth: {
+        async verify() {
+          return { sub: "admin-1", email: "a@example.com" };
+        },
+      },
+      roomMetadata: {
+        async publish(eventId, metadata) {
+          published.push({ eventId, metadata });
+        },
+      },
+    });
+    const eventId = await createEvent(metaApp);
+    const issued = await metaApp.handle(
+      req({
+        method: "POST",
+        path: `/events/${eventId}/invites`,
+        headers: adminAuth,
+        body: { role: "moderator", ttlSec: 3600 },
+      }),
+    );
+    const inviteToken = (issued.body as { token: string }).token;
+    const deck = { assetId: "a-1", filename: "deck.pdf", pageCount: 5 };
+
+    await metaApp.handle(
+      req({
+        method: "POST",
+        path: "/stage/presentation/slide",
+        body: { inviteToken, slideSource: "uploaded", slidePage: 2, deck },
+      }),
+    );
+    expect(published).toHaveLength(1);
+    expect(published[0]?.eventId).toBe(eventId);
+    expect(decodeRoomMetadata(published[0]?.metadata)).toMatchObject({
+      slideSource: "uploaded",
+      slidePage: 2,
+      deck,
+    });
+
+    // moderator が状態を読むと metadata を貼り直す (署名の更新をここに寄せている)。
+    await metaApp.handle(
+      req({ method: "POST", path: "/stage/presentation/state", body: { inviteToken } }),
+    );
+    expect(published).toHaveLength(2);
+
+    // 投影解除は空の状態を載せる (composer が投影を降ろせる)。
+    // JSON は undefined のキーを落とすので、版だけが残るのが正しい形。
+    await metaApp.handle(
+      req({ method: "POST", path: "/stage/presentation/slide", body: { inviteToken } }),
+    );
+    expect(decodeRoomMetadata(published[2]?.metadata)).toEqual({ v: 1 });
   });
 
   it("古いページ送りは捨てる (ADR 0022 D-2)", async () => {
