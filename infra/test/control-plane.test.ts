@@ -202,6 +202,12 @@ describe("ControlPlaneStack", () => {
       "POST /presentation/speakers/{speakerId}",
       "POST /stage/assets",
       "POST /stage/assets/download-url",
+      // ADR 0021: 翻訳参考資料。
+      "POST /stage/materials/upload-url",
+      "POST /stage/materials/download-url",
+      // ADR 0022 D-1: 投影状態。
+      "POST /stage/presentation/state",
+      "POST /stage/presentation/slide",
       "POST /stage/presets",
       "POST /stage/presets/list",
       "DELETE /stage/presets/{presetId}",
