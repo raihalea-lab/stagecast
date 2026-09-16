@@ -348,12 +348,15 @@ async function deps(): Promise<HandlerDeps> {
  */
 export function toDesiredEvent(it: Record<string, unknown>): DesiredEvent {
   const caption = it.caption as
-    | { engine?: DesiredEvent["captionEngine"]; customApiEnabled?: boolean }
+    | { engine?: DesiredEvent["captionEngine"]; customApiEnabled?: boolean; enabled?: boolean }
     | undefined;
   const youtube = it.youtube as { rtmpUrl?: string; streamKeyRef?: string } | undefined;
   return {
     eventId: String(it.eventId ?? it.id ?? ""),
     captionEngine: caption?.engine ?? "transcribe",
+    // ADR 0017 D-2: 字幕オフなら CaptionWorker を起動しない (コスト -35%)。
+    // 未指定は有効扱い (既存イベントの字幕が黙って止まらないようにする)。
+    captionEnabled: caption?.enabled ?? true,
     customCaptionApi: Boolean(caption?.customApiEnabled),
     rtmpUrl: youtube?.rtmpUrl,
     streamKeyRef: youtube?.streamKeyRef,
