@@ -191,7 +191,8 @@ export class DynamoPresentationRepository implements PresentationRepository {
 
   async setSlide(eventId: string, slide: SlideUpdate): Promise<PresentationState> {
     const current = (await this.get(eventId)) ?? { eventId, speakers: [] };
-    applySlide(current, slide);
+    // 古い更新なら書かない (ADR 0022 D-2)。読み書きの往復を 1 回省ける。
+    if (!applySlide(current, slide)) return current;
     await this.doc.send(
       new PutCommand({ TableName: this.table, Item: presentationToItem(current) }),
     );

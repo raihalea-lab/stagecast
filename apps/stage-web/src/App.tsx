@@ -381,7 +381,18 @@ export function App(props: {
       });
       // 失敗を見ずに slide-deck を配ると composer が配信画面いっぱいにエラーを出す。
       if (!putRes.ok) throw new Error(`deck upload failed: ${putRes.status}`);
-      const downloadUrl = await client.getMaterialDownloadUrl(inviteToken, key);
+      const deck = { assetId, filename: file.name, pageCount: totalPages };
+      // 投影の登録はサーバーが正 (ADR 0022 D-1)。ここは**待つ**: 失敗を握り潰すと、
+      // 投影できているのに次の再読み込みで消えるという分かりにくい壊れ方になる。
+      // 署名付き URL も応答で返るので、presign を 2 回叩かずに済む。
+      const state = await client.setSlideState(inviteToken, {
+        slideSource: "uploaded",
+        slidePage: 1,
+        deck,
+      });
+      const downloadUrl = state.deckUrl;
+      if (!downloadUrl) throw new Error("deck url was not issued");
+      deckAssetRef.current = deck;
       setDeckKey(key);
       setDeckUrl(downloadUrl);
       deckUrlIssuedAtRef.current = Date.now();
@@ -389,18 +400,8 @@ export function App(props: {
       // setDeck が deck を 1 ページ目に戻すので setDeckUrl より先に呼ぶ
       // (setDeckUrl は totalPages を維持する)。composer も slide-deck 受信で 1 に戻る。
       controller.setDeck(totalPages);
-      // ADR 0022 D-2: 体感を落とさないため DataChannel の通知を先に出し、永続化は後。
-      // 失敗しても通知済みのクライアントには影響しない (後から入る側が古い状態を読むだけ)。
       await controller.setDeckUrl(downloadUrl);
       setPage(1);
-      deckAssetRef.current = { assetId, filename: file.name, pageCount: totalPages };
-      void client
-        .setSlideState(inviteToken, {
-          slideSource: "uploaded",
-          slidePage: 1,
-          deck: deckAssetRef.current,
-        })
-        .catch(() => {});
     },
     [client, inviteToken, controller],
   );
@@ -418,16 +419,18 @@ export function App(props: {
     void (async () => {
       const state = await client.getPresentationState(inviteToken).catch(() => undefined);
       if (cancelled || !state) return;
-      if (state.slideSource !== "uploaded" || !state.deck || !state.deckUrl) return;
+      if (state.slideSource !== "uploaded" || !state.deck) return;
       deckAssetRef.current = state.deck;
+      setDeckTotalPages(state.deck.pageCount);
+      controller.setDeck(state.deck.pageCount);
+      setPage(controller.applyRemotePage(state.slidePage ?? 1));
+      // URL は moderator にしか発行されない (資料のダウンロードは moderator 限定)。
+      // speaker はページ数と現在ページだけ復元すればめくれる。
+      if (!state.deckUrl) return;
       deckUrlRef.current = state.deckUrl;
       deckUrlIssuedAtRef.current = Date.now();
       setDeckKey(materialKey(state.eventId, state.deck.assetId, state.deck.filename));
       setDeckUrl(state.deckUrl);
-      setDeckTotalPages(state.deck.pageCount);
-      controller.setDeck(state.deck.pageCount);
-      const restored = controller.applyRemotePage(state.slidePage ?? 1);
-      setPage(restored);
     })();
     return () => {
       cancelled = true;
