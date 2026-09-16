@@ -18,6 +18,7 @@ import { CaptionPipeline } from "./pipeline.js";
 import { TranscribeStreamingEngine } from "./engines/transcribe-engine.js";
 import { LLMEngine } from "./engines/llm-engine.js";
 import { SelfHostedAsrEngine } from "./engines/self-hosted.js";
+import type { TranslationContextProvider } from "./materials-context.js";
 import type { AsrAdapter, LlmAdapter, Translator } from "./engines/types.js";
 import { YouTubeCaptionSink, type YouTubeCaptionPublisher } from "./sinks/youtube-sink.js";
 import { CustomCaptionApiSink, type CaptionBroadcaster } from "./sinks/custom-api-sink.js";
@@ -53,6 +54,11 @@ export interface CaptionRuntimeProviders {
   valkeyStreamClient?: CaptionStreamClient;
   /** CloudWatch メトリクス収集 (T9, ADR 0003)。省略時は計測なし (本番は bootstrap で注入)。 */
   metrics?: CaptionMetricsCollector;
+  /**
+   * 登壇資料を翻訳の文脈として供給する (ADR 0021 D-3)。省略時は文脈なしで訳す。
+   * LLM 経路でのみ使う (Amazon Translate は文脈を渡せないので用語集で代替する)。
+   */
+  materials?: TranslationContextProvider;
 }
 
 /** 設定とプロバイダからエンジンを選択する (F-8, 6.2)。 */
@@ -78,7 +84,11 @@ export function selectEngine(
       return new TranscribeStreamingEngine(providers.asr, providers.translator, common);
     case "llm":
       if (!providers.llm) throw new Error("llm engine requires an llm provider");
-      return new LLMEngine(providers.llm, { ...common, mode: "asr+translate" });
+      return new LLMEngine(providers.llm, {
+        ...common,
+        mode: "asr+translate",
+        materials: providers.materials,
+      });
     case "self-hosted-asr":
       return new SelfHostedAsrEngine({
         ...common,

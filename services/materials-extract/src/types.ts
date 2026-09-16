@@ -4,7 +4,7 @@
  * CLAUDE.md のテスト方針に従い、S3 とテキスト抽出をインターフェース越しにして
  * 外部接続なしでテストを完結させる。
  */
-import type { MaterialPage } from "@stagecast/shared";
+import type { LanguageCode, MaterialPage } from "@stagecast/shared";
 
 /** S3 に置かれた 1 オブジェクトの要約。 */
 export interface StoredObject {
@@ -30,4 +30,15 @@ export interface ObjectStore {
  */
 export interface TextExtractor {
   extract(filename: string, body: Uint8Array): Promise<MaterialPage[] | null>;
+}
+
+/** イベントの字幕言語設定 (用語集の言語ペアを決めるのに使う, ADR 0021 D-3)。 */
+export interface CaptionLanguages {
+  source: LanguageCode;
+  targets: LanguageCode[];
+}
+
+/** イベントの字幕言語設定を引く。実体は DynamoDB。 */
+export interface EventLanguageLookup {
+  get(eventId: string): Promise<CaptionLanguages | undefined>;
 }

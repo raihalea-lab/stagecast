@@ -9,9 +9,12 @@
  */
 import type { S3Event } from "aws-lambda";
 import { createLogger, parseMaterialKey } from "@stagecast/shared";
+import { BedrockGlossaryGenerator, TranslateTerminologyStore } from "./aws-glossary.js";
+import { DynamoEventLanguageLookup } from "./dynamo-languages.js";
 import { createExtractor } from "./extractor.js";
 import { rebuildEventContext, type RebuildDeps } from "./rebuild.js";
 import { S3ObjectStore } from "./s3-store.js";
+import type { EventLanguageLookup } from "./types.js";
 
 const log = createLogger({ component: "materials-extract" });
 
@@ -31,19 +34,40 @@ export function eventIdsToRebuild(event: S3Event): string[] {
   return [...ids];
 }
 
-let cachedDeps: RebuildDeps | undefined;
+interface DefaultDeps {
+  base: Omit<RebuildDeps, "glossary">;
+  /** 用語集の生成に必要な依存。テーブル名やモデル ID が無い環境では undefined。 */
+  glossary?: Omit<NonNullable<RebuildDeps["glossary"]>, "languages">;
+  languages?: EventLanguageLookup;
+}
 
-function defaultDeps(): RebuildDeps {
-  if (!cachedDeps) {
+let cached: DefaultDeps | undefined;
+
+function defaultDeps(): DefaultDeps {
+  if (!cached) {
     const bucket = process.env.ASSETS_BUCKET;
     if (!bucket) throw new Error("ASSETS_BUCKET is not set");
-    cachedDeps = {
-      store: new S3ObjectStore(bucket),
-      extractor: createExtractor(),
-      now: () => new Date(),
+    const table = process.env.EVENTS_TABLE;
+    const modelId = process.env.BEDROCK_MODEL_ID;
+    cached = {
+      base: {
+        store: new S3ObjectStore(bucket),
+        extractor: createExtractor(),
+        now: () => new Date(),
+      },
+      // 用語集は低遅延経路向けの補助。設定が無ければ作らずに抽出だけ続ける。
+      ...(table && modelId
+        ? {
+            glossary: {
+              generator: new BedrockGlossaryGenerator(modelId),
+              terminology: new TranslateTerminologyStore(),
+            },
+            languages: new DynamoEventLanguageLookup(table),
+          }
+        : {}),
     };
   }
-  return cachedDeps;
+  return cached;
 }
 
 export async function handleS3Event(event: S3Event, deps: RebuildDeps): Promise<void> {
@@ -63,5 +87,24 @@ export async function handleS3Event(event: S3Event, deps: RebuildDeps): Promise<
 }
 
 export async function handler(event: S3Event): Promise<void> {
-  await handleS3Event(event, defaultDeps());
+  const deps = defaultDeps();
+  const eventIds = eventIdsToRebuild(event);
+  for (const eventId of eventIds) {
+    // 用語集の言語ペアはイベントごとに違うので、ここで引いてから rebuild に渡す。
+    // 引けなくても抽出は続ける (品質重視経路の文脈は言語設定に依らない)。
+    const languages = await deps.languages?.get(eventId).catch(() => undefined);
+    await handleS3Event(
+      { Records: event.Records.filter((r) => matchesEvent(r, eventId)) } as S3Event,
+      {
+        ...deps.base,
+        ...(deps.glossary && languages ? { glossary: { ...deps.glossary, languages } } : {}),
+      },
+    );
+  }
+}
+
+/** そのレコードが対象イベントのものか。 */
+function matchesEvent(record: S3Event["Records"][number], eventId: string): boolean {
+  const parsed = parseMaterialKey(decodeKey(record.s3?.object?.key ?? ""));
+  return parsed?.eventId === eventId;
 }
