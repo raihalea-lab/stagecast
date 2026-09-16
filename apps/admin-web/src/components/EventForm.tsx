@@ -105,7 +105,7 @@ export function EventForm(props: {
         </label>
         <p className="text-xs text-text-tertiary">
           オフにすると字幕ワーカーを起動しません。イベント 1 本あたりのコストが約 35%
-          下がります。後から変更できます。
+          下がります。配信開始後の切り替えは反映されません。
         </p>
       </div>
 
