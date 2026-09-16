@@ -47,7 +47,7 @@ import {
   S3ArtifactStore,
   type ArtifactStore,
 } from "./assets/artifact-download.js";
-import { createApp } from "./http/app.js";
+import { createApp, type RoomMetadataPublisher } from "./http/app.js";
 import type { SettingsService } from "./usecases/settings.js";
 
 export interface FactoryConfig {
@@ -80,6 +80,8 @@ export interface FactoryConfig {
   assetMetadataRepo?: AssetMetadataRepository;
   /** プリセットリポ。未指定なら DynamoDB or インメモリ。 */
   presetRepo?: PresetRepository;
+  /** 投影状態を LiveKit の room metadata に載せる (ADR 0022 D-1)。 */
+  roomMetadata?: RoomMetadataPublisher;
   now?: () => number;
   newId?: () => string;
 }
@@ -212,6 +214,7 @@ export function buildControlApi(config: FactoryConfig = {}) {
     assetMetadataRepo,
     artifactStore,
     presetRepo,
+    ...(config.roomMetadata ? { roomMetadata: config.roomMetadata } : {}),
     newId,
     now,
   });

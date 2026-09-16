@@ -5,7 +5,13 @@
  * トランスポート固有の変換は adapter (index.ts) 側で行う。これにより外部接続なしの
  * 単体テストが容易になる。
  */
-import { materialKey, materialsPrefix, parseMaterialKey } from "@stagecast/shared";
+import {
+  createLogger,
+  encodeRoomMetadata,
+  materialKey,
+  materialsPrefix,
+  parseMaterialKey,
+} from "@stagecast/shared";
 import type {
   AssetMetadata,
   InvitedRole,
@@ -85,6 +91,11 @@ export interface AppDeps {
   artifactStore?: ArtifactStore;
   /** 演出プリセット管理 (Phase 4)。 */
   presetRepo?: PresetRepository;
+  /**
+   * 投影状態を LiveKit の room metadata に載せる (ADR 0022 D-1)。
+   * 未設定なら載せない (composer は DataChannel の配り直しに頼る従来動作)。
+   */
+  roomMetadata?: RoomMetadataPublisher;
   /** UUID 生成器。 */
   newId?: () => string;
   /** 現在時刻 (ISO 8601 生成用)。 */
@@ -92,6 +103,16 @@ export interface AppDeps {
 }
 
 const json = (status: number, body: unknown): HttpResponse => ({ status, body });
+
+/**
+ * LiveKit の room metadata を書く。実体は `RoomServiceClient.updateRoomMetadata`。
+ * room 名は eventId と一致する。
+ */
+const log = createLogger({ component: "control-api" });
+
+export interface RoomMetadataPublisher {
+  publish(eventId: string, metadata: string): Promise<void>;
+}
 
 export function createApp(deps: AppDeps) {
   const {
@@ -110,6 +131,34 @@ export function createApp(deps: AppDeps) {
 
   async function requireAdmin(req: HttpRequest): Promise<AdminPrincipal> {
     return auth.verify(req.headers["authorization"] ?? req.headers["Authorization"]);
+  }
+
+  /**
+   * 投影状態を LiveKit の room metadata に載せる (ADR 0022 D-1)。
+   *
+   * composer は制御 API を叩けないので、これが composer にとっての「状態を読む」経路になる。
+   * 失敗しても API 自体は成功扱いにする: 投影の正は DynamoDB 側にあり、metadata は
+   * その写しなので、ここで 500 を返すとモデレーターの操作が理由もなく失敗する。
+   */
+  async function publishRoomMetadata(
+    state: PresentationState & { deckUrl?: string },
+  ): Promise<void> {
+    if (!deps.roomMetadata) return;
+    try {
+      await deps.roomMetadata.publish(
+        state.eventId,
+        encodeRoomMetadata({
+          slideSource: state.slideSource,
+          slidePage: state.slidePage,
+          deck: state.deck,
+          deckUrl: state.deckUrl,
+        }),
+      );
+    } catch (err) {
+      // metadata は写しなので操作自体は成功扱いにする。ただし黙って落とすと、
+      // composer が 5 分の配り直しで動いてしまい**壊れていることに気づけない**。
+      log.warn("room metadata publish failed", { eventId: state.eventId, err });
+    }
   }
 
   /**
@@ -245,7 +294,12 @@ export function createApp(deps: AppDeps) {
       // 取得は speaker にも許す。自分がめくるために現在ページを知る必要がある (ADR 0022 D-1)。
       const isModerator = verified.role === "moderator";
       if (req.method === "POST" && segments[2] === "state") {
-        return json(200, await withDeckUrl(await presentation.getState(eventId), isModerator));
+        const state = await withDeckUrl(await presentation.getState(eventId), isModerator);
+        // moderator の読み取りで room metadata も貼り直す (ADR 0022 D-1)。
+        // 署名の更新をここに寄せることで、**クライアントが状態を書き戻さずに済む**。
+        // 書き戻すと、他の人がめくった直後に古いページで上書きするレースになる。
+        if (isModerator) await publishRoomMetadata(state);
+        return json(200, state);
       }
       // 更新は moderator と speaker の両方。PR #218 で登壇者もめくれるようにした。
       if (req.method === "POST" && segments[2] === "slide") {
@@ -258,7 +312,9 @@ export function createApp(deps: AppDeps) {
           body.slidePage as number | undefined,
           body.deck,
         );
-        return json(200, await withDeckUrl(next, isModerator));
+        const withUrl = await withDeckUrl(next, true);
+        await publishRoomMetadata(withUrl);
+        return json(200, isModerator ? withUrl : next);
       }
     }
 
@@ -518,14 +574,15 @@ export function createApp(deps: AppDeps) {
           );
         }
         if (segments[3] === "slide" && req.method === "POST") {
-          return json(
-            200,
-            await presentation.setSlide(
-              eventId,
-              body.slideSource as SlideSource | undefined,
-              body.slidePage as number | undefined,
-            ),
+          const next = await presentation.setSlide(
+            eventId,
+            body.slideSource as SlideSource | undefined,
+            body.slidePage as number | undefined,
+            body.deck,
           );
+          const withUrl = await withDeckUrl(next, true);
+          await publishRoomMetadata(withUrl);
+          return json(200, withUrl);
         }
       } else if (segments[2] === "invites" && req.method === "POST") {
         // 存在しないイベントへの招待発行を防ぐ (無ければ NotFound → 404)。
