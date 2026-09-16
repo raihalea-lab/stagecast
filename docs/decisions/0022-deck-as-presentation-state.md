@@ -1,6 +1,6 @@
 # 0022. 投影状態の正を PresentationState に置く
 
-- ステータス: 提案
+- ステータス: 一部採用 (D-1 / D-2 実装済み。composer 側は未着手 — 下記「実装状況」)
 - 日付: 2026-09-16
 - 関連: DESIGN.md 5.1 / 5.2 / 5.3 / F-3 / F-4 / ADR 0021 (翻訳参考資料)
 - 影響を受ける実装: PR #215, #218 (本 ADR の採用で一部が不要になる)
@@ -112,16 +112,56 @@ ADR 0021 の翻訳は資料全体を文脈にするので投影状態に依存�
   `applyRemotePage` と `totalPages` の配布は不要になる
 - composer が制御層 API に依存するようになる (現在は LiveKit しか見ていない)
 
-## 実装前に確認すること
+## 実装状況 (2026-09-16)
 
-1. composer が制御層 API を叩けるか (CORS・ネットワーク経路)。egress は headless Chrome なので
-   ブラウザと同じ制約を受ける。認証はプレビュートークン発行と同じ経路が使えるか
-2. `setSlide` を招待トークン経路に出すときの権限 (moderator と speaker の両方に許すか。
-   PR #218 では speaker もページ送りできるようにした)
-3. テストは外部接続なしで完結させる (CLAUDE.md テスト方針)
+### 済
 
-## 補足: コードとコメントの乖離
+- **D-1**: `PresentationState.deck` (`DeckRef`) と `slideUpdatedAtMs` を追加。
+  `setSlide` がデッキ参照ごと永続化する。署名付き URL は**保存せず** `getState` が都度発行する
+- **D-1**: `POST /stage/presentation/state` (取得) と `POST /stage/presentation/slide` (更新) を
+  招待トークン経路に公開。取得は speaker にも許す (自分がめくるのに現在ページが要る)。
+  更新は moderator と speaker の両方 (PR #218 の「登壇者もめくれる」を残す)
+- **D-1**: ただし**デッキの署名付き URL は moderator にだけ返す**。
+  `/stage/materials/download-url` が moderator 限定なので、ここで speaker に渡すと
+  その制限を迂回できてしまう。speaker がページを送るのに要るのは `deck.pageCount` と
+  `slidePage` だけで、**stage-web は PDF を描画しない** (pdf.js はアップロード時の
+  ページ数カウントにしか使っていない)
+- **D-2**: `applySlide` が `slideUpdatedAtMs` の古い更新を捨てる。モデレーターと登壇者が
+  同時にめくると書き込みが前後しうるので、最後に書いた方ではなく新しい方を残す
+- **D-2**: stage-web がデッキ投入・ページ送り・投影解除をサーバーへ書く。DataChannel の通知を
+  先に出し、永続化は待たない
+- **D-1**: stage-web が**入室時に状態を読んで復元する**。これにより
+  「モデレーターが再読み込みするとデッキが手元から消え、投影中なのにページを送れない」
+  という既存の不具合が直った
 
-`services/control-api/src/usecases/presentation.ts` の冒頭コメントは「状態は本番では Valkey に
-保持され (DESIGN.md 3.2)」と書いているが、実装は `DynamoPresentationRepository` (DynamoDB)。
-本 ADR の実装時に合わせて直す。
+`deck.assetId` / `deck.filename` はそのまま S3 キーに組み立てられるので、区切り文字と `..` を
+弾いている (通すと他イベントの資料を指す参照を保存できる)。
+
+### 未
+
+- **composer が状態を読む経路**。したがって **15 秒の配り直しはまだ消せない**
+  (下記「確認した結果」)。`isSameDeck` / `applyRemotePage` / `SlideDeckMessage.totalPages` も
+  composer が読めるようになるまで残す
+
+## 実装前に確認すること (結果)
+
+1. **composer が制御層 API を叩けるか** → **叩けない (現状)**。composer が受け取るのは
+   LiveKit の `token` と `url` だけで (`apps/composer-template/src/main.tsx`)、制御 API の
+   URL も資格情報も持たない。`template_base` は egress config の静的な URL なので、
+   イベントごとの値を載せるには LiveKit がクエリを追記する挙動に依存することになる。
+
+   **代案: LiveKit の room metadata に載せる方が小さい。** composer は接続時に
+   `room.metadata` を受け取り、`RoomMetadataChanged` で更新も拾える。CORS も追加の認証も
+   要らず、後から入っても必ず届く。control-api は既に `LIVEKIT_API_KEY` /
+   `LIVEKIT_API_SECRET` を持ち `livekit-server-sdk` を読み込んでいる
+   (`services/control-api/src/lambda.ts`) ので、`RoomServiceClient.updateRoomMetadata` を
+   足すだけで書ける。**次の PR でこちらを採る。**
+
+2. `setSlide` の権限 → **moderator と speaker の両方に許した**。取得は speaker も可。
+3. テストは外部接続なしで完結 → 済 (`control-api.test.ts` の in-memory 経路)
+
+## 補足: コードとコメントの乖離 (解消済み)
+
+`services/control-api/src/usecases/presentation.ts` と `packages/shared/src/presentation.ts` の
+冒頭コメントは「状態は Valkey に保持され (DESIGN.md 3.2)」と書いていたが、実装は
+`DynamoPresentationRepository` (制御層の DynamoDB)。本 ADR の実装で実態に合わせた。

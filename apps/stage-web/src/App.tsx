@@ -19,7 +19,9 @@ import type { RuntimeConfig } from "./config.js";
 import {
   decodeStageMessage,
   isSameDeck,
+  materialKey,
   type AssetMetadata,
+  type DeckRef,
   type EffectConfig,
   type LayoutKind,
   type Preset,
@@ -170,6 +172,8 @@ export function App(props: {
   const replayDeckRef = useRef<() => Promise<void>>(async () => {});
   // 受信ハンドラも mount 時に 1 回だけ登録するので、現在のデッキ URL を ref で読む。
   const deckUrlRef = useRef<string | undefined>(undefined);
+  // ADR 0022 D-1: 投影中のデッキ参照。ページ送りのたびにサーバーへ添えて送る。
+  const deckAssetRef = useRef<DeckRef | undefined>(undefined);
   const [muteNotice, setMuteNotice] = useState<string | undefined>();
   const [roomState, setRoomState] = useState<RoomState>("stopped");
   const [egressState, setEgressState] = useState<EgressState>("idle");
@@ -369,7 +373,7 @@ export function App(props: {
       const { resolvePdfPageCount } = await import("./lib/pdf-pages.js");
       const totalPages = await resolvePdfPageCount(file);
 
-      const { uploadUrl, key } = await client.getMaterialUploadUrl(inviteToken, file.name);
+      const { assetId, uploadUrl, key } = await client.getMaterialUploadUrl(inviteToken, file.name);
       const putRes = await fetch(uploadUrl, {
         method: "PUT",
         body: file,
@@ -377,7 +381,18 @@ export function App(props: {
       });
       // 失敗を見ずに slide-deck を配ると composer が配信画面いっぱいにエラーを出す。
       if (!putRes.ok) throw new Error(`deck upload failed: ${putRes.status}`);
-      const downloadUrl = await client.getMaterialDownloadUrl(inviteToken, key);
+      const deck = { assetId, filename: file.name, pageCount: totalPages };
+      // 投影の登録はサーバーが正 (ADR 0022 D-1)。ここは**待つ**: 失敗を握り潰すと、
+      // 投影できているのに次の再読み込みで消えるという分かりにくい壊れ方になる。
+      // 署名付き URL も応答で返るので、presign を 2 回叩かずに済む。
+      const state = await client.setSlideState(inviteToken, {
+        slideSource: "uploaded",
+        slidePage: 1,
+        deck,
+      });
+      const downloadUrl = state.deckUrl;
+      if (!downloadUrl) throw new Error("deck url was not issued");
+      deckAssetRef.current = deck;
       setDeckKey(key);
       setDeckUrl(downloadUrl);
       deckUrlIssuedAtRef.current = Date.now();
@@ -390,6 +405,37 @@ export function App(props: {
     },
     [client, inviteToken, controller],
   );
+
+  /**
+   * 入室時にサーバーの投影状態を読んで復元する (ADR 0022 D-1)。
+   *
+   * 投影の正はサーバーにあるので、**配り直しを待たずに**現在のデッキとページが分かる。
+   * これが無いと、モデレーターが再読み込みしただけで手元からデッキが消え、
+   * 投影中なのにページを送れなくなる。
+   */
+  useEffect(() => {
+    if (!session || !inviteToken) return;
+    let cancelled = false;
+    void (async () => {
+      const state = await client.getPresentationState(inviteToken).catch(() => undefined);
+      if (cancelled || !state) return;
+      if (state.slideSource !== "uploaded" || !state.deck) return;
+      deckAssetRef.current = state.deck;
+      setDeckTotalPages(state.deck.pageCount);
+      controller.setDeck(state.deck.pageCount);
+      setPage(controller.applyRemotePage(state.slidePage ?? 1));
+      // URL は moderator にしか発行されない (資料のダウンロードは moderator 限定)。
+      // speaker はページ数と現在ページだけ復元すればめくれる。
+      if (!state.deckUrl) return;
+      deckUrlRef.current = state.deckUrl;
+      deckUrlIssuedAtRef.current = Date.now();
+      setDeckKey(materialKey(state.eventId, state.deck.assetId, state.deck.filename));
+      setDeckUrl(state.deckUrl);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [session, inviteToken, client, controller]);
 
   // 投影中のデッキ状態を配り直す (F-3)。slide-deck は一度きりの broadcast なので、
   // 「デッキ投入 → 配信開始」の順で操作されると後から来た composer が投影を受け取れない。
@@ -423,6 +469,29 @@ export function App(props: {
     return () => clearInterval(timer);
   }, [session, deckKey, deckUrl]);
 
+  /**
+   * ページ送りをサーバーに永続化する (ADR 0022 D-1, D-2)。
+   *
+   * DataChannel の通知は `controller.slideNext/Prev` が既に出しているので、ここは
+   * 待たない。永続化が失敗しても、その場のクライアントには影響しない
+   * (後から入る側が一時的に古いページを読むだけで、次の操作で収束する)。
+   */
+  const persistPage = useCallback(
+    (nextPage: number): number => {
+      if (inviteToken && deckAssetRef.current) {
+        void client
+          .setSlideState(inviteToken, {
+            slideSource: "uploaded",
+            slidePage: nextPage,
+            deck: deckAssetRef.current,
+          })
+          .catch(() => {});
+      }
+      return nextPage;
+    },
+    [client, inviteToken],
+  );
+
   // 投影解除: composer はデッキが載っている間 slide レイアウトを固定するので、
   // grid / 画面共有メインに戻すには明示的に解除する必要がある (F-3)。
   const handleClearDeck = useCallback(async () => {
@@ -431,7 +500,10 @@ export function App(props: {
     setDeckUrl(undefined);
     setDeckTotalPages(1);
     setPage(1);
-  }, [controller]);
+    deckAssetRef.current = undefined;
+    // 解除もサーバーに反映する。残すと後から入ったクライアントが解除済みの PDF を読む。
+    if (inviteToken) void client.setSlideState(inviteToken, {}).catch(() => {});
+  }, [controller, client, inviteToken]);
 
   const wrap = useCallback(
     (fn: () => Promise<unknown>) => async () => {
@@ -731,7 +803,7 @@ export function App(props: {
           variant="ghost"
           size="icon-sm"
           disabled={busy || page <= 1}
-          onClick={wrap(async () => setPage(await controller.slidePrev()))}
+          onClick={wrap(async () => setPage(persistPage(await controller.slidePrev())))}
           aria-label="前のスライド"
         >
           <ChevronLeft className="size-4" />
@@ -746,7 +818,7 @@ export function App(props: {
           variant="ghost"
           size="icon-sm"
           disabled={busy || page >= deckTotalPages}
-          onClick={wrap(async () => setPage(await controller.slideNext()))}
+          onClick={wrap(async () => setPage(persistPage(await controller.slideNext())))}
           aria-label="次のスライド"
         >
           <ChevronRight className="size-4" />

@@ -33,6 +33,7 @@ import type {
   PresetRepository,
   PresentationRepository,
 } from "./types.js";
+import { applySlide, type SlideUpdate } from "./types.js";
 import {
   assetToItem,
   assetsPk,
@@ -188,13 +189,10 @@ export class DynamoPresentationRepository implements PresentationRepository {
     return current;
   }
 
-  async setSlide(
-    eventId: string,
-    slide: Pick<PresentationState, "slideSource" | "slidePage">,
-  ): Promise<PresentationState> {
+  async setSlide(eventId: string, slide: SlideUpdate): Promise<PresentationState> {
     const current = (await this.get(eventId)) ?? { eventId, speakers: [] };
-    current.slideSource = slide.slideSource;
-    current.slidePage = slide.slidePage;
+    // 古い更新なら書かない (ADR 0022 D-2)。読み書きの往復を 1 回省ける。
+    if (!applySlide(current, slide)) return current;
     await this.doc.send(
       new PutCommand({ TableName: this.table, Item: presentationToItem(current) }),
     );
