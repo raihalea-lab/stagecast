@@ -549,10 +549,15 @@ D1-D12 の 12 PR で完了 (2026-06-24)。[ADR 0013](decisions/0013-design-syste
   Cognito 招待、字幕の AWS 送信 (Transcribe/Translate/Bedrock) を網羅
 - Cognito 招待でも consent (利用同意) の UI を入れるかどうか決定 (未)
 
-### L2. YouTube 利用規約遵守
+### L2. YouTube 利用規約遵守 ✅ 調査済み (2026-09-17)
 
-- YouTube Live API のレート制限・利用条件を確認
-- 配信が削除されるシナリオ (DMCA / Strike) の対応フロー
+→ [`docs/legal/youtube-operations.md`](./legal/youtube-operations.md)
+
+- **API のレート制限は適用されない**ことが判明。stagecast は YouTube Data API を
+  一切呼んでいない (RTMP 送出は LiveKit Egress、字幕は `upload.youtube.com/closedcaption`)。
+  1 日 10,000 units のクォータもコンプライアンス監査も現状は無関係
+- ストライク (コミュニティガイドライン / 著作権) の失効期間と配信禁止期間、対応フロー案を記載
+- 残: 運用者が決めること 4 点 (チャンネル所有者と連絡経路、資料の著作権確認をどこで取るか等)
 
 ### L3. コスト監視と上限設定
 

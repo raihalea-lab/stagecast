@@ -2,6 +2,7 @@
 
 - [`terms-template.md`](./terms-template.md) — 利用規約のテンプレート
 - [`privacy-template.md`](./privacy-template.md) — プライバシーポリシーのテンプレート
+- [`youtube-operations.md`](./youtube-operations.md) — YouTube 連携の運用メモ (レート制限・ストライク対応)
 
 どちらも**テンプレート**です。公開前に運用者が編集し、弁護士のレビューを受けてください。
 
