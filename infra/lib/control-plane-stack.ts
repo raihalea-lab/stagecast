@@ -1,6 +1,5 @@
 import { createRequire } from "node:module";
 import * as path from "node:path";
-import { MATERIALS_PREFIX } from "@stagecast/shared";
 import {
   Stack,
   type StackProps,
@@ -136,7 +135,9 @@ export class ControlPlaneStack extends Stack {
           // 残り続ける = 消したつもりで消えていない、かつ課金され続ける。
           // 最短は 1 日 (S3 の下限)。削除マーカーも残さず片付ける。
           id: "expire-materials-old-versions",
-          prefix: MATERIALS_PREFIX,
+          // `MATERIALS_PREFIX` (packages/shared) と同じ値。infra は CJS で shared は ESM 専用の
+          // ため import できないので直書きする。ズレたらテストが落ちる。
+          prefix: "assets/materials/",
           noncurrentVersionExpiration: Duration.days(1),
           expiredObjectDeleteMarker: true,
         },
