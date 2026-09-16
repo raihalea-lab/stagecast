@@ -721,3 +721,30 @@ RenderTemplateFunction は Lambda の中で `app.synth()` する (ADR 0023 D-1)�
 やること: `cdk.out/asset.*/index.mjs` を実際に import して `handler()` を叩く
 `*.integration.test.ts` を用意する (手順は PR #236 の検証で使ったものと同じ)。
 少なくとも aws-cdk-lib を上げる PR では必ず走らせる。
+
+### D16. スタックが立たない障害が無言で進行する (provision 失敗が見えない)
+
+配信開始からスタック作成までの**正常系は良い**。`control-api` が live 遷移で reconcile を直接
+invoke するので tick 待ちは無く (ADR 0015 Phase 2)、実測で `CREATE_COMPLETE` まで 55 秒、
+削除まで 74 秒 (2026-09-16、字幕オフのイベント)。
+
+問題は**異常系が一切見えない**こと。2026-09-16 の障害 (PR #236) では reconcile が 13 分間
+毎分 provision に失敗し続けたが、管理画面の表示は「未作成」のままだった。操作している人には
+「まだ作成中」としか見えない。**配信を始められないという最もクリティカルな障害が無言で進行する。**
+
+原因:
+
+- **失敗理由がどこにも残らない**。`lastError` / `provisionError` に相当するフィールドが
+  `reconcile-handler.ts` にも共有型にも無い。CloudWatch Logs に出て消えるだけ
+- **アラームが無い**。CloudWatch アラームは `stagecast-stale-event-media-stack` (放置スタック検知)
+  の 1 件のみで、provision 失敗は誰にも通知されない
+- **無限リトライ・バックオフなし**。壊れている間ずっと毎分叩き続ける
+
+やること (小さい順):
+
+1. provision の失敗理由をイベント行に残し、管理画面の「配信インフラ」カードに出す。
+   「失敗 (render template failed)」と出るだけで、今日の 13 分は数秒になる
+2. reconcile のエラーに CloudWatch アラーム (2 回連続失敗で通知)
+3. バックオフ。1 と 2 があれば急がない
+
+関連: [D15](#d15-lambda-内-cdk-synth-の実行確認がどこでも走っていない) (そもそも本番に出す前に気づきたい)
