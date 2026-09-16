@@ -369,7 +369,7 @@ export function App(props: {
       const { resolvePdfPageCount } = await import("./lib/pdf-pages.js");
       const totalPages = await resolvePdfPageCount(file);
 
-      const { uploadUrl, key } = await client.getDeckUploadUrl(inviteToken, file.name);
+      const { uploadUrl, key } = await client.getMaterialUploadUrl(inviteToken, file.name);
       const putRes = await fetch(uploadUrl, {
         method: "PUT",
         body: file,
@@ -377,7 +377,7 @@ export function App(props: {
       });
       // 失敗を見ずに slide-deck を配ると composer が配信画面いっぱいにエラーを出す。
       if (!putRes.ok) throw new Error(`deck upload failed: ${putRes.status}`);
-      const downloadUrl = await client.getDeckDownloadUrl(inviteToken, key);
+      const downloadUrl = await client.getMaterialDownloadUrl(inviteToken, key);
       setDeckKey(key);
       setDeckUrl(downloadUrl);
       deckUrlIssuedAtRef.current = Date.now();
@@ -398,7 +398,7 @@ export function App(props: {
     if (!session || !inviteToken || !deckKey || !deckUrl) return;
     let url = deckUrl;
     if (Date.now() - deckUrlIssuedAtRef.current > DECK_URL_MAX_AGE_MS) {
-      url = await client.getDeckDownloadUrl(inviteToken, deckKey);
+      url = await client.getMaterialDownloadUrl(inviteToken, deckKey);
       deckUrlIssuedAtRef.current = Date.now();
       setDeckUrl(url);
     }
@@ -670,7 +670,7 @@ export function App(props: {
     </>
   );
 
-  // スライド操作は moderator 限定。control-api の /stage/decks/upload-url は moderator 以外を
+  // スライド操作は moderator 限定。control-api の /stage/materials/upload-url は moderator 以外を
   // 403 で返し、デッキ URL / 総ページ数を持つのも投入した端末だけなので、speaker ビューには
   // 押しても何も起きないボタンを置かない (moderator ビューからのみ描画する)。
   // デッキの投入・解除はモデレーター専用。control-api が deck の presign を moderator

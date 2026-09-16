@@ -617,8 +617,8 @@ export class ControlPlaneStack extends Stack {
       "POST /stage/assets/download-url",
       // 事前アップロードスライド (PDF) のデッキ (F-3, DESIGN.md 5.2)。
       // control-api 側で invite-token を検証し、moderator 以外は 403 で弾く。
-      "POST /stage/decks/upload-url",
-      "POST /stage/decks/download-url",
+      "POST /stage/materials/upload-url",
+      "POST /stage/materials/download-url",
       "POST /stage/presets",
       "POST /stage/presets/list",
       "DELETE /stage/presets/{presetId}",

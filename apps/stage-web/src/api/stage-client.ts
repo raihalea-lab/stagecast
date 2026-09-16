@@ -78,7 +78,7 @@ export interface StageClient {
   createPreset(inviteToken: string, label: string, config: Preset["config"]): Promise<Preset>;
   deletePreset(inviteToken: string, presetId: string): Promise<void>;
   /** 事前アップロードスライド (PDF) のデッキ用アップロード URL を取得する (F-3, 5.2)。 */
-  getDeckUploadUrl(
+  getMaterialUploadUrl(
     inviteToken: string,
     filename: string,
   ): Promise<{
@@ -87,7 +87,7 @@ export interface StageClient {
     uploadUrl: string;
   }>;
   /** 事前アップロードスライド (PDF) の署名付き GET URL を取得する (F-3, 5.2)。 */
-  getDeckDownloadUrl(inviteToken: string, assetKey: string): Promise<string>;
+  getMaterialDownloadUrl(inviteToken: string, assetKey: string): Promise<string>;
 }
 
 /** ADR 0008 D-3: exponential backoff スケジュール (秒)。 */
@@ -246,31 +246,31 @@ export class HttpStageClient implements StageClient {
     }
   }
 
-  async getDeckUploadUrl(
+  async getMaterialUploadUrl(
     inviteToken: string,
     filename: string,
   ): Promise<{ assetId: string; key: string; uploadUrl: string }> {
-    const res = await fetch(`${this.baseUrl}/stage/decks/upload-url`, {
+    const res = await fetch(`${this.baseUrl}/stage/materials/upload-url`, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ inviteToken, filename, contentType: "application/pdf" }),
     });
     if (!res.ok) {
       const msg = await res.text().catch(() => res.statusText);
-      throw new Error(`getDeckUploadUrl failed (${res.status}): ${msg}`);
+      throw new Error(`getMaterialUploadUrl failed (${res.status}): ${msg}`);
     }
     return (await res.json()) as { assetId: string; key: string; uploadUrl: string };
   }
 
-  async getDeckDownloadUrl(inviteToken: string, assetKey: string): Promise<string> {
-    const res = await fetch(`${this.baseUrl}/stage/decks/download-url`, {
+  async getMaterialDownloadUrl(inviteToken: string, assetKey: string): Promise<string> {
+    const res = await fetch(`${this.baseUrl}/stage/materials/download-url`, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ inviteToken, assetKey }),
     });
     if (!res.ok) {
       const msg = await res.text().catch(() => res.statusText);
-      throw new Error(`getDeckDownloadUrl failed (${res.status}): ${msg}`);
+      throw new Error(`getMaterialDownloadUrl failed (${res.status}): ${msg}`);
     }
     const data = (await res.json()) as { downloadUrl: string };
     return data.downloadUrl;
