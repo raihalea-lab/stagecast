@@ -53,11 +53,15 @@ function sfuServiceName(eventId: string): string {
 
 import { createMediaPublisher, type MediaResolver, type MediaStore } from "./media-publisher.js";
 import type { EventMediaInfo } from "@stagecast/shared";
+// 型だけの import なので実行時の読み込みは増えない。
+import type { DynamoDBDocumentClient } from "@aws-sdk/lib-dynamodb";
 
 /** 環境変数 → 結線。Lambda の cold start で 1 度だけ評価する。 */
 interface HandlerDeps {
   fetchDesired: () => Promise<DesiredEvent[]>;
   fetchActual: () => Promise<ActualStack[]>;
+  /** ADR 0021 D-3: 終了したイベントの翻訳用語集の棚卸し。 */
+  terminologySweep: TerminologySweepDeps;
   executor: ReconcileExecutor;
   mediaPublisher: ReturnType<typeof createMediaPublisher>;
   maxParallel: number;
@@ -218,6 +222,7 @@ async function deps(): Promise<HandlerDeps> {
         })),
       ];
     },
+    terminologySweep: createTerminologySweepDeps(tableName, dynamo),
     fetchActual: async () => {
       const stacks: ActualStack[] = [];
       let next: string | undefined;
@@ -320,31 +325,128 @@ async function upsertRoute53ARecord(
 }
 
 /**
- * 終了したイベントの翻訳用語集を消す (ADR 0021 D-3)。
+ * 用語集の名前からイベント ID を取り出す (ADR 0021 D-3)。
  *
- * 用語集は `stagecast-{eventId}-{target}` という名前でターゲット言語ごとに作られる。
- * 消さないと イベント数 × 言語数 で溜まり、アカウントの上限に当たって新しいイベントの
- * 用語集が作れなくなる。言語の一覧を引き直さずに済むよう、名前の接頭辞で拾う。
+ * 名前は `stagecast-{eventId}-{target}` で、eventId は UUID。target にも `-` が入りうる
+ * (`zh-TW`) ので、UUID の形で切り出す。この形に合わないものは stagecast の用語集では
+ * ないので触らない (他システムの用語集を消さないための境界)。
  */
-export async function deleteEventTerminologies(eventId: string): Promise<number> {
-  const { TranslateClient, ListTerminologiesCommand, DeleteTerminologyCommand } =
-    await import("@aws-sdk/client-translate");
-  const client = new TranslateClient({});
-  const prefix = `stagecast-${eventId}-`;
-  let deleted = 0;
-  let nextToken: string | undefined;
-  do {
-    const listed = await client.send(
-      new ListTerminologiesCommand({ MaxResults: 100, NextToken: nextToken }),
-    );
-    for (const t of listed.TerminologyPropertiesList ?? []) {
-      if (!t.Name?.startsWith(prefix)) continue;
-      await client.send(new DeleteTerminologyCommand({ Name: t.Name }));
-      deleted++;
+export function eventIdFromTerminologyName(name: string): string | undefined {
+  const m = /^stagecast-([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})-.+$/i.exec(
+    name,
+  );
+  return m?.[1];
+}
+
+/** 棚卸しの判定に使うイベントの状態。行が無い (= 削除済み) ときは undefined。 */
+export type EventLifecycle = { status: string } | undefined;
+
+/**
+ * 残すべき用語集かどうか。
+ *
+ * 資料は配信の何日も前に登録されうるので、`draft` / `scheduled` の間は残す。
+ * イベントが `ended` になったか、行ごと消えたら回収する。
+ */
+export function shouldKeepTerminology(event: EventLifecycle): boolean {
+  return event !== undefined && event.status !== "ended";
+}
+
+/**
+ * 実 AWS 向けの棚卸し依存。
+ *
+ * 用語集 → イベントの順に引く。用語集はアカウント上限 (既定 100) で頭打ちなので、
+ * `ListTerminologies` 数回 + `BatchGetItem` 1 回で済む。イベント側を全件走査するより軽い。
+ */
+export function createTerminologySweepDeps(
+  tableName: string,
+  dynamo: DynamoDBDocumentClient,
+): TerminologySweepDeps {
+  return {
+    listNames: async () => {
+      const { TranslateClient, ListTerminologiesCommand } =
+        await import("@aws-sdk/client-translate");
+      const client = new TranslateClient({});
+      const names: string[] = [];
+      let nextToken: string | undefined;
+      do {
+        const listed = await client.send(
+          new ListTerminologiesCommand({ MaxResults: 100, NextToken: nextToken }),
+        );
+        for (const t of listed.TerminologyPropertiesList ?? []) {
+          if (t.Name) names.push(t.Name);
+        }
+        nextToken = listed.NextToken;
+      } while (nextToken);
+      return names;
+    },
+    lookupEvents: async (eventIds) => {
+      const { BatchGetCommand } = await import("@aws-sdk/lib-dynamodb");
+      const found = new Map<string, EventLifecycle>();
+      // BatchGetItem は 1 回 100 件まで。
+      for (let i = 0; i < eventIds.length; i += 100) {
+        const chunk = eventIds.slice(i, i + 100);
+        const res = (await dynamo.send(
+          new BatchGetCommand({
+            RequestItems: {
+              [tableName]: {
+                Keys: chunk.map((id) => ({ pk: `EVENT#${id}`, sk: "META" })),
+                ProjectionExpression: "pk, #s",
+                ExpressionAttributeNames: { "#s": "status" },
+              },
+            },
+          }),
+        )) as { Responses?: Record<string, { pk?: string; status?: string }[]> };
+        for (const item of res.Responses?.[tableName] ?? []) {
+          const id = item.pk?.slice("EVENT#".length);
+          // status が無い行は壊れているので、消さない側に倒す (誤削除より残留を選ぶ)。
+          if (id) found.set(id, { status: item.status ?? "unknown" });
+        }
+      }
+      // BatchGetItem は存在しない行を返さない。引けなかった = 削除済み。
+      return new Map(eventIds.map((id) => [id, found.get(id)]));
+    },
+    remove: async (name) => {
+      const { TranslateClient, DeleteTerminologyCommand } =
+        await import("@aws-sdk/client-translate");
+      await new TranslateClient({}).send(new DeleteTerminologyCommand({ Name: name }));
+    },
+  };
+}
+
+export interface TerminologySweepDeps {
+  listNames: () => Promise<string[]>;
+  /** eventId → 状態。行が無いものは undefined を返す。 */
+  lookupEvents: (eventIds: string[]) => Promise<Map<string, EventLifecycle>>;
+  remove: (name: string) => Promise<void>;
+}
+
+/**
+ * 終了・削除済みイベントの翻訳用語集を回収する (ADR 0021 D-3)。
+ *
+ * メディアスタックの有無では判定しない。**配信せずに終わったイベント** (下書きのまま
+ * 資料だけ登録された等) はスタックが存在せず、スタック基準だと永久に残るため。
+ * 用語集の側から棚卸しするので、どんな経路で作られたものでも取りこぼさない。
+ */
+export async function sweepTerminologies(deps: TerminologySweepDeps): Promise<string[]> {
+  const names = await deps.listNames();
+  const byEvent = new Map<string, string[]>();
+  for (const name of names) {
+    const eventId = eventIdFromTerminologyName(name);
+    if (!eventId) continue;
+    byEvent.set(eventId, [...(byEvent.get(eventId) ?? []), name]);
+  }
+  if (byEvent.size === 0) return [];
+
+  const events = await deps.lookupEvents([...byEvent.keys()]);
+  const removed: string[] = [];
+  for (const [eventId, eventNames] of byEvent) {
+    if (shouldKeepTerminology(events.get(eventId))) continue;
+    for (const name of eventNames) {
+      await deps.remove(name);
+      removed.push(name);
     }
-    nextToken = listed.NextToken;
-  } while (nextToken);
-  return deleted;
+  }
+  return removed;
 }
 
 async function deleteRoute53ARecord(hostedZoneId: string, recordName: string): Promise<void> {
@@ -625,16 +727,13 @@ export async function handler(
     log.info("media clear", { eventId: a.eventId });
   }
 
-  // ADR 0021 D-3: 終了したイベントの翻訳用語集を回収する。
+  // ADR 0021 D-3: 終了・削除済みイベントの翻訳用語集を回収する。
   // 失敗しても reconcile 全体は止めない (次の tick で拾い直せる)。
-  for (const a of actual) {
-    if (desiredIds.has(a.eventId) || a.kind === "deleting") continue;
-    try {
-      const deleted = await deleteEventTerminologies(a.eventId);
-      if (deleted > 0) log.info("terminology cleanup", { eventId: a.eventId, deleted });
-    } catch (err) {
-      log.error("terminology cleanup failed", { eventId: a.eventId, err });
-    }
+  try {
+    const removed = await sweepTerminologies(d.terminologySweep);
+    if (removed.length > 0) log.info("terminology cleanup", { removed });
+  } catch (err) {
+    log.error("terminology cleanup failed", { err });
   }
 
   // ADR 0016 D-3: Route53 クリーンアップ
