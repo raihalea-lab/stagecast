@@ -128,10 +128,13 @@ export async function buildControlApiFromEnv(options: BuildFromEnvOptions = {}):
   // ADR 0022 D-1: 投影状態を room metadata に載せる (composer が読む唯一の経路)。
   // LiveKit の URL はイベントごとなので、書く直前に events テーブルから引く。
   const metadataTable = env.METADATA_TABLE_NAME;
-  const roomMetadata = metadataTable
+  // repo はページ送りのたびに作らない (cold start で 1 回)。
+  const metadataEventRepo = metadataTable
+    ? (await import("./repo/dynamo.js")).dynamoRepositories(metadataTable).eventRepo
+    : undefined;
+  const roomMetadata = metadataEventRepo
     ? resolveRoomMetadataPublisher(env, async (eventId) => {
-        const { dynamoRepositories } = await import("./repo/dynamo.js");
-        const ev = await dynamoRepositories(metadataTable).eventRepo.get(eventId);
+        const ev = await metadataEventRepo.get(eventId);
         return ev?.media?.livekitUrl;
       })
     : undefined;
@@ -230,8 +233,9 @@ function resolveRoomMetadataPublisher(
     async publish(eventId, metadata) {
       const wsUrl = await lookupLiveKitUrl(eventId);
       if (!wsUrl) return;
-      // RoomServiceClient は HTTP(S) を取る。LiveKit の URL は ws(s) で保持している。
-      const httpUrl = wsUrl.replace(/^ws/, "http");
+      // RoomServiceClient は HTTP(S) を取る。LiveKit の URL は ws(s) で保持している
+      // (startRtmpEgress と同じ変換に揃える)。
+      const httpUrl = wsUrl.replace(/^wss:\/\//i, "https://").replace(/^ws:\/\//i, "http://");
       const sdk = await import("livekit-server-sdk");
       const client = new sdk.RoomServiceClient(httpUrl, apiKey, apiSecret);
       await client.updateRoomMetadata(eventId, metadata);

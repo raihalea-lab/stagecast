@@ -6,6 +6,7 @@
  * 単体テストが容易になる。
  */
 import {
+  createLogger,
   encodeRoomMetadata,
   materialKey,
   materialsPrefix,
@@ -107,6 +108,8 @@ const json = (status: number, body: unknown): HttpResponse => ({ status, body })
  * LiveKit の room metadata を書く。実体は `RoomServiceClient.updateRoomMetadata`。
  * room 名は eventId と一致する。
  */
+const log = createLogger({ component: "control-api" });
+
 export interface RoomMetadataPublisher {
   publish(eventId: string, metadata: string): Promise<void>;
 }
@@ -137,22 +140,24 @@ export function createApp(deps: AppDeps) {
    * 失敗しても API 自体は成功扱いにする: 投影の正は DynamoDB 側にあり、metadata は
    * その写しなので、ここで 500 を返すとモデレーターの操作が理由もなく失敗する。
    */
-  async function publishRoomMetadata(state: PresentationState): Promise<void> {
+  async function publishRoomMetadata(
+    state: PresentationState & { deckUrl?: string },
+  ): Promise<void> {
     if (!deps.roomMetadata) return;
     try {
-      // composer は URL を受け取ったらすぐ取りに行くので、ここでも presign する。
-      const withUrl = await withDeckUrl(state, true);
       await deps.roomMetadata.publish(
         state.eventId,
         encodeRoomMetadata({
           slideSource: state.slideSource,
           slidePage: state.slidePage,
           deck: state.deck,
-          deckUrl: withUrl.deckUrl,
+          deckUrl: state.deckUrl,
         }),
       );
-    } catch {
-      // metadata は写し。次の操作で追いつく。
+    } catch (err) {
+      // metadata は写しなので操作自体は成功扱いにする。ただし黙って落とすと、
+      // composer が 5 分の配り直しで動いてしまい**壊れていることに気づけない**。
+      log.warn("room metadata publish failed", { eventId: state.eventId, err });
     }
   }
 
@@ -289,7 +294,12 @@ export function createApp(deps: AppDeps) {
       // 取得は speaker にも許す。自分がめくるために現在ページを知る必要がある (ADR 0022 D-1)。
       const isModerator = verified.role === "moderator";
       if (req.method === "POST" && segments[2] === "state") {
-        return json(200, await withDeckUrl(await presentation.getState(eventId), isModerator));
+        const state = await withDeckUrl(await presentation.getState(eventId), isModerator);
+        // moderator の読み取りで room metadata も貼り直す (ADR 0022 D-1)。
+        // 署名の更新をここに寄せることで、**クライアントが状態を書き戻さずに済む**。
+        // 書き戻すと、他の人がめくった直後に古いページで上書きするレースになる。
+        if (isModerator) await publishRoomMetadata(state);
+        return json(200, state);
       }
       // 更新は moderator と speaker の両方。PR #218 で登壇者もめくれるようにした。
       if (req.method === "POST" && segments[2] === "slide") {
@@ -302,8 +312,9 @@ export function createApp(deps: AppDeps) {
           body.slidePage as number | undefined,
           body.deck,
         );
-        await publishRoomMetadata(next);
-        return json(200, await withDeckUrl(next, isModerator));
+        const withUrl = await withDeckUrl(next, true);
+        await publishRoomMetadata(withUrl);
+        return json(200, isModerator ? withUrl : next);
       }
     }
 
@@ -569,8 +580,9 @@ export function createApp(deps: AppDeps) {
             body.slidePage as number | undefined,
             body.deck,
           );
-          await publishRoomMetadata(next);
-          return json(200, await withDeckUrl(next, true));
+          const withUrl = await withDeckUrl(next, true);
+          await publishRoomMetadata(withUrl);
+          return json(200, withUrl);
         }
       } else if (segments[2] === "invites" && req.method === "POST") {
         // 存在しないイベントへの招待発行を防ぐ (無ければ NotFound → 404)。

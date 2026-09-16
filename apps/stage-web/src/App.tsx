@@ -437,15 +437,6 @@ export function App(props: {
       deckUrlIssuedAtRef.current = Date.now();
       setDeckKey(materialKey(state.eventId, state.deck.assetId, state.deck.filename));
       setDeckUrl(state.deckUrl);
-      // room を作る前 (配信開始前) にデッキを入れていた場合、metadata はまだ書かれていない。
-      // 入室したこの時点で書き直すと、後から入る composer が読めるようになる (ADR 0022 D-1)。
-      void client
-        .setSlideState(inviteToken, {
-          slideSource: "uploaded",
-          slidePage: state.slidePage ?? 1,
-          deck: state.deck,
-        })
-        .catch(() => {});
     })();
     return () => {
       cancelled = true;
@@ -458,14 +449,11 @@ export function App(props: {
   const replayDeck = useCallback(async () => {
     if (!session || !inviteToken || !deckKey || !deckUrl) return;
     let url = deckUrl;
-    if (Date.now() - deckUrlIssuedAtRef.current > DECK_URL_MAX_AGE_MS && deckAssetRef.current) {
-      // setSlideState が presign し直し、room metadata にも載せ直す (ADR 0022 D-1)。
-      // ここで getMaterialDownloadUrl を別に叩くと、手元の URL と metadata の URL がずれる。
-      const state = await client.setSlideState(inviteToken, {
-        slideSource: "uploaded",
-        slidePage: page,
-        deck: deckAssetRef.current,
-      });
+    if (Date.now() - deckUrlIssuedAtRef.current > DECK_URL_MAX_AGE_MS) {
+      // **読むだけ**。getPresentationState が presign し直し、room metadata も貼り直す
+      // (ADR 0022 D-1)。ここで状態を書き戻すと、他の人がめくった直後に手元の古いページで
+      // 上書きしてしまい、composer の投影が 1 ページ戻る。
+      const state = await client.getPresentationState(inviteToken);
       if (state.deckUrl) {
         url = state.deckUrl;
         deckUrlIssuedAtRef.current = Date.now();
@@ -473,7 +461,7 @@ export function App(props: {
       }
     }
     await controller.republishDeck(url);
-  }, [session, client, inviteToken, deckKey, deckUrl, page, controller]);
+  }, [session, client, inviteToken, deckKey, deckUrl, controller]);
 
   useEffect(() => {
     replayDeckRef.current = replayDeck;

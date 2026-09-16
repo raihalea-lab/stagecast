@@ -153,8 +153,14 @@ ADR 0021 の翻訳は資料全体を文脈にするので投影状態に依存�
   更新**のために残っている (`presignGet` の既定は 15 分で失効)。更新は
   `setSlideState` 経由で行い、手元の URL と metadata の URL がずれないようにした。
 
+  更新は `POST /stage/presentation/state` (**読み取り**) で行う。moderator が読むと
+  presign し直して room metadata も貼り直すので、**クライアントは状態を書き戻さない**。
+  書き戻すと、他の人がめくった直後に手元の古いページで上書きして
+  composer の投影が 1 ページ戻る、というレースになる。
+
   消し切るには presign の有効期限を延ばす必要があるが、**Lambda の実行ロール資格情報の
   寿命に縛られる**ため、延ばせる上限は実測しないと分からない。デプロイ後に測る。
+
 - `isSameDeck` は stage-web 側にまだ残る (受信側の重複判定)。composer からは外した
 - `SlideDeckMessage.totalPages` も残す。speaker の stage-web が「デッキが載った」ことを
   即座に知る経路がこれしかない (speaker は metadata を読まない)
