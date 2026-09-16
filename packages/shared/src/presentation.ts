@@ -1,8 +1,9 @@
 /**
  * 発表者の制御状態 (DESIGN.md 5.3)。
  *
- * 管理者が各登壇者を「発表中」「待機」に切り替える。状態は Valkey に保持され、
- * 合成処理 (Egress) が即座に反映する。本型はその共有状態のスキーマ。
+ * 管理者が各登壇者を「発表中」「待機」に切り替える。本型はその共有状態のスキーマ。
+ * 永続化は制御層の DynamoDB (`DynamoPresentationRepository`)。
+ * 投影状態 (どのデッキの何ページ目か) の**正もここに置く** (ADR 0022 D-1)。
  */
 
 /** 登壇者の表示状態。`live` = 発表中 (画面に出す) / `standby` = 待機。 */
@@ -22,6 +23,19 @@ export interface SpeakerState {
 }
 
 /**
+ * 投影中のデッキの参照 (ADR 0022 D-1)。
+ *
+ * 実体は ADR 0021 の `assets/materials/{eventId}/{assetId}/{filename}` にあり、ここでは
+ * 参照だけを持つ。署名付き URL は失効するので**保存しない**。状態を読むときに都度発行する。
+ */
+export interface DeckRef {
+  assetId: string;
+  filename: string;
+  /** PDF の総ページ数。最終ページの判定に使う。 */
+  pageCount: number;
+}
+
+/**
  * 1 イベントの発表状態スナップショット。
  * 合成処理はこれを読み、登壇者映像とスライドのレイアウトを決定する (5.1)。
  */
@@ -33,6 +47,10 @@ export interface PresentationState {
   slideSource?: SlideSource;
   /** 事前アップロード方式のときの表示ページ番号 (1 始まり)。 */
   slidePage?: number;
+  /** 投影中のデッキ (ADR 0022 D-1)。`slideSource === "uploaded"` のときだけ意味を持つ。 */
+  deck?: DeckRef;
+  /** 投影状態の最終更新時刻 (UNIX ミリ秒)。競合時は新しい方を採る (ADR 0022 D-2)。 */
+  slideUpdatedAtMs?: number;
 }
 
 /** 発表中 (live) の登壇者だけを抽出する。 */
