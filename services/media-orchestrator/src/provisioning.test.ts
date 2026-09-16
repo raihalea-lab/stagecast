@@ -176,3 +176,38 @@ describe("createProvisioningPublisher", () => {
     expect(out.status).toBe("error");
   });
 });
+
+describe("provision 失敗を管理画面に出す (NEXT_WORK D16)", () => {
+  // スタックがまだ無い状態で失敗し続けるのが一番タチが悪い。2026-09-16 はこれで
+  // 13 分間「未作成」と出続けた (PR #236)。
+  const base = { services: [], mediaReady: false, wantTasks: true };
+
+  it("スタックが無くても失敗理由があれば failed にする", () => {
+    expect(computePhase({ ...base, error: "provision: render template failed" })).toBe("failed");
+  });
+
+  it("失敗理由が無ければ従来どおり none", () => {
+    expect(computePhase(base)).toBe("none");
+  });
+
+  it("失敗理由を書き戻す情報に載せる", () => {
+    const info = computeProvisioning({ ...base, error: "provision: boom" }, 1000);
+    expect(info.error).toBe("provision: boom");
+  });
+
+  it("失敗していないときは error を持たせない", () => {
+    expect(computeProvisioning(base, 1000).error).toBeUndefined();
+  });
+
+  it("失敗理由が変わったら差分として検出する (古い理由を出し続けない)", () => {
+    const a = computeProvisioning({ ...base, error: "provision: A" }, 1000);
+    const b = computeProvisioning({ ...base, error: "provision: B" }, 2000);
+    expect(sameProvisioning(a, b)).toBe(false);
+  });
+
+  it("復旧したら差分として検出する (エラー表示が消える)", () => {
+    const failed = computeProvisioning({ ...base, error: "provision: A" }, 1000);
+    const ok = computeProvisioning(base, 2000);
+    expect(sameProvisioning(failed, ok)).toBe(false);
+  });
+});
