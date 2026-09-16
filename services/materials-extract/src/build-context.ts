@@ -81,13 +81,16 @@ export function buildMaterialsContext(
       materials.push(entry);
       continue;
     }
-    if (total + text.length > MATERIALS_CONTEXT_CHAR_LIMIT) {
+    // 上限は本文の量で測る。見出し (`## filename` と `[pN] `) を数に入れると、
+    // 上限ぴったりの資料が 2 つ来たときに 2 つ目が丸ごと落ちる。
+    const bodyChars = pages.reduce((n, p) => n + p.text.length, 0);
+    if (total + bodyChars > MATERIALS_CONTEXT_CHAR_LIMIT) {
       // 全体上限を超えたらこの資料以降は載せない。中途半端に切ると文が壊れるため。
       break;
     }
     materials.push(entry);
     texts.push(text);
-    total += text.length;
+    total += bodyChars;
   }
 
   return {

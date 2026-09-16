@@ -81,8 +81,14 @@ describe("buildMaterialsContext (ADR 0021 D-2)", () => {
       pages: [{ text: page }],
     });
     const ctx = buildMaterialsContext(EVENT, [material("a1"), material("a2"), material("a3")], NOW);
-    expect(ctx.fullText.length).toBeLessThanOrEqual(MATERIALS_CONTEXT_CHAR_LIMIT);
-    expect(ctx.materials.length).toBeLessThan(3);
+    // 上限は本文の量で測るので、上限ぴったりの資料はちょうど 2 件入る。
+    // 見出し (`## a1.pdf` と `[p1] `) を数に入れていた頃は 2 件目が丸ごと落ちていた。
+    expect(ctx.materials.map((m) => m.filename)).toEqual(["a1.pdf", "a2.pdf"]);
+    const bodyChars = ctx.materials.reduce(
+      (n, m) => n + m.pages.reduce((x, p) => x + p.text.length, 0),
+      0,
+    );
+    expect(bodyChars).toBe(MATERIALS_CONTEXT_CHAR_LIMIT);
   });
 
   it("本文が取れない資料も一覧には残す (画像だけの PDF 等)", () => {

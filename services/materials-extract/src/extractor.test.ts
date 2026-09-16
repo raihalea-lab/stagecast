@@ -5,6 +5,7 @@
 import { deflateRawSync } from "node:zlib";
 import { describe, expect, it } from "vitest";
 import { createExtractor } from "./extractor.js";
+import { extractPdfPages } from "./extract-pdf.js";
 import { extractPptxPages } from "./extract-pptx.js";
 import { readZipEntries } from "./zip.js";
 
@@ -86,15 +87,37 @@ describe("PPTX 抽出 (ADR 0021 D-2)", () => {
     expect(extractPptxPages(zip).map((p) => p.text)).toEqual(["一枚目", "二枚目", "十枚目"]);
   });
 
-  it("スライド以外のエントリは無視する", () => {
+  it("話者ノートを同じスライドに取り込む (投影しない資料こそ文脈として効く, D-1)", () => {
     const zip = makeZip(
       [
-        { name: "ppt/notesSlides/notesSlide1.xml", body: slideXml("ノート") },
+        { name: "ppt/notesSlides/notesSlide1.xml", body: slideXml("補足説明") },
+        { name: "ppt/slides/slide1.xml", body: slideXml("本文") },
+      ],
+      true,
+    );
+    expect(extractPptxPages(zip).map((p) => p.text)).toEqual(["本文\n(ノート) 補足説明"]);
+  });
+
+  it("スライドもノートも無いエントリは無視する", () => {
+    const zip = makeZip(
+      [
+        { name: "ppt/media/image1.png", body: "binary" },
         { name: "ppt/slides/slide1.xml", body: slideXml("本文") },
       ],
       true,
     );
     expect(extractPptxPages(zip).map((p) => p.text)).toEqual(["本文"]);
+  });
+
+  it("ノートだけあってスライドが無い番号は出力しない", () => {
+    const zip = makeZip(
+      [
+        { name: "ppt/slides/slide1.xml", body: slideXml("一枚目") },
+        { name: "ppt/notesSlides/notesSlide9.xml", body: slideXml("迷子のノート") },
+      ],
+      true,
+    );
+    expect(extractPptxPages(zip)).toHaveLength(1);
   });
 
   it("XML の実体参照を戻す", () => {
@@ -103,6 +126,59 @@ describe("PPTX 抽出 (ADR 0021 D-2)", () => {
       true,
     );
     expect(extractPptxPages(zip)[0]?.text).toBe("A & B <tag>");
+  });
+});
+
+/**
+ * 最小の PDF を組み立てる。標準 14 フォント (Helvetica) + `Tj` だけなので ASCII しか
+ * 書けないが、`extractPdfPages` が bundle 前後どちらでも動くことの検証には足りる
+ * (日本語の確認は実 PDF を使ったスパイク: docs/spikes/pdf-text-extract.mjs)。
+ */
+function makePdf(pageTexts: string[]): Uint8Array {
+  const objects: string[] = [];
+  const pageIds = pageTexts.map((_, i) => 4 + i * 2);
+
+  objects[1] = "<< /Type /Catalog /Pages 2 0 R >>";
+  objects[2] = `<< /Type /Pages /Kids [${pageIds.map((id) => `${id} 0 R`).join(" ")}] /Count ${pageTexts.length} >>`;
+  objects[3] = "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>";
+  pageTexts.forEach((text, i) => {
+    const pageId = pageIds[i]!;
+    const streamId = pageId + 1;
+    objects[pageId] =
+      `<< /Type /Page /Parent 2 0 R /Resources << /Font << /F1 3 0 R >> >> ` +
+      `/MediaBox [0 0 200 200] /Contents ${streamId} 0 R >>`;
+    const stream = `BT /F1 12 Tf 10 100 Td (${text}) Tj ET`;
+    objects[streamId] = `<< /Length ${stream.length} >>\nstream\n${stream}\nendstream`;
+  });
+
+  let pdf = "%PDF-1.4\n";
+  const offsets: number[] = [];
+  for (let i = 1; i < objects.length; i++) {
+    offsets[i] = pdf.length;
+    pdf += `${i} 0 obj\n${objects[i]}\nendobj\n`;
+  }
+  const xref = pdf.length;
+  pdf += `xref\n0 ${objects.length}\n0000000000 65535 f \n`;
+  for (let i = 1; i < objects.length; i++) {
+    pdf += `${String(offsets[i]).padStart(10, "0")} 00000 n \n`;
+  }
+  pdf += `trailer\n<< /Size ${objects.length} /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF\n`;
+  return new TextEncoder().encode(pdf);
+}
+
+describe("PDF 抽出 (ADR 0021 D-2)", () => {
+  it("ページごとにテキストを取り出す", async () => {
+    const pages = await extractPdfPages(makePdf(["Hello", "World"]));
+    expect(pages.map((p) => p.text)).toEqual(["Hello", "World"]);
+  });
+
+  it("壊れた PDF は例外を投げる (呼び出し側がその資料だけ諦められるように)", async () => {
+    await expect(extractPdfPages(new TextEncoder().encode("not a pdf"))).rejects.toThrow();
+  });
+
+  it("createExtractor 経由でも同じ結果 (worker の差し込みが効いている)", async () => {
+    const pages = await createExtractor().extract("deck.pdf", makePdf(["Slide one"]));
+    expect(pages?.map((p) => p.text)).toEqual(["Slide one"]);
   });
 });
 
