@@ -81,14 +81,28 @@ S3 イベント通知 (`OBJECT_CREATED` / `OBJECT_REMOVED`) を張る。制御�
 **低遅延経路 (Amazon Translate)**: 抽出 Lambda が資料の全文から **用語集** を LLM で 1 回生成し、
 Amazon Translate の Custom Terminology に `ImportTerminology` する。
 
-- 用語集名: `stagecast-{eventId}`。`MergeStrategy: OVERWRITE` で資料変更のたびに置き換える
+- 用語集名: `stagecast-{eventId}-{target}`。`MergeStrategy: OVERWRITE` で資料変更のたびに
+  置き換える
 - 対象: 固有名詞・技術用語・略語に限定し、**最大 200 件**。一般語を入れると exact match で
   過剰適用され、かえって訳が壊れる
-- 言語: イベントの `sourceLanguage` → `languages` の各 target を 1 つの CSV に (先頭列が source)
+- 言語: Amazon Translate の **CSV は 2 列 (source, target 1 つ)** しか受け付けない。複数
+  ターゲットを 1 ファイルに入れるには TMX が要るので、**ターゲット言語ごとに用語集を分ける**
 - 生成モデル: プロジェクト既定の Claude Sonnet 4.5 (`us-east-1`)
-- 字幕ワーカーは `TranslateTextCommand` に `TerminologyNames: ["stagecast-{eventId}"]` を添える。
-  用語集が未生成なら添えない (存在しない名前を指定するとエラーになる)
+- 字幕ワーカーは `TranslateTextCommand` に `TerminologyNames: ["stagecast-{eventId}-{target}"]`
+  を添える。資料が無いイベントでは添えない (存在しない名前を指定するとエラーになる)
+- 抽出 Lambda は `_context.json` を書いた**後**に用語集を登録するので、その隙にワーカーが
+  起動すると `ResourceNotFoundException` になる。翻訳側で**用語集なしの 1 回だけの
+  やり直し**を入れてレースを潰す
 - イベント終了時に `DeleteTerminology` する (アカウントの用語集数には上限がある)
+
+> **未検証の制限: 日本語をソースにすると効かない可能性が高い。**
+> Custom Terminology は**ソース言語側の完全一致**で置換する。日本語には語境界が無いため、
+> AWS のドキュメントは CJK ソースの用語集について「テキスト中でスペースや句読点により
+> 区切られている場合のみ一致する」と述べている。本プロジェクトの主経路は ja → en なので、
+> **D-3 の低遅延側は実測では空振る恐れがある**。実 AWS で効果を測ってから、
+> (a) 用語集は英語ソースのイベント向けと位置づけを縮める / (b) Transcribe の
+> Custom Vocabulary (音声認識側の語彙。日本語でも効く) に振り替える、を判断する。
+> 品質重視経路 (LLM) 側はこの制限を受けない。
 
 **品質重視経路 (LLM)**: 字幕ワーカーが `_context.json` の全文を system prompt の**固定
 プレフィックス**として渡す。用語集も同じプレフィックスに含め、両経路の用語を揃える。

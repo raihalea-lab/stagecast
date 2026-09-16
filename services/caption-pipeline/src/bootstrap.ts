@@ -137,12 +137,11 @@ export async function realProvidersFromEnv(
   if (config.engine === "transcribe") {
     providers.asr = new TranscribeStreamingAsrAdapter(config.sourceLanguage);
     // ADR 0021 D-3: 低遅延経路は文脈を渡せないので、資料から作った用語集で訳語を揃える。
-    // 用語集が未生成なら存在しない名前になり Translate がエラーを返すため、資料が
-    // 登録されているときだけ名前を渡す。
-    const terminology = env.ASSETS_BUCKET
-      ? await resolveTerminologyName(config.eventId, env.ASSETS_BUCKET)
+    // 資料が無いイベントでは用語集も無いので、存在するときだけ eventId を渡す。
+    const glossaryEventId = env.ASSETS_BUCKET
+      ? await resolveGlossaryEventId(config.eventId, env.ASSETS_BUCKET)
       : undefined;
-    providers.translator = new AmazonTranslateTranslator(undefined, terminology);
+    providers.translator = new AmazonTranslateTranslator(undefined, glossaryEventId);
   } else if (config.engine === "llm") {
     providers.llm = new BedrockLlmAdapter({
       modelId: env.BEDROCK_MODEL_ID ?? "us.anthropic.claude-sonnet-4-5-20250929-v1:0",
@@ -155,7 +154,9 @@ export async function realProvidersFromEnv(
         eventId: config.eventId,
         source: new S3MaterialsContextSource(env.ASSETS_BUCKET),
       });
-      await store.start();
+      // 資料は翻訳の補助なので、S3 が遅くてもワーカーの起動を待たせない。
+      // 初回の数発話は文脈なしで通る。
+      void store.start();
       providers.materials = store;
     }
   }
@@ -216,12 +217,12 @@ async function audioSourceFromEnv(env: NodeJS.ProcessEnv): Promise<AudioSource |
 }
 
 /**
- * 用語集の名前を返す。資料が 1 件も無ければ undefined (ADR 0021 D-3)。
+ * 用語集が使えるなら eventId を返す。資料が 1 件も無ければ undefined (ADR 0021 D-3)。
  *
- * 存在しない用語集名を `TranslateText` に渡すとエラーになるので、`_context.json` の
- * 有無で判定する。抽出 Lambda は資料が無くなると `_context.json` も消す。
+ * 抽出 Lambda は資料が無くなると `_context.json` も消すので、その有無で判定する。
+ * 判定後に用語集の登録が間に合わないレースは `AmazonTranslateTranslator` 側で拾う。
  */
-async function resolveTerminologyName(
+async function resolveGlossaryEventId(
   eventId: string,
   bucket: string,
 ): Promise<string | undefined> {
@@ -230,7 +231,7 @@ async function resolveTerminologyName(
     const { materialsContextKey } = await import("@stagecast/shared");
     const source = new S3MaterialsContextSource(bucket);
     const etag = await source.head(materialsContextKey(eventId));
-    return etag ? `stagecast-${eventId}`.replace(/[^\w-]/g, "-") : undefined;
+    return etag ? eventId : undefined;
   } catch {
     // 判定できなければ用語集なしで続ける (字幕を止めない, N-2)。
     return undefined;

@@ -8,6 +8,7 @@
  *   assets/materials/{eventId}/{assetId}/{filename}   ← 資料の実体
  *   assets/materials/{eventId}/_context.json          ← 抽出結果 (MaterialsContext)
  */
+import type { LanguageCode } from "./caption.js";
 
 /** 資料 1 ページ分の抽出テキスト。PDF 以外 (md 等) は 1 ページに収める。 */
 export interface MaterialPage {
@@ -77,4 +78,15 @@ export function parseMaterialKey(
   const [eventId, assetId, filename] = parts;
   if (!eventId || !assetId || !filename) return null;
   return { eventId, assetId, filename };
+}
+
+/**
+ * Amazon Translate の用語集名 (ADR 0021 D-3)。
+ *
+ * Translate の CSV は **2 列 (source, target 1 つ)** しか受け付けないので、ターゲット
+ * 言語ごとに用語集を分ける。抽出 Lambda が登録し、字幕ワーカーが引くので shared に置く。
+ */
+export function terminologyName(eventId: string, target: LanguageCode): string {
+  // 用語集名に使えるのは英数と - _ のみ。
+  return `stagecast-${eventId}-${target}`.replace(/[^\w-]/g, "-");
 }

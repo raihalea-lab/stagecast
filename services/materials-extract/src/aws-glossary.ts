@@ -128,7 +128,8 @@ export class TranslateTerminologyStore implements TerminologyStore {
         TerminologyData: {
           File: new TextEncoder().encode(csv),
           Format: "CSV",
-          Directionality: "MULTI",
+          // 2 列 CSV なので UNI。MULTI は複数ターゲット列を持つ TMX 用。
+          Directionality: "UNI",
         },
       }),
     );

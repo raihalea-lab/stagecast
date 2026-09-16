@@ -6,7 +6,7 @@
  * **exact match** で置換されるため、一般語を入れると訳が壊れる。固有名詞・技術用語・
  * 略語に限定し、件数も絞る。
  */
-import { createLogger, type LanguageCode } from "@stagecast/shared";
+import { createLogger, terminologyName, type LanguageCode } from "@stagecast/shared";
 
 const log = createLogger({ component: "materials-glossary" });
 
@@ -34,38 +34,31 @@ export interface TerminologyStore {
   remove(name: string): Promise<void>;
 }
 
-/** イベントごとの用語集名。 */
-export function terminologyName(eventId: string): string {
-  // Translate の用語集名は英数と - _ のみ。eventId は UUID なのでそのまま使える。
-  return `stagecast-${eventId}`.replace(/[^\w-]/g, "-");
-}
-
 /** CSV の 1 セルを引用する (用語に `,` や `"` が入りうる)。 */
 function quote(value: string): string {
   return `"${value.replace(/"/g, '""')}"`;
 }
 
 /**
- * Translate の CSV 形式に整える。先頭列が source 言語、続けて target 言語。
+ * Translate の CSV 形式に整える。**2 列 (source, target)**。
  *
  * 訳語が空の行や、source と訳語が同一の行は落とす (置換しても意味がなく、
- * 件数だけ食うため)。
+ * 件数だけ食うため)。件数の `slice` は安全弁で、ここで切れているなら LLM が
+ * プロンプトの「最大 N 件」を無視している。
  */
 export function buildTerminologyCsv(
   entries: GlossaryEntry[],
   source: LanguageCode,
-  targets: LanguageCode[],
+  target: LanguageCode,
 ): string | undefined {
   const usable = entries
     .filter((e) => e.source.trim().length > 0)
-    .filter((e) => targets.some((t) => e.targets[t] && e.targets[t] !== e.source))
+    .filter((e) => e.targets[target] && e.targets[target] !== e.source)
     .slice(0, GLOSSARY_MAX_ENTRIES);
   if (usable.length === 0) return undefined;
 
-  const header = [source, ...targets].map(quote).join(",");
-  const rows = usable.map((e) =>
-    [e.source, ...targets.map((t) => e.targets[t] ?? "")].map(quote).join(","),
-  );
+  const header = [source, target].map(quote).join(",");
+  const rows = usable.map((e) => [e.source, e.targets[target] ?? ""].map(quote).join(","));
   return [header, ...rows].join("\n");
 }
 
@@ -86,23 +79,38 @@ export async function syncGlossary(
   source: LanguageCode,
   targets: LanguageCode[],
   deps: SyncGlossaryDeps,
-): Promise<string | undefined> {
+): Promise<LanguageCode[]> {
   const wanted = targets.filter((t) => t !== source);
-  if (!fullText || wanted.length === 0) return undefined;
+  if (!fullText || wanted.length === 0) return [];
   try {
     const entries = await deps.generator.generate(fullText, source, wanted);
-    const csv = buildTerminologyCsv(entries, source, wanted);
-    const name = terminologyName(eventId);
-    if (!csv) {
-      // 用語が 1 件も取れなかった。古い用語集が残っていると消した資料の訳語が効き続ける。
-      await deps.terminology.remove(name);
-      return undefined;
+    const imported: LanguageCode[] = [];
+    for (const target of wanted) {
+      const name = terminologyName(eventId, target);
+      const csv = buildTerminologyCsv(entries, source, target);
+      if (!csv) {
+        // その言語の用語が取れなかった。古い用語集が残っていると消した資料の訳語が効き続ける。
+        await deps.terminology.remove(name);
+        continue;
+      }
+      await deps.terminology.importCsv(name, csv);
+      imported.push(target);
     }
-    await deps.terminology.importCsv(name, csv);
-    log.info("glossary imported", { eventId, entries: entries.length });
-    return name;
+    log.info("glossary imported", { eventId, entries: entries.length, targets: imported });
+    return imported;
   } catch (err) {
     log.error("glossary sync failed", { eventId, err });
-    return undefined;
+    return [];
+  }
+}
+
+/** イベントの用語集をすべて消す (資料が無くなったとき)。 */
+export async function removeGlossaries(
+  eventId: string,
+  targets: LanguageCode[],
+  terminology: TerminologyStore,
+): Promise<void> {
+  for (const target of targets) {
+    await terminology.remove(terminologyName(eventId, target)).catch(() => {});
   }
 }

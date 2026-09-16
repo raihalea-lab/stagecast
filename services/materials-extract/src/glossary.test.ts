@@ -1,11 +1,11 @@
 import { describe, expect, it } from "vitest";
 import type { LanguageCode } from "@stagecast/shared";
 import { parseGlossaryResponse } from "./aws-glossary.js";
+import { terminologyName } from "@stagecast/shared";
 import {
   buildTerminologyCsv,
   GLOSSARY_MAX_ENTRIES,
   syncGlossary,
-  terminologyName,
   type GlossaryEntry,
   type GlossaryGenerator,
   type TerminologyStore,
@@ -15,13 +15,13 @@ const JA = "ja" as LanguageCode;
 const EN = "en" as LanguageCode;
 
 class FakeTerminology implements TerminologyStore {
-  imported?: { name: string; csv: string };
+  imported: { name: string; csv: string }[] = [];
   removed: string[] = [];
   failImport = false;
 
   async importCsv(name: string, csv: string): Promise<void> {
     if (this.failImport) throw new Error("boom");
-    this.imported = { name, csv };
+    this.imported.push({ name, csv });
   }
   async remove(name: string): Promise<void> {
     this.removed.push(name);
@@ -38,25 +38,32 @@ class FakeGenerator implements GlossaryGenerator {
 }
 
 describe("buildTerminologyCsv (ADR 0021 D-3)", () => {
-  it("先頭列が source 言語の CSV を作る", () => {
-    const csv = buildTerminologyCsv([{ source: "エージェント", targets: { en: "Agent" } }], JA, [
-      EN,
-    ]);
+  it("source と target の 2 列にする (Translate の CSV は 2 列しか受け付けない)", () => {
+    const csv = buildTerminologyCsv([{ source: "エージェント", targets: { en: "Agent" } }], JA, EN);
     expect(csv).toBe('"ja","en"\n"エージェント","Agent"');
   });
 
+  it("他言語の訳語は混ぜない", () => {
+    const csv = buildTerminologyCsv(
+      [{ source: "エージェント", targets: { en: "Agent", "zh-TW": "代理" } }],
+      JA,
+      EN,
+    )!;
+    expect(csv).not.toContain("代理");
+  });
+
   it("引用符を含む用語をエスケープする", () => {
-    const csv = buildTerminologyCsv([{ source: 'a"b', targets: { en: "c,d" } }], JA, [EN])!;
+    const csv = buildTerminologyCsv([{ source: 'a"b', targets: { en: "c,d" } }], JA, EN)!;
     expect(csv).toContain('"a""b","c,d"');
   });
 
   it("訳語が原語と同じ行は落とす (置換しても意味がなく件数だけ食う)", () => {
-    const csv = buildTerminologyCsv([{ source: "AWS", targets: { en: "AWS" } }], JA, [EN]);
+    const csv = buildTerminologyCsv([{ source: "AWS", targets: { en: "AWS" } }], JA, EN);
     expect(csv).toBeUndefined();
   });
 
   it("訳語が空の行は落とす", () => {
-    const csv = buildTerminologyCsv([{ source: "用語", targets: {} }], JA, [EN]);
+    const csv = buildTerminologyCsv([{ source: "用語", targets: {} }], JA, EN);
     expect(csv).toBeUndefined();
   });
 
@@ -65,15 +72,19 @@ describe("buildTerminologyCsv (ADR 0021 D-3)", () => {
       source: `語${i}`,
       targets: { en: `Term${i}` },
     }));
-    const csv = buildTerminologyCsv(many, JA, [EN])!;
+    const csv = buildTerminologyCsv(many, JA, EN)!;
     // 先頭行はヘッダー。
     expect(csv.split("\n")).toHaveLength(GLOSSARY_MAX_ENTRIES + 1);
   });
 });
 
 describe("terminologyName", () => {
-  it("イベントごとに名前を分ける", () => {
-    expect(terminologyName("326c8d88-e4b6")).toBe("stagecast-326c8d88-e4b6");
+  it("イベント × ターゲット言語で名前を分ける", () => {
+    expect(terminologyName("326c8d88-e4b6", EN)).toBe("stagecast-326c8d88-e4b6-en");
+  });
+
+  it("用語集名に使えない文字を落とす (zh-TW の `-` は残る)", () => {
+    expect(terminologyName("evt.1", "zh-TW" as LanguageCode)).toBe("stagecast-evt-1-zh-TW");
   });
 });
 
@@ -104,37 +115,69 @@ describe("syncGlossary (ADR 0021 D-3)", () => {
     terminology,
   });
 
-  it("用語集を登録して名前を返す", async () => {
+  it("用語集を登録して登録できた言語を返す", async () => {
     const terminology = new FakeTerminology();
-    const name = await syncGlossary(
+    const imported = await syncGlossary(
       "evt-1",
       "本文",
       JA,
       [EN],
       deps([{ source: "エージェント", targets: { en: "Agent" } }], terminology),
     );
-    expect(name).toBe("stagecast-evt-1");
-    expect(terminology.imported?.csv).toContain("Agent");
+    expect(imported).toEqual([EN]);
+    expect(terminology.imported[0]?.name).toBe("stagecast-evt-1-en");
+    expect(terminology.imported[0]?.csv).toContain("Agent");
+  });
+
+  it("ターゲット言語ごとに用語集を分ける", async () => {
+    const terminology = new FakeTerminology();
+    const ZH = "zh-TW" as LanguageCode;
+    const imported = await syncGlossary(
+      "evt-1",
+      "本文",
+      JA,
+      [EN, ZH],
+      deps([{ source: "エージェント", targets: { en: "Agent", "zh-TW": "代理" } }], terminology),
+    );
+    expect(imported).toEqual([EN, ZH]);
+    expect(terminology.imported.map((i) => i.name)).toEqual([
+      "stagecast-evt-1-en",
+      "stagecast-evt-1-zh-TW",
+    ]);
+  });
+
+  it("訳語が無い言語は用語集を作らず古いものを消す", async () => {
+    const terminology = new FakeTerminology();
+    const ZH = "zh-TW" as LanguageCode;
+    const imported = await syncGlossary(
+      "evt-1",
+      "本文",
+      JA,
+      [EN, ZH],
+      deps([{ source: "エージェント", targets: { en: "Agent" } }], terminology),
+    );
+    expect(imported).toEqual([EN]);
+    expect(terminology.removed).toEqual(["stagecast-evt-1-zh-TW"]);
   });
 
   it("用語が 1 件も取れなければ古い用語集を消す", async () => {
     const terminology = new FakeTerminology();
-    const name = await syncGlossary("evt-1", "本文", JA, [EN], deps([], terminology));
-    expect(name).toBeUndefined();
-    expect(terminology.removed).toEqual(["stagecast-evt-1"]);
+    const imported = await syncGlossary("evt-1", "本文", JA, [EN], deps([], terminology));
+    expect(imported).toEqual([]);
+    expect(terminology.removed).toEqual(["stagecast-evt-1-en"]);
   });
 
   it("登録に失敗しても例外を投げない (抽出全体を落とさない)", async () => {
     const terminology = new FakeTerminology();
     terminology.failImport = true;
-    const name = await syncGlossary(
+    const imported = await syncGlossary(
       "evt-1",
       "本文",
       JA,
       [EN],
       deps([{ source: "A", targets: { en: "B" } }], terminology),
     );
-    expect(name).toBeUndefined();
+    expect(imported).toEqual([]);
   });
 
   it("target が source だけなら何もしない", async () => {

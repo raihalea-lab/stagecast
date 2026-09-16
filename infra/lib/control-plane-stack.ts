@@ -235,6 +235,8 @@ export class ControlPlaneStack extends Stack {
           "transcribe:StartStreamTranscriptionWebSocket",
           "transcribe:StartStreamTranscription",
           "translate:TranslateText",
+          // TranslateText に TerminologyNames を添えると用語集の読み取りが要る (ADR 0021 D-3)。
+          "translate:GetTerminology",
           "bedrock:InvokeModel",
           "bedrock:InvokeModelWithResponseStream",
         ],
