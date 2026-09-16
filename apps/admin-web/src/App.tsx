@@ -59,6 +59,7 @@ import { AssetLibrary } from "./components/AssetLibrary.js";
 import { SettingsPage } from "./components/SettingsPage.js";
 import { CognitoAuthClient, cognitoConfig } from "./auth/cognito.js";
 import type { RuntimeConfig } from "./config.js";
+import { HttpMaterialsService, type MaterialsService } from "./api/materials-service.js";
 import { toErrorMessage } from "./lib/errors.js";
 
 interface AuthState {
@@ -97,6 +98,7 @@ export function App(props: {
   client?: ControlApiClient;
   assets?: AssetService;
   artifacts?: ArtifactService;
+  materials?: MaterialsService;
 }) {
   const apiBaseUrl = props.config?.controlApiUrl ?? "";
   const cognito = props.config?.cognito;
@@ -126,6 +128,11 @@ export function App(props: {
   const artifacts = useMemo(
     () => props.artifacts ?? new HttpArtifactService(apiBaseUrl, getIdToken),
     [props.artifacts, apiBaseUrl, getIdToken],
+  );
+  // ADR 0021: 翻訳参考資料の登録。
+  const materials = useMemo(
+    () => props.materials ?? new HttpMaterialsService(apiBaseUrl, getIdToken),
+    [props.materials, apiBaseUrl, getIdToken],
   );
 
   const navigate = useNavigate();
@@ -711,6 +718,7 @@ export function App(props: {
                   client={client}
                   assets={assets}
                   artifacts={artifacts}
+                  materials={materials}
                   onChanged={() => void run(refresh)}
                   onDelete={deleteEvent}
                 />
@@ -758,6 +766,7 @@ function EventDetailRoute(props: {
   client: ControlApiClient;
   assets: AssetService;
   artifacts: ArtifactService;
+  materials: MaterialsService;
   onChanged: () => void;
   onDelete: (id: string) => void;
 }) {
@@ -780,6 +789,7 @@ function EventDetailRoute(props: {
       client={props.client}
       assets={props.assets}
       artifacts={props.artifacts}
+      materials={props.materials}
       onChanged={props.onChanged}
       onDelete={props.onDelete}
     />

@@ -32,7 +32,26 @@ export class BedrockLlmAdapter implements LlmAdapter {
     );
   }
 
-  async translate(text: string, source: LanguageCode, target: LanguageCode): Promise<string> {
+  /**
+   * system ブロックを組み立てる (ADR 0021 D-3)。
+   *
+   * 資料の本文は発話が変わっても同じ内容なので、`cache_control` を付けて prompt caching に
+   * 載せる。字幕は連続して流れるのでキャッシュは温まったままになり、資料全体を毎回渡しても
+   * コストはほぼ増えない。キャッシュの最小トークン数に満たない資料は素通りする (課金上の
+   * 不利益は無い)。
+   */
+  private buildSystem(context: string | undefined): unknown[] | undefined {
+    if (!context) return undefined;
+    // cache_control は Bedrock の Anthropic API 形式。prompt caching に載せる目印。
+    return [{ type: "text", text: context, cache_control: { type: "ephemeral" } }];
+  }
+
+  async translate(
+    text: string,
+    source: LanguageCode,
+    target: LanguageCode,
+    context?: string,
+  ): Promise<string> {
     if (source === target) return text;
     let res;
     try {
@@ -44,6 +63,8 @@ export class BedrockLlmAdapter implements LlmAdapter {
           body: JSON.stringify({
             anthropic_version: "bedrock-2023-05-31",
             max_tokens: this.config.maxTokens ?? 512,
+            // 資料と直前発話は system に置く。user に混ぜると翻訳対象と紛れる。
+            ...(this.buildSystem(context) ? { system: this.buildSystem(context) } : {}),
             messages: [{ role: "user", content: this.buildPrompt(text, source, target) }],
           }),
         }),
