@@ -1,8 +1,14 @@
 name: CI
 
-# ローカル pre-push フックで同等のチェックを実行するため一時無効化。
-# 戻すときは workflow_dispatch を on.push / on.pull_request に戻す。
+# ローカル pre-push フックだけでは**素通りする経路がある**ので CI を戻した (2026-09-17)。
+# dependabot PR は GitHub 上でマージされるためフックを一度も通らない。実際、
+# aws-cdk-lib 2.269 の更新がノーチェックで main に入り、本番の配信開始が全停止した (PR #236)。
+# `--no-verify` や GitHub 上の直接編集も同様に素通りする。
+# このリポジトリは public なので標準ランナーは無料 (分数を消費しない)。
 on:
+  push:
+    branches: [main]
+  pull_request:
   workflow_dispatch:
 
 # 同じブランチ/PR の古い run は新しい push でキャンセル。main は守る。
