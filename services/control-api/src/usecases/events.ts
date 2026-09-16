@@ -60,6 +60,24 @@ function validateTimestamp(field: string, value: unknown): string {
   return value;
 }
 
+/**
+ * 状態遷移に伴う副作用を実行する。
+ *
+ * **await すること**が要点。投げっぱなしにすると Lambda が応答を返した時点で実行環境を
+ * 凍結し、処理が完走しない。資料削除で実際に踏んだ (状態は `ended` になるのに資料が残った)。
+ * reconcile の直接起動やウォームアップ登録も、動的 import + SDK 呼び出しなので同じ穴がある。
+ *
+ * 失敗は握り潰す。状態の書き込みはもう終わっているので、ここでエラーを返すと
+ * 「状態は変わったのに呼び出し側には失敗に見える」というより悪い状態になる。
+ */
+async function afterTransition(run: () => Promise<void> | undefined): Promise<void> {
+  try {
+    await run();
+  } catch {
+    // 理由は上のコメントのとおり。失敗しても遷移自体は成功させる。
+  }
+}
+
 export function createEventService(deps: {
   repo: EventRepository;
   newId: () => string;
@@ -168,28 +186,15 @@ export function createEventService(deps: {
     const next: EventDefinition = { ...e, status, updatedAtMs: now() };
     await repo.put(next);
     // ADR 0015 Phase 2: live 遷移時に reconcile Lambda を直接起動し、EventBridge 検知遅延 (0-60s) をスキップ。
-    if (status === "live") {
-      deps.onGoLive?.(eventId).catch(() => {});
-    }
+    if (status === "live") await afterTransition(() => deps.onGoLive?.(eventId));
     // 終了したら翻訳参考資料を消す。用語集と同じタイミングで揃える。
-    //
-    // **await すること**。投げっぱなしにすると Lambda が応答を返した時点で実行環境を凍結し、
-    // S3 の削除が完走しない (実機で踏んだ: 状態は ended になるのに資料が残る)。
-    // 失敗しても配信終了そのものは成功させる。ここでエラーを返すと、状態は ended なのに
-    // 呼び出し側には失敗に見える。取り残した資料はイベント削除でも回収できる。
-    if (status === "ended") {
-      try {
-        await deps.cleanupMaterials?.(eventId);
-      } catch {
-        // 握り潰す理由は上のコメントのとおり。
-      }
-    }
+    if (status === "ended") await afterTransition(() => deps.cleanupMaterials?.(eventId));
     // ADR 0015 Phase 4: scheduled 遷移時にウォームアップスケジュールを作成。
     // scheduled 以外への遷移時はスケジュールを削除。
     if (status === "scheduled") {
-      deps.onWarmupSchedule?.(eventId, e.startsAt).catch(() => {});
+      await afterTransition(() => deps.onWarmupSchedule?.(eventId, e.startsAt));
     } else if (e.status === "scheduled") {
-      deps.onWarmupSchedule?.(eventId, null).catch(() => {});
+      await afterTransition(() => deps.onWarmupSchedule?.(eventId, null));
     }
     return next;
   }
