@@ -10,7 +10,17 @@ import type { Translator } from "../engines/types.js";
 import { tagAwsRetryable } from "./aws-errors.js";
 
 export class AmazonTranslateTranslator implements Translator {
-  constructor(private readonly client: TranslateClient = new TranslateClient({})) {}
+  constructor(
+    private readonly client: TranslateClient = new TranslateClient({}),
+    /**
+     * 登壇資料から生成した用語集の名前 (ADR 0021 D-3)。指定すると固有名詞・技術用語の
+     * 訳語が揃う。Amazon Translate は文脈を渡せないので、低遅延経路で資料を効かせる
+     * 手段はこれだけ。
+     *
+     * 存在しない名前を渡すとエラーになるので、用語集が未生成なら undefined のままにする。
+     */
+    private readonly terminologyName?: string,
+  ) {}
 
   async translate(text: string, source: LanguageCode, target: LanguageCode): Promise<string> {
     if (source === target) return text;
@@ -20,6 +30,7 @@ export class AmazonTranslateTranslator implements Translator {
           Text: text,
           SourceLanguageCode: source,
           TargetLanguageCode: target,
+          ...(this.terminologyName ? { TerminologyNames: [this.terminologyName] } : {}),
         }),
       );
       return res.TranslatedText ?? text;

@@ -146,8 +146,25 @@ export class ControlPlaneStack extends Stack {
       tracing: lambda.Tracing.ACTIVE,
       environment: {
         ASSETS_BUCKET: assetsBucket.bucketName,
+        // ADR 0021 D-3: 用語集の言語ペアを引くのにイベントの字幕設定が要る。
+        EVENTS_TABLE: metadataTable.tableName,
+        BEDROCK_MODEL_ID: "us.anthropic.claude-sonnet-4-5-20250929-v1:0",
+        // `us.` 接頭辞の推論プロファイルは US リージョンのクライアントからしか使えない。
+        BEDROCK_REGION: "us-east-1",
       },
     });
+    metadataTable.grantReadData(materialsExtractFn);
+    // ADR 0021 D-3: 用語集の生成 (Bedrock) と登録 (Translate)。
+    materialsExtractFn.addToRolePolicy(
+      new iam.PolicyStatement({
+        actions: [
+          "bedrock:InvokeModel",
+          "translate:ImportTerminology",
+          "translate:DeleteTerminology",
+        ],
+        resources: ["*"],
+      }),
+    );
     // 資料の読み取りと _context.json の読み書き。prefix を絞って他の成果物には触らせない。
     assetsBucket.grantReadWrite(materialsExtractFn, "assets/materials/*");
     // 自分が書いた _context.json でも起動するが、handler 側で弾いている (無限ループ防止)。

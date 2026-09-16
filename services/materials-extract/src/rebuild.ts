@@ -12,7 +12,8 @@ import {
   type MaterialsContext,
 } from "@stagecast/shared";
 import { buildMaterialsContext, type ExtractedMaterial } from "./build-context.js";
-import type { ObjectStore, TextExtractor } from "./types.js";
+import { syncGlossary, terminologyName, type SyncGlossaryDeps } from "./glossary.js";
+import type { CaptionLanguages, ObjectStore, TextExtractor } from "./types.js";
 
 const log = createLogger({ component: "materials-extract" });
 
@@ -20,6 +21,11 @@ export interface RebuildDeps {
   store: ObjectStore;
   extractor: TextExtractor;
   now: () => Date;
+  /**
+   * 低遅延経路 (Amazon Translate) 向けの用語集生成 (ADR 0021 D-3)。
+   * 未指定なら用語集を作らない (品質重視経路の文脈だけが効く)。
+   */
+  glossary?: SyncGlossaryDeps & { languages: CaptionLanguages };
 }
 
 /**
@@ -62,6 +68,9 @@ export async function rebuildEventContext(
   if (extracted.length === 0) {
     // 資料が無い状態で古い _context.json を残すと、消した資料の用語が効き続ける。
     await store.remove(contextKey);
+    if (deps.glossary) {
+      await deps.glossary.terminology.remove(terminologyName(eventId)).catch(() => {});
+    }
     log.info("materials context removed", { eventId });
     return null;
   }
@@ -77,5 +86,18 @@ export async function rebuildEventContext(
     materials: context.materials.length,
     chars: context.fullText.length,
   });
+
+  // 用語集は低遅延経路でしか使わない補助なので、_context.json を書いた後に回す。
+  // ここで失敗しても品質重視経路の文脈は既に届いている。
+  if (deps.glossary) {
+    const { languages, ...glossaryDeps } = deps.glossary;
+    await syncGlossary(
+      eventId,
+      context.fullText,
+      languages.source,
+      languages.targets,
+      glossaryDeps,
+    );
+  }
   return context;
 }

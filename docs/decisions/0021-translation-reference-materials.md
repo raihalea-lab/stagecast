@@ -1,6 +1,6 @@
 # 0021. 登壇資料を翻訳の参考資料として使う
 
-- ステータス: 提案
+- ステータス: 採用 (実装済み。実 AWS 上での検証は未実施)
 - 日付: 2026-09-16
 - 関連: DESIGN.md 5.2 (スライド投影) / 6.2 (字幕の二経路) / F-3 / ADR 0007 (字幕レジリエンス) / ADR 0022 (投影状態)
 - 後方互換: **不要** (既存の `/stage/decks/*` と `assets/decks/` prefix は廃止する)
@@ -155,6 +155,19 @@ Amazon Translate の Custom Terminology に `ImportTerminology` する。
 - 制御層スタックに初めて S3 イベント通知が入る
 - テキストが取れない資料 (画像だけのスライド、アウトライン化された文字) では効かない。
   OCR は範囲外
+
+## 実装メモ
+
+- 抽出は `services/materials-extract` (S3 イベント通知 → `_context.json`)。
+  用語集の生成もここで行う (資料の全文が手元にあるため)
+- 字幕ワーカーは `MaterialsContextStore` で `_context.json` を読み、`LLMEngine` が
+  `LlmAdapter.translate` の第 4 引数として文脈を渡す
+- Bedrock アダプタは文脈を `system` ブロックに置き `cache_control` を付ける。
+  `user` に混ぜると翻訳対象と紛れる
+- 低遅延経路は `AmazonTranslateTranslator` の第 2 引数に用語集名を渡す。
+  `_context.json` が存在するときだけ名前を渡す (存在しない名前はエラーになる)
+- `us.` 接頭辞の推論プロファイルは US リージョンからしか使えないので、抽出 Lambda が
+  ap-northeast-1 でも Bedrock クライアントは `BEDROCK_REGION` (既定 us-east-1) に向ける
 
 ## 段階
 

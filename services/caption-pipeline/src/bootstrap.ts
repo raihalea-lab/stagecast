@@ -136,11 +136,28 @@ export async function realProvidersFromEnv(
   };
   if (config.engine === "transcribe") {
     providers.asr = new TranscribeStreamingAsrAdapter(config.sourceLanguage);
-    providers.translator = new AmazonTranslateTranslator();
+    // ADR 0021 D-3: 低遅延経路は文脈を渡せないので、資料から作った用語集で訳語を揃える。
+    // 用語集が未生成なら存在しない名前になり Translate がエラーを返すため、資料が
+    // 登録されているときだけ名前を渡す。
+    const terminology = env.ASSETS_BUCKET
+      ? await resolveTerminologyName(config.eventId, env.ASSETS_BUCKET)
+      : undefined;
+    providers.translator = new AmazonTranslateTranslator(undefined, terminology);
   } else if (config.engine === "llm") {
     providers.llm = new BedrockLlmAdapter({
       modelId: env.BEDROCK_MODEL_ID ?? "us.anthropic.claude-sonnet-4-5-20250929-v1:0",
     });
+    // ADR 0021 D-3: 品質重視経路は資料の本文をそのまま文脈に載せる。
+    if (env.ASSETS_BUCKET) {
+      const { MaterialsContextStore } = await import("./materials-context.js");
+      const { S3MaterialsContextSource } = await import("./aws/s3-materials-source.js");
+      const store = new MaterialsContextStore({
+        eventId: config.eventId,
+        source: new S3MaterialsContextSource(env.ASSETS_BUCKET),
+      });
+      await store.start();
+      providers.materials = store;
+    }
   }
   if (env.CAPTIONS_BUCKET_NAME) {
     providers.storage = new S3ObjectStorage(env.CAPTIONS_BUCKET_NAME);
@@ -196,4 +213,26 @@ async function audioSourceFromEnv(env: NodeJS.ProcessEnv): Promise<AudioSource |
   if (!env.LIVEKIT_URL) return undefined;
   const { liveKitAudioSourceFromEnv } = await import("./livekit-audio-source.js");
   return liveKitAudioSourceFromEnv(env);
+}
+
+/**
+ * 用語集の名前を返す。資料が 1 件も無ければ undefined (ADR 0021 D-3)。
+ *
+ * 存在しない用語集名を `TranslateText` に渡すとエラーになるので、`_context.json` の
+ * 有無で判定する。抽出 Lambda は資料が無くなると `_context.json` も消す。
+ */
+async function resolveTerminologyName(
+  eventId: string,
+  bucket: string,
+): Promise<string | undefined> {
+  try {
+    const { S3MaterialsContextSource } = await import("./aws/s3-materials-source.js");
+    const { materialsContextKey } = await import("@stagecast/shared");
+    const source = new S3MaterialsContextSource(bucket);
+    const etag = await source.head(materialsContextKey(eventId));
+    return etag ? `stagecast-${eventId}`.replace(/[^\w-]/g, "-") : undefined;
+  } catch {
+    // 判定できなければ用語集なしで続ける (字幕を止めない, N-2)。
+    return undefined;
+  }
 }

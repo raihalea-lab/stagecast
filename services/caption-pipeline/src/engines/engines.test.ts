@@ -117,6 +117,54 @@ describe("LLMEngine (品質重視経路)", () => {
     expect(out.find((c) => c.language === "ja")?.text).toBe("おはよう");
   });
 
+  it("登壇資料と直前の発話を文脈として渡す (ADR 0021 D-3, D-4)", async () => {
+    const seen: (string | undefined)[] = [];
+    const llm: LlmAdapter = {
+      async translate(text, _source, _target, context): Promise<string> {
+        seen.push(context);
+        return `[${text}]`;
+      },
+    };
+    const engine = new LLMEngine(llm, {
+      sourceLanguage: "ja",
+      targetLanguages: ["en"],
+      mode: "translate-only",
+      materials: { current: () => "AgentCore は…" },
+    });
+    engine.onCaption(() => {});
+    await engine.start();
+
+    await engine.pushText({ startMs: 0, endMs: 500, text: "最初の発話", isFinal: true });
+    // 1 回目は直前の発話が無いので資料だけ。
+    expect(seen[0]).toContain("<reference_material>");
+    expect(seen[0]).toContain("AgentCore は…");
+    expect(seen[0]).not.toContain("<recent_speech>");
+
+    await engine.pushText({ startMs: 500, endMs: 900, text: "次の発話", isFinal: true });
+    // 2 回目は確定済みの 1 回目が履歴に入る。自分自身は含まない。
+    expect(seen[1]).toContain("- 最初の発話");
+    expect(seen[1]).not.toContain("- 次の発話");
+  });
+
+  it("資料が無ければ文脈を渡さない", async () => {
+    const seen: (string | undefined)[] = [];
+    const llm: LlmAdapter = {
+      async translate(text, _s, _t, context): Promise<string> {
+        seen.push(context);
+        return text;
+      },
+    };
+    const engine = new LLMEngine(llm, {
+      sourceLanguage: "ja",
+      targetLanguages: ["en"],
+      mode: "translate-only",
+    });
+    engine.onCaption(() => {});
+    await engine.start();
+    await engine.pushText({ startMs: 0, endMs: 100, text: "発話", isFinal: true });
+    expect(seen[0]).toBeUndefined();
+  });
+
   it("翻訳が全リトライ失敗してもソース字幕は流れる (LLM, best-effort)", async () => {
     const brokenLlm: LlmAdapter = {
       async translate(): Promise<string> {
