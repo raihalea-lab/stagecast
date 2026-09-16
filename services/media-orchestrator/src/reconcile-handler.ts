@@ -10,7 +10,7 @@
  * Lambda 内では実 AWS SDK を直接使うが、ロジックは純粋関数 + インターフェース注入で
  * 単体テスト可能にしている (reconcile.ts / fetchDesired / fetchActual)。
  */
-import { createLogger } from "@stagecast/shared";
+import { createLogger, PROVISIONING_ERROR_MAX_LENGTH } from "@stagecast/shared";
 import type { ScheduledEvent, Context } from "aws-lambda";
 import { eventMediaStackName, createAwsMediaStackProvisioner } from "./aws-cfn.js";
 
@@ -408,6 +408,21 @@ async function upsertRoute53ARecord(
  * (`zh-TW`) ので、UUID の形で切り出す。この形に合わないものは stagecast の用語集では
  * ないので触らない (他システムの用語集を消さないための境界)。
  */
+/**
+ * reconcile の失敗を管理画面に出せる 1 行にする (NEXT_WORK D16)。
+ *
+ * 運用者が最初に知りたいのは「何をしようとして落ちたか」なので動作名を前置きする。
+ * スタックトレースは出さない。長い理由は切る (詳細は CloudWatch Logs を見る話になる)。
+ */
+export function describeStepError(action: string, err: unknown): string {
+  const raw = err instanceof Error ? err.message : String(err);
+  const message = raw.trim() || "unknown error";
+  const line = `${action}: ${message}`;
+  return line.length <= PROVISIONING_ERROR_MAX_LENGTH
+    ? line
+    : `${line.slice(0, PROVISIONING_ERROR_MAX_LENGTH - 1)}…`;
+}
+
 export function eventIdFromTerminologyName(name: string): string | undefined {
   const m = /^stagecast-([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})-.+$/.exec(
     name,
@@ -797,12 +812,17 @@ export async function handler(
   }
 
   const plan = planReconcile(desired, actual);
+  // D16: 失敗理由をイベント単位で拾い、下の進捗書き戻しに載せる。ログに出して消えるだけだと
+  // 管理画面は「未作成」としか出ず、障害が無言で進行する。
+  const stepErrors = new Map<string, string>();
   const planResult = await executePlan(plan, d.executor, {
     log: (e) => {
       const id = e.action.type === "provision" ? e.action.spec.eventId : e.action.eventId;
       const fields = { action: e.action.type, eventId: id, status: e.status };
-      if (e.status === "error") log.error("reconcile step", { ...fields, err: e.err });
-      else log.info("reconcile step", fields);
+      if (e.status === "error") {
+        log.error("reconcile step", { ...fields, err: e.err });
+        stepErrors.set(id, describeStepError(e.action.type, e.err));
+      } else log.info("reconcile step", fields);
     },
   });
 
@@ -852,6 +872,8 @@ export async function handler(
       services,
       mediaReady,
       wantTasks,
+      // この tick で失敗していなければ undefined = 直ったら画面からも消える。
+      error: stepErrors.get(d2.eventId),
     };
     const progress = await d.provisioningPublisher.publish(d2.eventId, input);
     if (progress.status === "error") {

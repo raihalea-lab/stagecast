@@ -1165,6 +1165,37 @@ export class ControlPlaneStack extends Stack {
     });
     staleStackAlarm.addAlarmAction(new cwActions.SnsAction(orchestratorAlarmTopic));
 
+    // NEXT_WORK D16: provision/destroy の失敗を通知する。
+    // 2026-09-16 の障害では reconcile が 13 分間毎分失敗していたのに誰にも届かなかった。
+    // 「スタックが立たない」= 配信が始められない、なので最優先で気づきたい。
+    new logs.MetricFilter(this, "ReconcileStepErrorFilter", {
+      logGroup: reconcileLogGroup,
+      metricNamespace: "Stagecast/Orchestrator",
+      metricName: "ReconcileStepErrors",
+      filterPattern: logs.FilterPattern.literal(
+        '{ $.msg = "reconcile step" && $.status = "error" }',
+      ),
+      metricValue: "1",
+    });
+    const stepErrorAlarm = new cloudwatch.Alarm(this, "ReconcileStepErrorAlarm", {
+      alarmName: "stagecast-reconcile-step-error",
+      alarmDescription: "メディアスタックの作成/破棄が連続して失敗 (配信を開始できない, D16)",
+      metric: new cloudwatch.Metric({
+        namespace: "Stagecast/Orchestrator",
+        metricName: "ReconcileStepErrors",
+        statistic: "Sum",
+        period: Duration.minutes(1),
+      }),
+      threshold: 1,
+      // reconcile は 60 秒 tick。単発の失敗は次 tick で回復することが多いので 2 回連続で鳴らす。
+      // 「失敗し続けている」ことが分かれば十分で、瞬間的な失敗で起こされたくない。
+      evaluationPeriods: 2,
+      datapointsToAlarm: 2,
+      comparisonOperator: cloudwatch.ComparisonOperator.GREATER_THAN_OR_EQUAL_TO_THRESHOLD,
+      treatMissingData: cloudwatch.TreatMissingData.NOT_BREACHING,
+    });
+    stepErrorAlarm.addAlarmAction(new cwActions.SnsAction(orchestratorAlarmTopic));
+
     new CfnOutput(this, "ReconcileFunctionName", { value: reconcileFn.functionName });
     new CfnOutput(this, "OrchestratorAlarmTopicArn", { value: orchestratorAlarmTopic.topicArn });
 

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { classifyStackStatus, toDesiredEvent } from "./reconcile-handler.js";
+import { classifyStackStatus, describeStepError, toDesiredEvent } from "./reconcile-handler.js";
 
 describe("toDesiredEvent (gsi-live item → DesiredEvent)", () => {
   it("caption.engine / caption.customApiEnabled / youtube.rtmpUrl / streamKeyRef を正しく取り出す (R12)", () => {
@@ -89,5 +89,27 @@ describe("toDesiredEvent: 字幕オフの配線 (ADR 0017 D-2)", () => {
       true,
     );
     expect(toDesiredEvent({ id: "e1" }).captionEnabled).toBe(true);
+  });
+});
+
+describe("describeStepError (NEXT_WORK D16)", () => {
+  it("何をしようとして落ちたかを前置きする", () => {
+    expect(describeStepError("provision", new Error("render template failed: Unhandled"))).toBe(
+      "provision: render template failed: Unhandled",
+    );
+  });
+
+  it("Error でないものも文字列にする", () => {
+    expect(describeStepError("destroy", "boom")).toBe("destroy: boom");
+  });
+
+  it("メッセージが空でも何か出す (空欄だと故障か不明か区別できない)", () => {
+    expect(describeStepError("provision", new Error("  "))).toBe("provision: unknown error");
+  });
+
+  it("画面に出せる長さに切る", () => {
+    const out = describeStepError("provision", new Error("x".repeat(1000)));
+    expect(out.length).toBe(300);
+    expect(out.endsWith("…")).toBe(true);
   });
 });
