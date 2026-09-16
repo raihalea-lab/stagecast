@@ -2,7 +2,7 @@ import { describe, expect, it, beforeEach } from "vitest";
 import { buildControlApi } from "../factory.js";
 import {
   createAssetUploadService,
-  createDeckUploadService,
+  createMaterialUploadService,
   type AssetUploadSigner,
 } from "./asset-upload.js";
 import type { App, HttpRequest } from "../http/app.js";
@@ -68,25 +68,51 @@ describe("POST /assets/upload-url", () => {
   });
 });
 
-describe("deck upload service (F-3, DESIGN.md 5.2)", () => {
-  it("namespaces the key under decks/{eventId}/ and sanitizes the filename", async () => {
+describe("material upload service (ADR 0021 D-1)", () => {
+  it("assetId と filename を / で分ける (抽出 Lambda が 3 段ちょうどを期待する)", async () => {
     let n = 0;
-    const svc = createDeckUploadService({ signer: new FakeSigner(), newId: () => `id-${++n}` });
+    const svc = createMaterialUploadService({ signer: new FakeSigner(), newId: () => `id-${++n}` });
     const out = await svc.createUploadUrl("evt-1", "my slides (v2).pdf", "application/pdf");
-    expect(out.key).toBe("assets/decks/evt-1/id-1-my_slides__v2_.pdf");
+    expect(out.key).toBe("assets/materials/evt-1/id-1/my_slides__v2_.pdf");
     expect(out.assetId).toBe("id-1");
-    expect(out.uploadUrl).toContain("assets/decks/evt-1/id-1-my_slides__v2_.pdf");
+    expect(out.uploadUrl).toContain("assets/materials/evt-1/id-1/my_slides__v2_.pdf");
   });
 
-  it("rejects non-PDF content types", async () => {
-    const svc = createDeckUploadService({ signer: new FakeSigner(), newId: () => "id" });
+  it("ファイル名の / はサニタイズされ、段数は増えない", async () => {
+    const svc = createMaterialUploadService({ signer: new FakeSigner(), newId: () => "id" });
+    const out = await svc.createUploadUrl("evt-1", "slides/deck.pdf", "application/pdf");
+    expect(out.key).toBe("assets/materials/evt-1/id/slides_deck.pdf");
+    expect(out.key.split("/")).toHaveLength(5);
+  });
+
+  it("PDF 以外の対応形式も受け付ける (PPTX / md / txt)", async () => {
+    const svc = createMaterialUploadService({ signer: new FakeSigner(), newId: () => "id" });
+    const pptx = await svc.createUploadUrl(
+      "evt-1",
+      "slides.pptx",
+      "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+    );
+    expect(pptx.key).toContain("slides.pptx");
+    const md = await svc.createUploadUrl("evt-1", "notes.md", "text/markdown");
+    expect(md.key).toContain("notes.md");
+  });
+
+  it("抽出できない content-type は弾く", async () => {
+    const svc = createMaterialUploadService({ signer: new FakeSigner(), newId: () => "id" });
     await expect(
-      svc.createUploadUrl("evt-1", "slides.pptx", "application/vnd.ms-powerpoint"),
-    ).rejects.toThrow("deck must be application/pdf");
+      svc.createUploadUrl("evt-1", "slides.ppt", "application/vnd.ms-powerpoint"),
+    ).rejects.toThrow("unsupported material content-type");
+  });
+
+  it("拡張子と content-type が食い違うものは弾く (抽出器は拡張子で分岐する)", async () => {
+    const svc = createMaterialUploadService({ signer: new FakeSigner(), newId: () => "id" });
+    await expect(svc.createUploadUrl("evt-1", "slides.pptx", "application/pdf")).rejects.toThrow(
+      "filename extension does not match content-type",
+    );
   });
 });
 
-describe("POST /stage/decks/upload-url", () => {
+describe("POST /stage/materials/upload-url", () => {
   let app: App;
   let counter: number;
 
@@ -143,15 +169,15 @@ describe("POST /stage/decks/upload-url", () => {
     const res = await app.handle(
       req({
         method: "POST",
-        path: "/stage/decks/upload-url",
+        path: "/stage/materials/upload-url",
         body: { inviteToken, filename: "deck.pdf", contentType: "application/pdf" },
       }),
     );
     expect(res.status).toBe(201);
     expect(res.body).toMatchObject({
-      key: expect.stringContaining("assets/decks/"),
+      key: expect.stringContaining("assets/materials/"),
       assetId: expect.any(String),
-      uploadUrl: expect.stringContaining("assets/decks/"),
+      uploadUrl: expect.stringContaining("assets/materials/"),
     });
   });
 
@@ -160,7 +186,7 @@ describe("POST /stage/decks/upload-url", () => {
     const res = await app.handle(
       req({
         method: "POST",
-        path: "/stage/decks/upload-url",
+        path: "/stage/materials/upload-url",
         body: { inviteToken, filename: "deck.pptx", contentType: "application/vnd.ms-powerpoint" },
       }),
     );
@@ -198,7 +224,7 @@ describe("POST /stage/decks/upload-url", () => {
     const res = await app.handle(
       req({
         method: "POST",
-        path: "/stage/decks/upload-url",
+        path: "/stage/materials/upload-url",
         body: { inviteToken, filename: "deck.pdf", contentType: "application/pdf" },
       }),
     );
@@ -206,7 +232,7 @@ describe("POST /stage/decks/upload-url", () => {
   });
 });
 
-describe("POST /stage/decks/download-url", () => {
+describe("POST /stage/materials/download-url", () => {
   let app: App;
   let counter: number;
 
@@ -263,12 +289,12 @@ describe("POST /stage/decks/download-url", () => {
     const res = await app.handle(
       req({
         method: "POST",
-        path: "/stage/decks/download-url",
-        body: { inviteToken: token, assetKey: `assets/decks/${eventId}/id-1-deck.pdf` },
+        path: "/stage/materials/download-url",
+        body: { inviteToken: token, assetKey: `assets/materials/${eventId}/id-1-deck.pdf` },
       }),
     );
     expect(res.status).toBe(200);
-    expect(res.body).toMatchObject({ downloadUrl: expect.stringContaining("assets/decks/") });
+    expect(res.body).toMatchObject({ downloadUrl: expect.stringContaining("assets/materials/") });
   });
 
   it("rejects keys outside the event's deck prefix", async () => {
@@ -276,8 +302,8 @@ describe("POST /stage/decks/download-url", () => {
     const res = await app.handle(
       req({
         method: "POST",
-        path: "/stage/decks/download-url",
-        body: { inviteToken: token, assetKey: "assets/decks/other-event/id-1-deck.pdf" },
+        path: "/stage/materials/download-url",
+        body: { inviteToken: token, assetKey: "assets/materials/other-event/id-1-deck.pdf" },
       }),
     );
     expect(res.status).toBe(404);

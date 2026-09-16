@@ -55,10 +55,10 @@ class FakeStageClient implements StageClient {
     };
   }
   async deletePreset() {}
-  async getDeckUploadUrl() {
+  async getMaterialUploadUrl() {
     return { assetId: "deck-1", key: "assets/decks/evt-1/deck-1.pdf", uploadUrl: "https://put" };
   }
-  async getDeckDownloadUrl() {
+  async getMaterialDownloadUrl() {
     return "https://signed/deck.pdf";
   }
 }
