@@ -679,13 +679,14 @@ devDependencies : "@voidzero-dev/vite-plus-core": "^0.1.24" → 0.1.24 を解決
 
 どちらにせよ **1 を待つのが素直**。上流が alpha 段階なので、揃ってから動く。
 
-### D14. 字幕オフを選べない (`captionEnabled` が未配線 / コスト削減が効いていない) ✅ 対応済み (要デプロイ)
+### D14. 字幕オフを選べない (`captionEnabled` が未配線 / コスト削減が効いていない) ✅ 対応済み (2026-09-16 実機確認)
 
 > **2026-09-16: 対応済み**。`CaptionSettings.enabled` を追加し、`toDesiredEvent` が
 > `captionEnabled` を埋めるようにした。admin-web のイベント作成に「字幕を出す」を追加。
 > オフにすると CaptionWorker の `desiredCount` が 0 になる (受け皿は ADR 0023 D-2 で実装済み)。
 > **未指定は有効扱い**なので既存イベントの字幕は止まらない。
-> 残: デプロイして、字幕オフのイベントで CaptionWorker が起動しないことの実機確認。
+> **実機確認済み (2026-09-16)**: 字幕オフのイベントを配信開始したところ、CaptionWorker は
+> `desired 0 / running 0`、SFU は `desired 1 / running 1` だった。字幕だけが抑止されている。
 
 以下は起票時の記録:
 
