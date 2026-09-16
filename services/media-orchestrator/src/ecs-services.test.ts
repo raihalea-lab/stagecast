@@ -29,7 +29,7 @@ function fakeEcs(
   };
 }
 
-describe("サービス名の解決 (ADR 0015 Phase 3 / ADR 0020 D-2)", () => {
+describe("サービス名の解決 (ADR 0015 Phase 3 / ADR 0023 D-2)", () => {
   it("共有 Cluster では eventId 付きの名前になる", () => {
     expect(clusterName("evt-1", "shared")).toBe("shared");
     expect(sfuServiceName("evt-1", "shared")).toBe("sfu-evt-1");

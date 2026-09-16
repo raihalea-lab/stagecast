@@ -1,8 +1,8 @@
 /**
- * メディア層の起動進捗を判定し、events 行に書き戻す責務 (ADR 0020 D-3)。
+ * メディア層の起動進捗を判定し、events 行に書き戻す責務 (ADR 0023 D-3)。
  *
  * CloudFormation の CREATE_COMPLETE は「配信できる」ことを意味しない。特に Express モード
- * (ADR 0020 D-1) では CFN は設定適用の時点で完了を返すため、ECS タスクはまだ起動途中である。
+ * (ADR 0023 D-1) では CFN は設定適用の時点で完了を返すため、ECS タスクはまだ起動途中である。
  * そこで CFN の状態 + ECS の desired/running + LiveKit URL の確定有無を 1 つの
  * `EventProvisioningInfo` に畳み込み、管理画面が「どこまで進んだか」を出せるようにする。
  *

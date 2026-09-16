@@ -25,7 +25,7 @@ R12-followup-1〜22 で **stage-web から SFU への WebRTC 接続** が完了 
 
 ### 🔥 すぐやる (1〜3 日以内)
 
-> 🟢 **2026-09-15 追記: ADR 0020 (CloudFormation Express モード + 起動進捗の可視化) を実装**。
+> 🟢 **2026-09-15 追記: ADR 0023 (CloudFormation Express モード + 起動進捗の可視化) を実装**。
 > スタック作成を Express 化し、CaptionWorker の service 名不一致で pending→live のタスク
 > 引き上げが起きていなかったバグを修正、管理画面に「配信インフラ」カードを追加した。
 > **実機確認が残作業**: ①スタック作成時間が実際に短縮されるか (CloudFormation コンソールで
@@ -33,7 +33,7 @@ R12-followup-1〜22 で **stage-web から SFU への WebRTC 接続** が完了 
 > `creating → starting → ready` と進むか。
 > あわせて **`DesiredEvent.captionEnabled` が未配線**のまま残っている (ADR 0017 で型に
 > 足されたきり `toDesiredEvent` が埋めておらず、`CaptionSettings` にも字幕オフの項目が無い)。
-> ADR 0020 D-2 で「目標 0 なら引き上げない」形は入れたので、字幕オフを選べるようにすれば
+> ADR 0023 D-2 で「目標 0 なら引き上げない」形は入れたので、字幕オフを選べるようにすれば
 > ADR 0017 D-2 のコスト削減 (-35%) が実際に効くようになる。
 
 > 🔴 **2026-09-15 追記: F-3 (スライド投影, #211 マージ済み) は実機未確認**。

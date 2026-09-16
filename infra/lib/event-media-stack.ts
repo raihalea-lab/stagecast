@@ -38,7 +38,7 @@ export const LIVEKIT_PORTS = {
 export const SFU_SERVICE_NAME = "sfu";
 
 /**
- * CaptionWorker の ECS service 名 (ADR 0020 D-2)。
+ * CaptionWorker の ECS service 名 (ADR 0023 D-2)。
  * reconcile が `ecs:DescribeServices` / `ecs:UpdateService` で名指しするため、
  * CloudFormation の自動生成名ではなく規約名を明示する。
  */
@@ -508,7 +508,7 @@ export class EventMediaStack extends Stack {
       images.captionWorker ?? "public.ecr.aws/docker/library/node:24-alpine",
       {
         taskRole: captionTaskRole,
-        // ADR 0020 D-2: 名前が自動生成だと reconcile が DescribeServices で引けず、
+        // ADR 0023 D-2: 名前が自動生成だと reconcile が DescribeServices で引けず、
         // pending (desiredCount=0) から live への引き上げが永久に起きなかった。
         serviceName: captionWorkerServiceName,
         desiredCount: props.captionDesiredCount ?? props.desiredCount,
@@ -767,7 +767,7 @@ export class EventMediaStack extends Stack {
     new CfnOutput(this, "CaptionWorkerServiceName", {
       value: captionWorkerServiceName,
       description:
-        "reconcile Lambda が ecs:UpdateService で引き上げる CaptionWorker service 名 (ADR 0020 D-2)",
+        "reconcile Lambda が ecs:UpdateService で引き上げる CaptionWorker service 名 (ADR 0023 D-2)",
     });
     new CfnOutput(this, "AlarmTopicArn", { value: alarmTopic.topicArn });
     new CfnOutput(this, "DashboardName", {

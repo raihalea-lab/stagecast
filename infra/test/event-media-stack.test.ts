@@ -210,7 +210,7 @@ describe("EventMediaStack (DESIGN.md 7.1/7.3, N-5)", () => {
   });
 });
 
-describe("EventMediaStack の ECS service 名 (ADR 0020 D-2)", () => {
+describe("EventMediaStack の ECS service 名 (ADR 0023 D-2)", () => {
   /** reconcile が DescribeServices/UpdateService で名指しするので、規約名を固定する。 */
   function synthShared(): Template {
     const app = new App();
