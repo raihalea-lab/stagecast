@@ -172,10 +172,17 @@ export function createEventService(deps: {
       deps.onGoLive?.(eventId).catch(() => {});
     }
     // 終了したら翻訳参考資料を消す。用語集と同じタイミングで揃える。
-    // 失敗しても配信終了そのものは成功させる (ここで失敗を返すと、状態は ended なのに
-    // 呼び出し側にはエラーが見える)。取り残した資料はイベント削除でも回収できる。
+    //
+    // **await すること**。投げっぱなしにすると Lambda が応答を返した時点で実行環境を凍結し、
+    // S3 の削除が完走しない (実機で踏んだ: 状態は ended になるのに資料が残る)。
+    // 失敗しても配信終了そのものは成功させる。ここでエラーを返すと、状態は ended なのに
+    // 呼び出し側には失敗に見える。取り残した資料はイベント削除でも回収できる。
     if (status === "ended") {
-      deps.cleanupMaterials?.(eventId).catch(() => {});
+      try {
+        await deps.cleanupMaterials?.(eventId);
+      } catch {
+        // 握り潰す理由は上のコメントのとおり。
+      }
     }
     // ADR 0015 Phase 4: scheduled 遷移時にウォームアップスケジュールを作成。
     // scheduled 以外への遷移時はスケジュールを削除。

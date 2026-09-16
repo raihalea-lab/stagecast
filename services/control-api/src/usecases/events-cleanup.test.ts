@@ -38,8 +38,8 @@ describe("イベント終了時の翻訳参考資料の削除", () => {
     const e = await newEvent(events);
     await events.setStatus(e.id, "live");
     await events.setStatus(e.id, "ended");
-    // 投げっぱなしなので 1 tick 待つ。
-    await new Promise((r) => setImmediate(r));
+    // **await せずに投げっぱなしにすると Lambda が凍結して削除が完走しない**。
+    // ここで待たずに検証することで、その退行を捕まえる。
     expect(cleanedMaterials).toEqual([e.id]);
   });
 
@@ -47,7 +47,6 @@ describe("イベント終了時の翻訳参考資料の削除", () => {
     const { events, cleanedMaterials } = build();
     const e = await newEvent(events);
     await events.setStatus(e.id, "live");
-    await new Promise((r) => setImmediate(r));
     expect(cleanedMaterials).toEqual([]);
   });
 
@@ -56,7 +55,6 @@ describe("イベント終了時の翻訳参考資料の削除", () => {
     const e = await newEvent(events);
     await events.setStatus(e.id, "live");
     await events.setStatus(e.id, "ended");
-    await new Promise((r) => setImmediate(r));
     expect(cleanedStorage).toEqual([]);
   });
 
@@ -65,5 +63,41 @@ describe("イベント終了時の翻訳参考資料の削除", () => {
     const e = await newEvent(events);
     await events.remove(e.id);
     expect(cleanedStorage).toEqual([e.id]);
+  });
+});
+
+describe("削除の完了を待つこと (Lambda の凍結対策)", () => {
+  // 投げっぱなしにすると Lambda が応答を返した時点で実行環境を凍結し、S3 の削除が
+  // 完走しない。実機でこれを踏んだ (状態は ended になるのに資料が残った)。
+  it("削除に時間がかかっても setStatus はその完了後に返る", async () => {
+    let done = false;
+    const events = createEventService({
+      repo: new MemoryEventRepository(),
+      newId: () => "evt-slow",
+      now: () => 1_000_000,
+      cleanupMaterials: async () => {
+        await new Promise((r) => setTimeout(r, 20));
+        done = true;
+      },
+    });
+    const e = await newEvent(events);
+    await events.setStatus(e.id, "live");
+    await events.setStatus(e.id, "ended");
+    expect(done).toBe(true);
+  });
+
+  it("削除が失敗しても配信終了は成功する", async () => {
+    const events = createEventService({
+      repo: new MemoryEventRepository(),
+      newId: () => "evt-fail",
+      now: () => 1_000_000,
+      cleanupMaterials: async () => {
+        throw new Error("S3 down");
+      },
+    });
+    const e = await newEvent(events);
+    await events.setStatus(e.id, "live");
+    const ended = await events.setStatus(e.id, "ended");
+    expect(ended.status).toBe("ended");
   });
 });
