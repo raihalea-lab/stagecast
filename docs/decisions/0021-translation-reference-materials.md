@@ -28,8 +28,8 @@
   (`http-asset-service.ts` → `POST /assets/upload-url`)。`AssetMetadata` 型も既存
 - `SharedCaptionTaskRole` の権限は Transcribe / Translate / Bedrock のみ。S3 は無い
 - 制御層の Lambda はすべて `NodejsFunction` (esbuild) で、ネイティブ依存はゼロ
-- `pdfjs-dist` の `getTextContent()` は Node で canvas 無しに動く (ラスタライズと違い
-  ネイティブ依存が要らない)。**要スパイク確認** (下記)
+- `pdfjs-dist` の `getTextContent()` は Node で canvas 無しに動く。**スパイク実施済み**
+  (2026-09-16, 下記「スパイク結果」)
 
 ## 決定
 
@@ -53,6 +53,11 @@ S3 イベント通知 (`OBJECT_CREATED` / `OBJECT_REMOVED`) を張る。制御�
 
 - 形式: **PDF** (`pdfjs-dist` の `getTextContent`) を最初に対応。PPTX (zip 内の
   `ppt/slides/*.xml` から `<a:t>`) と md / txt は形式の追加として後続
+- **`pdfjs-dist/legacy/build/pdf.mjs` を使う。** 通常ビルドは Node で
+  `hashOriginal.toHex is not a function` で落ちる (pdf.js 自身が「Node では legacy を使え」と
+  警告を出す)。esbuild のバンドル対象もこちらに向ける
+- `@napi-rs/canvas` は `optionalDependencies` なので、インストール時に除外すればバンドルに
+  入らない。テキスト抽出では参照されない
 - 出力: `assets/materials/{eventId}/_context.json`
   ```
   { version, updatedAt,
@@ -155,15 +160,36 @@ Amazon Translate の Custom Terminology に `ImportTerminology` する。
 
 Phase 1 は既定の `transcribe` イベントには効かない。Phase 2 で両経路に揃う。
 
-## 実装前に確認すること (スパイク)
+## スパイク結果 (2026-09-16, Node 24.14.1 / darwin arm64 / pdfjs-dist 6.3.289)
 
-1. `pdfjs-dist` の `getTextContent()` が Lambda (Node 24, arm64, canvas 無し) で動くか。
-   `docswell-5QR21Y.pdf` で 1 時間程度のスパイク
-2. `TranslateText` に `TerminologyNames` を渡すときの IAM 要件 (`translate:GetTerminology` が
+`docswell-5QR21Y.pdf` (13 ページ, 2.5MB, 日本語, フォント埋め込み済み) で実測:
+
+| 項目 | 結果 |
+| --- | --- |
+| テキスト抽出 | **成功**。日本語が文字化けせず取れた |
+| 所要時間 | 91ms (13 ページ全体, 読み込み 33ms 含む) |
+| RSS | 136MB |
+| 抽出文字数 | 3,345 字 (13 ページ合計) |
+| canvas | **不要**。参照されない |
+| CMap | **不要**。有り/無しで出力は同一 (3,345 字で一致) |
+
+- ビルドは `legacy` を使うこと (上記 D-2)
+- 3,345 字は D-2 の上限 (1 資料 30,000 字) に対して十分小さい。通常のスライドなら上限に
+  当たらない
+- 実行時間から、Lambda のメモリは 512MB〜1024MB で足りる見込み (実 Lambda での確認は
+  実装時に行う)
+- CMap を同梱しないことにする。必要になる PDF (ToUnicode を持たない CID フォント) が
+  現れたら追加する
+
+スパイクのスクリプト: `docs/spikes/pdf-text-extract.mjs`
+
+## 実装前に確認すること
+
+1. `TranslateText` に `TerminologyNames` を渡すときの IAM 要件 (`translate:GetTerminology` が
    要るか)
-3. Bedrock prompt caching の最小トークン数と TTL (Sonnet 4.5)
-4. `ImportTerminology` の反映遅延と、アカウントあたりの用語集数の上限
-5. テストは外部接続なしで完結させる (CLAUDE.md テスト方針)。S3・Bedrock・Translate は
+2. Bedrock prompt caching の最小トークン数と TTL (Sonnet 4.5)
+3. `ImportTerminology` の反映遅延と、アカウントあたりの用語集数の上限
+4. テストは外部接続なしで完結させる (CLAUDE.md テスト方針)。S3・Bedrock・Translate は
    インターフェース + fake
 
 ## 範囲外
