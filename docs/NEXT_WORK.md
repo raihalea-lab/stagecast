@@ -646,3 +646,33 @@ D / L / N は R を進めながら **思い出した時に PR を切る** のが
 
 どちらにせよ、**ローカルと CI で解決される Node が違う**のは他の依存でも同じ問題を起こすので、
 一度決めておきたい。jsdom 30 への更新はこれが片付いてから。
+
+### D13. vite-plus 0.3 系に上げられない (dependabot #199)
+
+**結論: 現時点では上げられない。0.1.24 のまま据え置く。**
+
+試した結果と理由:
+
+- `@voidzero-dev/vite-plus-core` と `vite-plus` (CLI) の最新は **0.3.2**
+- しかし **`@voidzero-dev/vite-plus-test` は 0.1.24 が最新**で、0.3.x が存在しない
+  (`dist-tags`: `latest: 0.1.24`)。core/CLI と test でリリース系統が分かれている
+- core/CLI だけ 0.3.2 に上げると、**`@voidzero-dev/vite-plus-darwin-arm64@0.3.2` が
+  インストールされず** `Cannot find native binding` でビルドが落ちる
+
+**現状すでにバージョンが割れている点に注意**:
+
+```
+overrides.vite  : npm:@voidzero-dev/vite-plus-core@latest  → 0.3.2 を解決
+devDependencies : "@voidzero-dev/vite-plus-core": "^0.1.24" → 0.1.24 を解決
+```
+
+`pnpm-lock.yaml` に 0.1.24 と 0.3.2 の両方が現れる。実際に `vp` が動くのは 0.1.24 側で、
+0.3.2 は一部の peer 解決にしか使われていない。**動いてはいるが気持ちの悪い状態**。
+
+対応の選択肢:
+
+1. `vite-plus-test` に 0.3.x が出るのを待ち、3 つまとめて上げる (推奨)
+2. `overrides` の `@latest` を `^0.1.24` に固定し、割れている状態を解消する
+   (ただし CLAUDE.md で「触らない方が良いもの」に指定されている箇所)
+
+どちらにせよ **1 を待つのが素直**。上流が alpha 段階なので、揃ってから動く。
