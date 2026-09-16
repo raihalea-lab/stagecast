@@ -60,12 +60,20 @@ export type SlideUpdate = Pick<
  *
  * `undefined` のフィールドは**消す**。投影解除 (`setSlide(eventId, undefined)`) で
  * デッキが残ると、解除したはずの PDF を後から入ったクライアントが読んでしまう。
+ *
+ * 古い更新は捨てる (ADR 0022 D-2)。モデレーターと登壇者が同時にめくると書き込みが
+ * 前後しうるので、最後に書いた方ではなく**新しい方**を残す。
+ * 戻り値は反映したかどうか。
  */
-export function applySlide(state: PresentationState, slide: SlideUpdate): void {
+export function applySlide(state: PresentationState, slide: SlideUpdate): boolean {
+  const prev = state.slideUpdatedAtMs;
+  const next = slide.slideUpdatedAtMs;
+  if (prev !== undefined && next !== undefined && next < prev) return false;
   state.slideSource = slide.slideSource;
   state.slidePage = slide.slidePage;
   state.deck = slide.deck;
-  state.slideUpdatedAtMs = slide.slideUpdatedAtMs;
+  state.slideUpdatedAtMs = next;
+  return true;
 }
 
 export interface PresentationRepository {

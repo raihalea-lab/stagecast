@@ -256,6 +256,71 @@ describe("control-api integration (in-memory)", () => {
     expect(cleared.body).toMatchObject({ slideSource: undefined, deck: undefined });
   });
 
+  it("デッキ URL は moderator にだけ出す (資料ダウンロードの制限を迂回させない)", async () => {
+    const eventId = await createEvent(app);
+    const inviteFor = async (role: "moderator" | "speaker") => {
+      const res = await app.handle(
+        req({
+          method: "POST",
+          path: `/events/${eventId}/invites`,
+          headers: adminAuth,
+          body: { role, ttlSec: 3600 },
+        }),
+      );
+      return (res.body as { token: string }).token;
+    };
+    const moderator = await inviteFor("moderator");
+    const speaker = await inviteFor("speaker");
+    await app.handle(
+      req({
+        method: "POST",
+        path: "/stage/presentation/slide",
+        body: {
+          inviteToken: moderator,
+          slideSource: "uploaded",
+          slidePage: 1,
+          deck: { assetId: "a-1", filename: "deck.pdf", pageCount: 3 },
+        },
+      }),
+    );
+
+    const asSpeaker = await app.handle(
+      req({ method: "POST", path: "/stage/presentation/state", body: { inviteToken: speaker } }),
+    );
+    // ページを送るのに必要な情報は渡すが、PDF そのものには手が届かない。
+    expect(asSpeaker.body).toMatchObject({ slidePage: 1, deck: { pageCount: 3 } });
+    expect((asSpeaker.body as { deckUrl?: string }).deckUrl).toBeUndefined();
+  });
+
+  it("古いページ送りは捨てる (ADR 0022 D-2)", async () => {
+    // 同一イベントに 2 人が同時にめくると書き込みが前後しうる。now() は
+    // テストの固定時刻なので、repo を直接叩いて前後関係だけを検証する。
+    const { MemoryPresentationRepository } = await import("./repo/memory.js");
+    const repo = new MemoryPresentationRepository();
+    const deck = { assetId: "a", filename: "d.pdf", pageCount: 9 };
+    await repo.setSlide("e1", {
+      slideSource: "uploaded",
+      slidePage: 5,
+      deck,
+      slideUpdatedAtMs: 2000,
+    });
+    const stale = await repo.setSlide("e1", {
+      slideSource: "uploaded",
+      slidePage: 2,
+      deck,
+      slideUpdatedAtMs: 1000,
+    });
+    expect(stale.slidePage).toBe(5);
+
+    const fresh = await repo.setSlide("e1", {
+      slideSource: "uploaded",
+      slidePage: 6,
+      deck,
+      slideUpdatedAtMs: 3000,
+    });
+    expect(fresh.slidePage).toBe(6);
+  });
+
   it("投影状態の入力検証 (ADR 0022 D-1)", async () => {
     const eventId = await createEvent(app);
     const issued = await app.handle(

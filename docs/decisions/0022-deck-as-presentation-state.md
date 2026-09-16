@@ -121,6 +121,13 @@ ADR 0021 の翻訳は資料全体を文脈にするので投影状態に依存�
 - **D-1**: `POST /stage/presentation/state` (取得) と `POST /stage/presentation/slide` (更新) を
   招待トークン経路に公開。取得は speaker にも許す (自分がめくるのに現在ページが要る)。
   更新は moderator と speaker の両方 (PR #218 の「登壇者もめくれる」を残す)
+- **D-1**: ただし**デッキの署名付き URL は moderator にだけ返す**。
+  `/stage/materials/download-url` が moderator 限定なので、ここで speaker に渡すと
+  その制限を迂回できてしまう。speaker がページを送るのに要るのは `deck.pageCount` と
+  `slidePage` だけで、**stage-web は PDF を描画しない** (pdf.js はアップロード時の
+  ページ数カウントにしか使っていない)
+- **D-2**: `applySlide` が `slideUpdatedAtMs` の古い更新を捨てる。モデレーターと登壇者が
+  同時にめくると書き込みが前後しうるので、最後に書いた方ではなく新しい方を残す
 - **D-2**: stage-web がデッキ投入・ページ送り・投影解除をサーバーへ書く。DataChannel の通知を
   先に出し、永続化は待たない
 - **D-1**: stage-web が**入室時に状態を読んで復元する**。これにより

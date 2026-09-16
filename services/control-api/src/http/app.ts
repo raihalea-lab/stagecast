@@ -117,11 +117,17 @@ export function createApp(deps: AppDeps) {
    *
    * 署名は失効するので**保存しない**。読むたびに発行する。これにより
    * 「10 分ごとに配り直して署名を更新する」回避策が要らなくなる。
+   *
+   * URL を添えるのは moderator だけ。`/stage/materials/download-url` が moderator 限定なので、
+   * ここで speaker にも渡すとその制限を迂回できてしまう。speaker がページを送るのに要るのは
+   * `deck.pageCount` と `slidePage` だけで、stage-web は PDF を描画しない
+   * (pdf.js はアップロード時のページ数カウントにしか使っていない)。
    */
   async function withDeckUrl(
     state: PresentationState,
+    includeUrl: boolean,
   ): Promise<PresentationState & { deckUrl?: string }> {
-    if (!state.deck || !deps.artifactStore) return state;
+    if (!includeUrl || !state.deck || !deps.artifactStore) return state;
     const key = materialKey(state.eventId, state.deck.assetId, state.deck.filename);
     try {
       return { ...state, deckUrl: await deps.artifactStore.presignGet(key) };
@@ -237,8 +243,9 @@ export function createApp(deps: AppDeps) {
       const eventId = verified.eventId;
 
       // 取得は speaker にも許す。自分がめくるために現在ページを知る必要がある (ADR 0022 D-1)。
+      const isModerator = verified.role === "moderator";
       if (req.method === "POST" && segments[2] === "state") {
-        return json(200, await withDeckUrl(await presentation.getState(eventId)));
+        return json(200, await withDeckUrl(await presentation.getState(eventId), isModerator));
       }
       // 更新は moderator と speaker の両方。PR #218 で登壇者もめくれるようにした。
       if (req.method === "POST" && segments[2] === "slide") {
@@ -251,7 +258,7 @@ export function createApp(deps: AppDeps) {
           body.slidePage as number | undefined,
           body.deck,
         );
-        return json(200, await withDeckUrl(next));
+        return json(200, await withDeckUrl(next, isModerator));
       }
     }
 
