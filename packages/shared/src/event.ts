@@ -115,9 +115,20 @@ export interface EventProvisioningInfo {
   services: EcsServiceStatus[];
   /** LiveKit URL が確定済みか (= `media` フィールドが埋まっているか)。 */
   mediaReady: boolean;
+  /**
+   * 直近の provision/destroy が失敗した理由 (NEXT_WORK D16)。
+   *
+   * これが無いと、reconcile が毎分失敗していても管理画面は「未作成」としか出ず、
+   * **配信を始められない障害が無言で進行する** (2026-09-16 に 13 分間そうなった)。
+   * 成功したら消す。運用者が読む文字列なので、そのまま画面に出せる長さに切っておく。
+   */
+  error?: string;
   /** この観測を書き込んだエポックミリ秒。 */
   observedAtMs: number;
 }
+
+/** 管理画面に出す失敗理由の最大長 (これ以上は診断ログを見る話になる)。 */
+export const PROVISIONING_ERROR_MAX_LENGTH = 300;
 
 /** イベント定義 (DESIGN.md 8 章)。 */
 export interface EventDefinition {
