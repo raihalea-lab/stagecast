@@ -1,8 +1,8 @@
 /**
- * EventMediaStack の ECS サービス観測とスケールアップ (ADR 0016 D-6, ADR 0020 D-2)。
+ * EventMediaStack の ECS サービス観測とスケールアップ (ADR 0016 D-6, ADR 0023 D-2)。
  *
  * reconcile が 60s tick ごとに
- *   1. サービスの desired/running を読む (管理画面に出す進捗, ADR 0020 D-3)
+ *   1. サービスの desired/running を読む (管理画面に出す進捗, ADR 0023 D-3)
  *   2. pending (desiredCount=0) で作られたサービスを live 遷移後に 1 へ引き上げる
  * を行う。AWS SDK には直接依存せず `EcsLike` に抽象化し、テストは fake を注入する。
  */

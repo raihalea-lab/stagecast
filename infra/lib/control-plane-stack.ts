@@ -862,7 +862,7 @@ export class ControlPlaneStack extends Stack {
         target: "node24",
         minify: true,
         format: lambdaNodejs.OutputFormat.ESM,
-        // ADR 0020 D-1: client-cloudformation だけは **バンドルする**。Express モードの
+        // ADR 0023 D-1: client-cloudformation だけは **バンドルする**。Express モードの
         // DeploymentConfig は新しい SDK にしか無く、Lambda 同梱版が古いとパラメータが
         // 黙って落ちて「速くならないが成功する」状態になるため、バージョンを固定する。
         // 他の SDK クライアントは従来どおりランタイム同梱を使い、バンドルを小さく保つ。
@@ -889,7 +889,7 @@ export class ControlPlaneStack extends Stack {
         RENDER_TEMPLATE_FUNCTION_NAME: renderTemplateFn.functionName,
         // ADR 0008 D-6: 並列イベント数の soft cap (コスト暴走防止)。
         MAX_PARALLEL_EVENTS: "10",
-        // ADR 0020 D-1: CloudFormation Express モードで EventMediaStack の作成を短縮する。
+        // ADR 0023 D-1: CloudFormation Express モードで EventMediaStack の作成を短縮する。
         // 事故時は "false" にすると従来の STANDARD デプロイに戻る。
         CFN_EXPRESS_MODE: "true",
         // ADR 0015 Phase 3: 共有 Cluster 名を reconcile に渡す (サービス名解決に使う)。

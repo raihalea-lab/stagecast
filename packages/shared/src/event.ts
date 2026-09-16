@@ -64,9 +64,9 @@ export interface EventMediaInfo {
 }
 
 /**
- * EventMediaStack のプロビジョニング進捗 (ADR 0020 D-3)。
+ * EventMediaStack のプロビジョニング進捗 (ADR 0023 D-3)。
  *
- * CloudFormation の完了 = 配信可能ではない。特に Express モード (ADR 0020 D-1) では
+ * CloudFormation の完了 = 配信可能ではない。特に Express モード (ADR 0023 D-1) では
  * CFN は「設定を適用した時点」で CREATE_COMPLETE を返し、ECS タスクはまだ起動途中である。
  * 管理画面が「どこまで進んだか」を出せるよう、reconcile が毎 tick この観測結果を書き戻す。
  */
@@ -97,7 +97,7 @@ export interface EcsServiceStatus {
 }
 
 /**
- * 管理画面に出すプロビジョニング状況 (ADR 0020 D-3)。reconcile Lambda が書き、
+ * 管理画面に出すプロビジョニング状況 (ADR 0023 D-3)。reconcile Lambda が書き、
  * control-api の GET /events/:id がそのまま返す。
  */
 export interface EventProvisioningInfo {
@@ -137,7 +137,7 @@ export interface EventDefinition {
    */
   media?: EventMediaInfo;
   /**
-   * メディア層の起動進捗 (ADR 0020 D-3)。reconcile が毎 tick 書き戻す観測値で、
+   * メディア層の起動進捗 (ADR 0023 D-3)。reconcile が毎 tick 書き戻す観測値で、
    * 管理画面の「配信インフラ」カードがこれを表示する。
    */
   provisioning?: EventProvisioningInfo;

@@ -104,9 +104,9 @@ const PHASE_HINT: Record<ProvisioningPhase, string> = {
 };
 
 /**
- * メディア層の起動進捗カード (ADR 0020 D-3)。
+ * メディア層の起動進捗カード (ADR 0023 D-3)。
  *
- * CloudFormation Express モード (ADR 0020 D-1) では CREATE_COMPLETE が「タスクが動いている」
+ * CloudFormation Express モード (ADR 0023 D-1) では CREATE_COMPLETE が「タスクが動いている」
  * ことを意味しないため、スタックの状態と ECS タスクの running 数を分けて出す。
  * 進行中のあいだだけポーリングし、準備完了になったら止める。
  */

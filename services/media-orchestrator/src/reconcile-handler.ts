@@ -62,9 +62,9 @@ interface HandlerDeps {
   fetchActual: () => Promise<ActualStack[]>;
   executor: ReconcileExecutor;
   mediaPublisher: ReturnType<typeof createMediaPublisher>;
-  /** ADR 0020 D-3: 起動進捗を events 行に書き戻す。 */
+  /** ADR 0023 D-3: 起動進捗を events 行に書き戻す。 */
   provisioningPublisher: ReturnType<typeof createProvisioningPublisher>;
-  /** ADR 0016 D-6 / ADR 0020 D-2: ECS サービスの観測とスケールアップ。 */
+  /** ADR 0016 D-6 / ADR 0023 D-2: ECS サービスの観測とスケールアップ。 */
   ecs: EcsLike;
   maxParallel: number;
 }
@@ -193,7 +193,7 @@ async function deps(): Promise<HandlerDeps> {
   };
   const mediaPublisher = createMediaPublisher({ resolver, store });
 
-  // ADR 0020 D-3: 起動進捗 (events.provisioning) の読み書き。
+  // ADR 0023 D-3: 起動進捗 (events.provisioning) の読み書き。
   const provisioningStore: ProvisioningStore = {
     get: async (eventId) => {
       const res = await dynamo.send(
@@ -232,7 +232,7 @@ async function deps(): Promise<HandlerDeps> {
   };
   const provisioningPublisher = createProvisioningPublisher({ store: provisioningStore });
 
-  // ADR 0016 D-6 / ADR 0020 D-2: ECS サービスの desired/running 観測とスケールアップ。
+  // ADR 0016 D-6 / ADR 0023 D-2: ECS サービスの desired/running 観測とスケールアップ。
   const { DescribeServicesCommand, UpdateServiceCommand } = await import("@aws-sdk/client-ecs");
   const ecsLike: EcsLike = {
     describeServices: async (cluster, services) => {
@@ -471,7 +471,7 @@ function makeExecutor(): ReconcileExecutor {
         maxPolls: 1,
         // CFN にリソース作成権限を委譲する実行ロール (R5, ADR 0005 D-5)。
         roleArn: process.env.CFN_EXEC_ROLE_ARN,
-        // ADR 0020 D-1: CloudFormation Express モードでスタック作成を短縮する。
+        // ADR 0023 D-1: CloudFormation Express モードでスタック作成を短縮する。
         // 事故時の退避用に CFN_EXPRESS_MODE=false で従来の STANDARD に戻せる。
         expressMode,
         // Express を要求したのに STANDARD で返ってきたら、パラメータが黙って落ちている
@@ -538,7 +538,7 @@ function isWarmupEvent(event: unknown): event is WarmupEvent {
 
 /**
  * 1 イベント分の ECS サービスを観測し、必要ならスケールアップする
- * (ADR 0016 D-6 / ADR 0020 D-2)。
+ * (ADR 0016 D-6 / ADR 0023 D-2)。
  *
  * `scaleUp=true` (= live/warmup) のとき、pending で `desiredCount=0` のまま作られた
  * サービスを 1 に引き上げる。スタックが CREATE_IN_PROGRESS でも Express モードでは
@@ -651,9 +651,9 @@ export async function handler(
   });
 
   // 1 イベントずつ「ECS 観測 → スケールアップ → media 確定 → 進捗の書き戻し」を回す。
-  //  - ADR 0016 D-6 / ADR 0020 D-2: pending で作った desiredCount=0 を live 遷移後に 1 へ。
+  //  - ADR 0016 D-6 / ADR 0023 D-2: pending で作った desiredCount=0 を live 遷移後に 1 へ。
   //  - ADR 0008 D-2: task の Public IP から livekitUrl を確定させる。
-  //  - ADR 0020 D-3: 上記の観測結果を events.provisioning に書き戻し、管理画面に出す。
+  //  - ADR 0023 D-3: 上記の観測結果を events.provisioning に書き戻し、管理画面に出す。
   const actualById = new Map(actual.map((a) => [a.eventId, a]));
   let mediaUpdated = 0;
   for (const d2 of desired) {
@@ -706,7 +706,7 @@ export async function handler(
   }
 
   // ADR 0008 D-2: desired に無いのにスタックがあった (= destroy 対象) なら media をクリア。
-  // ADR 0020 D-3: 進捗表示も同時に畳む (管理画面に「破棄中」を出してからクリアする)。
+  // ADR 0023 D-3: 進捗表示も同時に畳む (管理画面に「破棄中」を出してからクリアする)。
   const desiredIds = new Set(desired.map((e) => e.eventId));
   for (const a of actual) {
     if (desiredIds.has(a.eventId)) continue;

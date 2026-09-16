@@ -35,7 +35,7 @@ export type ActualStackKind = "running" | "in_progress" | "failed" | "deleting";
 export interface ActualStack {
   eventId: string;
   kind: ActualStackKind;
-  /** CloudFormation の生ステータス (`CREATE_IN_PROGRESS` 等)。管理画面の診断表示に出す (ADR 0020 D-3)。 */
+  /** CloudFormation の生ステータス (`CREATE_IN_PROGRESS` 等)。管理画面の診断表示に出す (ADR 0023 D-3)。 */
   status?: string;
   /** スタック作成からの経過時間 (ms)。観測できないなら未設定。stale 検知に使う (L3)。 */
   ageMs?: number;

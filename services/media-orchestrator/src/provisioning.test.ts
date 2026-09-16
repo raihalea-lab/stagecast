@@ -18,7 +18,7 @@ function input(over: Partial<ProvisioningInput> = {}): ProvisioningInput {
   return { services: running(1, 1), mediaReady: true, wantTasks: true, ...over };
 }
 
-describe("computePhase (ADR 0020 D-3)", () => {
+describe("computePhase (ADR 0023 D-3)", () => {
   it("スタックが無ければ none", () => {
     expect(computePhase(input({ stack: undefined }))).toBe("none");
   });

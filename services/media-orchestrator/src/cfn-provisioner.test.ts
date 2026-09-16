@@ -15,7 +15,7 @@ const stackName = (eventId: string) => `StagecastEventMedia-${eventId}`;
 class FakeCfn implements CloudFormationLike {
   readonly created: string[] = [];
   readonly deleted: string[] = [];
-  /** createStack に渡された DeploymentMode (ADR 0020 D-1)。 */
+  /** createStack に渡された DeploymentMode (ADR 0023 D-1)。 */
   readonly createModes: (string | undefined)[] = [];
   constructor(private readonly describe: () => DescribeResult) {}
   async createStack(input: {
@@ -187,7 +187,7 @@ describe("CloudFormationMediaStackProvisioner (DESIGN.md 7.1)", () => {
   });
 });
 
-describe("Express モード (ADR 0020 D-1)", () => {
+describe("Express モード (ADR 0023 D-1)", () => {
   const completed = (): DescribeResult => ({ Stacks: [{ StackStatus: "CREATE_COMPLETE" }] });
 
   it("expressMode=true のとき createStack に EXPRESS を渡す", async () => {

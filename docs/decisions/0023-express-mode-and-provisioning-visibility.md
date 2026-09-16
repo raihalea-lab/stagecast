@@ -1,4 +1,4 @@
-# ADR 0020: CloudFormation Express モード + 起動進捗の可視化
+# ADR 0023: CloudFormation Express モード + 起動進捗の可視化
 
 - **ステータス**: Accepted
 - **日付**: 2026-09-15
