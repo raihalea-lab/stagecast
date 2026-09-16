@@ -7,7 +7,17 @@ import { Match, Template } from "aws-cdk-lib/assertions";
 import { MATERIALS_PREFIX } from "@stagecast/shared";
 import { ControlPlaneStack, resolveCfnValidateWasm } from "../lib/control-plane-stack";
 
+/**
+ * synth 結果は使い回す。
+ *
+ * 1 回の synth で全 Lambda の esbuild バンドルが走る (数秒〜十数秒)。`it()` の中から
+ * 呼ぶとテストごとにそれを払うことになり、CI の 5 秒タイムアウトに引っかかる
+ * (実際に落ちた)。アサーションは読み取りしかしないので共有して問題ない。
+ */
+let synthed: Template | undefined;
+
 function synth(): Template {
+  if (synthed) return synthed;
   const app = new App({
     context: {
       // HostedZone.fromLookup の dummy 値（テストでは Route53 を実際に叩かない）。
@@ -21,7 +31,8 @@ function synth(): Template {
     env: { account: "111111111111", region: "ap-northeast-1" },
     userConfig: { mediaHostedZoneName: "example.com" },
   });
-  return Template.fromStack(stack);
+  synthed = Template.fromStack(stack);
+  return synthed;
 }
 
 describe("ControlPlaneStack", () => {
