@@ -1,10 +1,10 @@
-import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
+import { mkdtempSync, mkdirSync, writeFileSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { App } from "aws-cdk-lib";
 import { Match, Template } from "aws-cdk-lib/assertions";
-import { ControlPlaneStack } from "../lib/control-plane-stack";
+import { ControlPlaneStack, resolveCfnValidateWasm } from "../lib/control-plane-stack";
 
 function synth(): Template {
   const app = new App({
@@ -609,5 +609,15 @@ describe("ControlPlaneStack SPA 配信 (webAssets)", () => {
       DistributionId: Match.anyValue(),
       DistributionPaths: ["/*"],
     });
+  });
+});
+
+describe("RenderTemplateFunction の CFN 検証 WASM (aws-cdk-lib 2.269+)", () => {
+  // aws-cdk-lib を上げてこの WASM の場所が変わると、Lambda 内 synth が ENOENT で落ち、
+  // **すべてのイベントが配信開始できなくなる**。本番で気づくのは遅すぎるのでここで止める。
+  it("同梱すべき WASM が解決でき、実在する", () => {
+    const p = resolveCfnValidateWasm();
+    expect(p.endsWith("bindings_wasm_bg.wasm")).toBe(true);
+    expect(existsSync(p)).toBe(true);
   });
 });
