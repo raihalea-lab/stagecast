@@ -93,7 +93,23 @@ export function EventForm(props: {
         </p>
       </div>
 
-      <fieldset className="grid gap-2">
+      <div className="grid gap-1 rounded-md border border-line-2 bg-surface-1 p-3">
+        <label className="inline-flex items-center gap-2 text-sm text-text-primary">
+          <input
+            type="checkbox"
+            checked={values.captionEnabled}
+            onChange={(e) => set("captionEnabled", e.target.checked)}
+            className="accent-tally-500"
+          />
+          字幕を出す
+        </label>
+        <p className="text-xs text-text-tertiary">
+          オフにすると字幕ワーカーを起動しません。イベント 1 本あたりのコストが約 35%
+          下がります。配信開始後の切り替えは反映されません。
+        </p>
+      </div>
+
+      <fieldset className="grid gap-2" disabled={!values.captionEnabled}>
         <legend className="text-sm font-medium text-text-primary">字幕の対応言語</legend>
         <div className="flex flex-wrap gap-3">
           {LANGUAGE_OPTIONS.map((lang) => (
@@ -116,6 +132,7 @@ export function EventForm(props: {
       <div className="grid gap-2">
         <Label htmlFor="ef-yt-lang">YouTube 送出言語 (1 言語)</Label>
         <select
+          disabled={!values.captionEnabled}
           id="ef-yt-lang"
           value={values.youtubeLanguage}
           onChange={(e) => set("youtubeLanguage", e.target.value as LanguageCode)}
@@ -132,6 +149,7 @@ export function EventForm(props: {
       <div className="grid gap-2">
         <Label htmlFor="ef-engine">字幕エンジン</Label>
         <select
+          disabled={!values.captionEnabled}
           id="ef-engine"
           value={values.engine}
           onChange={(e) => set("engine", e.target.value as EventFormValues["engine"])}
@@ -148,7 +166,8 @@ export function EventForm(props: {
       <label className="inline-flex items-center gap-2 text-sm text-text-secondary">
         <input
           type="checkbox"
-          checked={values.customApiEnabled}
+          disabled={!values.captionEnabled}
+          checked={values.captionEnabled && values.customApiEnabled}
           onChange={(e) => set("customApiEnabled", e.target.checked)}
           className="accent-tally-500"
         />

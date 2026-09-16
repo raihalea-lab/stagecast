@@ -29,6 +29,13 @@ export interface AssetRef {
 
 /** 字幕に関するイベント設定 (DESIGN.md 8 章, 6 章)。 */
 export interface CaptionSettings {
+  /**
+   * 字幕を出すか (ADR 0017 D-2)。`false` にすると CaptionWorker を起動しない。
+   *
+   * イベント 1 本あたりのコストが **約 35% 下がる**ので、字幕が要らない配信では切る。
+   * **未指定は `true`** (既存イベントの字幕が黙って止まらないようにするため)。
+   */
+  enabled?: boolean;
   /** 対応言語の一覧 (最低限 ja/en)。 */
   languages: LanguageCode[];
   /** YouTube 字幕トラックへ送出する 1 言語 (DESIGN.md 2.3, 6.3.1)。 */
@@ -147,7 +154,15 @@ export interface EventDefinition {
 
 /** 字幕設定の整合性を検証する (YouTube 送出言語は対応言語に含まれること)。 */
 export function isValidCaptionSettings(s: CaptionSettings): boolean {
+  // 字幕オフなら言語の整合は問わない (どれも使われないため)。
+  // 設定自体は残しておき、オンに戻したときにそのまま効くようにする。
+  if (s.enabled === false) return true;
   return s.languages.length > 0 && s.languages.includes(s.youtubeLanguage);
+}
+
+/** 字幕を出すか (未指定は有効, ADR 0017 D-2)。 */
+export function isCaptionEnabled(s: CaptionSettings | undefined): boolean {
+  return s?.enabled ?? true;
 }
 
 /** S3 に保存されたアセットのメタデータ。イベントに属さずグローバルライブラリとして管理。 */

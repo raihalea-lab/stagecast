@@ -81,3 +81,36 @@ describe("event form", () => {
     expect(input.endsAt).toBeUndefined();
   });
 });
+
+describe("字幕オフ (ADR 0017 D-2 / D14)", () => {
+  const base = { ...defaultFormValues("2026-07-01T09:00"), title: "E" };
+
+  it("オフなら caption.enabled=false を送る", () => {
+    const input = toCreateEventInput({ ...base, captionEnabled: false });
+    expect(input.caption.enabled).toBe(false);
+  });
+
+  it("オフなら独自字幕 API も落とす (字幕が無いのに API だけ有効は意味がない)", () => {
+    const input = toCreateEventInput({
+      ...base,
+      captionEnabled: false,
+      customApiEnabled: true,
+    });
+    expect(input.caption.customApiEnabled).toBe(false);
+  });
+
+  it("オフなら言語の整合を問わない (設定は残しつつ作成できる)", () => {
+    const v = {
+      ...base,
+      captionEnabled: false,
+      languages: [] as never[],
+      youtubeLanguage: "ja" as const,
+    };
+    expect(validateForm(v).ok).toBe(true);
+  });
+
+  it("オンなら従来どおり言語を検証する", () => {
+    const v = { ...base, captionEnabled: true, languages: [] as never[] };
+    expect(validateForm(v).ok).toBe(false);
+  });
+});
