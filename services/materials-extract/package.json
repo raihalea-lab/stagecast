@@ -12,11 +12,11 @@
     "clean": "rm -rf dist *.tsbuildinfo"
   },
   "dependencies": {
-    "@aws-sdk/client-bedrock-runtime": "^3.1068.0",
-    "@aws-sdk/client-dynamodb": "^3.1068.0",
-    "@aws-sdk/client-s3": "^3.1068.0",
-    "@aws-sdk/client-translate": "^3.1068.0",
-    "@aws-sdk/lib-dynamodb": "^3.1068.0",
+    "@aws-sdk/client-bedrock-runtime": "^3.1128.0",
+    "@aws-sdk/client-dynamodb": "^3.1128.0",
+    "@aws-sdk/client-s3": "^3.1128.0",
+    "@aws-sdk/client-translate": "^3.1128.0",
+    "@aws-sdk/lib-dynamodb": "^3.1128.0",
     "@stagecast/shared": "workspace:*",
     "pdfjs-dist": "^6.3.289"
   },
