@@ -39,6 +39,16 @@ export interface Translator {
 export interface LlmAdapter {
   /** 音声 → ソース言語テキスト (ASR)。翻訳のみ用途では未使用。 */
   transcribe?(chunk: AudioChunk, language: LanguageCode): Promise<TranscriptSegment | null>;
-  /** 文脈を考慮した翻訳。 */
-  translate(text: string, source: LanguageCode, target: LanguageCode): Promise<string>;
+  /**
+   * 文脈を考慮した翻訳。
+   *
+   * `context` は登壇資料の本文と直前の発話 (ADR 0021 D-3, D-4)。翻訳対象ではなく
+   * 参考情報として渡す。資料が無いイベントでは undefined。
+   */
+  translate(
+    text: string,
+    source: LanguageCode,
+    target: LanguageCode,
+    context?: string,
+  ): Promise<string>;
 }

@@ -53,13 +53,53 @@ describe("ControlPlaneStack", () => {
   });
 
   it("制御 API の Lambda + HTTP API がある (T5)", () => {
-    // control-api + reconcile + render-template lambda の 3 つ (D1 で分離)。
+    // control-api + reconcile + render-template + materials-extract の 4 つ
+    // (D1 で render-template を分離, ADR 0021 D-2 で materials-extract を追加)。
     // + S3 autoDeleteObjects 用の Custom Resource provider Lambda が 1 つ (3 つの SPA/assets バケットで共有)。
-    template.resourceCountIs("AWS::Lambda::Function", 4);
+    // + AssetsBucket の通知設定を入れる CDK 内部の Custom Resource Lambda が 1 つ (ADR 0021 D-2)。
+    template.resourceCountIs("AWS::Lambda::Function", 6);
     template.hasResourceProperties("AWS::Lambda::Function", {
       Runtime: "nodejs24.x",
     });
     template.resourceCountIs("AWS::ApiGatewayV2::Api", 1);
+  });
+
+  it("翻訳参考資料の抽出 Lambda が assets/materials/ の S3 通知で起動する (ADR 0021 D-2)", () => {
+    // prefix を絞らないと録画や字幕の PUT でも起動してしまう。
+    template.hasResourceProperties("Custom::S3BucketNotifications", {
+      NotificationConfiguration: {
+        LambdaFunctionConfigurations: Match.arrayWith([
+          Match.objectLike({
+            Events: ["s3:ObjectCreated:*"],
+            Filter: {
+              Key: { FilterRules: [{ Name: "prefix", Value: "assets/materials/" }] },
+            },
+          }),
+          Match.objectLike({
+            Events: ["s3:ObjectRemoved:*"],
+            Filter: {
+              Key: { FilterRules: [{ Name: "prefix", Value: "assets/materials/" }] },
+            },
+          }),
+        ]),
+      },
+    });
+  });
+
+  it("字幕ワーカーの TaskRole は資料だけを読める (ADR 0021 D-6)", () => {
+    // prefix を絞らないと録画や確定字幕まで読めてしまう。
+    template.hasResourceProperties("AWS::IAM::Policy", {
+      PolicyDocument: {
+        Statement: Match.arrayWith([
+          Match.objectLike({
+            Action: "s3:GetObject",
+            Resource: Match.objectLike({
+              "Fn::Join": Match.arrayWith([Match.arrayWith(["/assets/materials/*"])]),
+            }),
+          }),
+        ]),
+      },
+    });
   });
 
   it("RenderTemplateFunction に録画バケットを env で渡す", () => {
@@ -292,8 +332,8 @@ describe("ControlPlaneStack", () => {
       "POST /presentation/speakers/{speakerId}",
       "POST /stage/assets",
       "POST /stage/assets/download-url",
-      "POST /stage/decks/upload-url",
-      "POST /stage/decks/download-url",
+      "POST /stage/materials/upload-url",
+      "POST /stage/materials/download-url",
       "POST /stage/presets",
       "POST /stage/presets/list",
       "DELETE /stage/presets/{presetId}",

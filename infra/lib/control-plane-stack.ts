@@ -25,6 +25,7 @@ import {
   aws_cloudwatch_actions as cwActions,
   aws_sns as sns,
   aws_s3_deployment as s3deploy,
+  aws_s3_notifications as s3n,
   aws_route53 as route53,
   aws_budgets as budgets,
   aws_sns_subscriptions as snsSubscriptions,
@@ -116,6 +117,63 @@ export class ControlPlaneStack extends Stack {
       ],
     });
 
+    // --- 翻訳参考資料の抽出 Lambda (ADR 0021 D-2) ---
+    // assets/materials/ に資料が置かれたら、そのイベント分の _context.json を作り直す。
+    // 字幕ワーカーがこれを読んで翻訳の文脈に使う (ADR 0021 D-6)。
+    const materialsExtractFn = new lambdaNodejs.NodejsFunction(this, "MaterialsExtractFunction", {
+      entry: path.join(__dirname, "..", "..", "services", "materials-extract", "src", "handler.ts"),
+      handler: "handler",
+      runtime: lambda.Runtime.NODEJS_24_X,
+      architecture: lambda.Architecture.ARM_64,
+      bundling: {
+        target: "node24",
+        minify: true,
+        format: lambdaNodejs.OutputFormat.ESM,
+        // pdfjs-dist は legacy ビルドを bundle に含める (Node で必須, ADR 0021 D-2)。
+        // @napi-rs/canvas は pdfjs-dist の optionalDependency で、テキスト抽出では
+        // 呼ばれない require() の中にしか現れない。external にして bundle から外す。
+        externalModules: ["@aws-sdk/*", "@napi-rs/canvas"],
+        banner:
+          "import{createRequire}from'node:module';const require=createRequire(import.meta.url);",
+      },
+      // スパイク実測: 13 ページ PDF で 91ms / RSS 136MB (ADR 0021)。
+      memorySize: 1024,
+      timeout: Duration.minutes(5),
+      // 資料を複数まとめてアップロードすると通知が並列に届き、list() の結果が古い方が
+      // 後に _context.json を書いて資料を取りこぼす。直列化して最後の実行が正になるようにする。
+      // 起動頻度はアップロード時だけなので、同時実行枠を 1 つ予約するコストに見合う。
+      reservedConcurrentExecutions: 1,
+      tracing: lambda.Tracing.ACTIVE,
+      environment: {
+        ASSETS_BUCKET: assetsBucket.bucketName,
+        // ADR 0021 D-3: 用語集の言語ペアを引くのにイベントの字幕設定が要る。
+        EVENTS_TABLE: metadataTable.tableName,
+        BEDROCK_MODEL_ID: "us.anthropic.claude-sonnet-4-5-20250929-v1:0",
+        // `us.` 接頭辞の推論プロファイルは US リージョンのクライアントからしか使えない。
+        BEDROCK_REGION: "us-east-1",
+      },
+    });
+    metadataTable.grantReadData(materialsExtractFn);
+    // ADR 0021 D-3: 用語集の生成 (Bedrock) と登録 (Translate)。
+    materialsExtractFn.addToRolePolicy(
+      new iam.PolicyStatement({
+        actions: [
+          "bedrock:InvokeModel",
+          "translate:ImportTerminology",
+          "translate:DeleteTerminology",
+        ],
+        resources: ["*"],
+      }),
+    );
+    // 資料の読み取りと _context.json の読み書き。prefix を絞って他の成果物には触らせない。
+    assetsBucket.grantReadWrite(materialsExtractFn, "assets/materials/*");
+    // 自分が書いた _context.json でも起動するが、handler 側で弾いている (無限ループ防止)。
+    for (const eventType of [s3.EventType.OBJECT_CREATED, s3.EventType.OBJECT_REMOVED]) {
+      assetsBucket.addEventNotification(eventType, new s3n.LambdaDestination(materialsExtractFn), {
+        prefix: "assets/materials/",
+      });
+    }
+
     // --- 字幕ワーカーのコンテナイメージ (R4, ADR 0019) ---
     // ADR 0005 D-3 の GHA build/push + 専用 ECR は廃止し、Caddy と同じく DockerImageAsset で
     // cdk deploy 時にビルド・push する。Dockerfile は pnpm workspace のため monorepo ルートを
@@ -177,10 +235,20 @@ export class ControlPlaneStack extends Stack {
           "transcribe:StartStreamTranscriptionWebSocket",
           "transcribe:StartStreamTranscription",
           "translate:TranslateText",
+          // TranslateText に TerminologyNames を添えると用語集の読み取りが要る (ADR 0021 D-3)。
+          "translate:GetTerminology",
           "bedrock:InvokeModel",
           "bedrock:InvokeModelWithResponseStream",
         ],
         resources: ["*"],
+      }),
+    );
+    // ADR 0021 D-6: 字幕ワーカーは翻訳参考資料の _context.json を S3 から直接読む
+    // (Fargate 上で招待トークンを持たず control-api を叩けないため)。prefix を絞る。
+    sharedCaptionTaskRole.addToPolicy(
+      new iam.PolicyStatement({
+        actions: ["s3:GetObject"],
+        resources: [assetsBucket.arnForObjects("assets/materials/*")],
       }),
     );
 
@@ -568,8 +636,8 @@ export class ControlPlaneStack extends Stack {
       "POST /stage/assets/download-url",
       // 事前アップロードスライド (PDF) のデッキ (F-3, DESIGN.md 5.2)。
       // control-api 側で invite-token を検証し、moderator 以外は 403 で弾く。
-      "POST /stage/decks/upload-url",
-      "POST /stage/decks/download-url",
+      "POST /stage/materials/upload-url",
+      "POST /stage/materials/download-url",
       "POST /stage/presets",
       "POST /stage/presets/list",
       "DELETE /stage/presets/{presetId}",
@@ -925,7 +993,16 @@ export class ControlPlaneStack extends Stack {
     );
     reconcileFn.addToRolePolicy(
       new iam.PolicyStatement({
-        actions: ["route53:ChangeResourceRecordSets"],
+        // deleteRoute53ARecord は DELETE の前に現在値を引くので List も要る。
+        actions: ["route53:ChangeResourceRecordSets", "route53:ListResourceRecordSets"],
+        resources: ["*"],
+      }),
+    );
+    // ADR 0021 D-3: イベント終了時に翻訳用語集を回収する
+    // (消さないと イベント数 × 言語数 で溜まり、アカウント上限に当たる)。
+    reconcileFn.addToRolePolicy(
+      new iam.PolicyStatement({
+        actions: ["translate:ListTerminologies", "translate:DeleteTerminology"],
         resources: ["*"],
       }),
     );

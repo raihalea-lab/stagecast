@@ -37,7 +37,11 @@ const pages = [];
 for (let i = 1; i <= doc.numPages; i++) {
   const page = await doc.getPage(i);
   const tc = await page.getTextContent();
-  const text = tc.items.map((it) => (it.str ?? "")).join("").replace(/\s+/g, " ").trim();
+  const text = tc.items
+    .map((it) => it.str ?? "")
+    .join("")
+    .replace(/\s+/g, " ")
+    .trim();
   pages.push(text);
   page.cleanup();
 }
@@ -46,16 +50,21 @@ const tAll = Date.now() - t0;
 const total = pages.reduce((n, p) => n + p.length, 0);
 const mem = process.memoryUsage().rss / 1024 / 1024;
 
-console.log(JSON.stringify({
-  cmap: useCMap,
-  numPages: doc.numPages,
-  loadMs: tLoad,
-  totalMs: tAll,
-  totalChars: total,
-  rssMB: Math.round(mem),
-}, null, 2));
+console.log(
+  JSON.stringify(
+    {
+      cmap: useCMap,
+      numPages: doc.numPages,
+      loadMs: tLoad,
+      totalMs: tAll,
+      totalChars: total,
+      rssMB: Math.round(mem),
+    },
+    null,
+    2,
+  ),
+);
 console.log("--- page 1 ---");
 console.log(pages[0]?.slice(0, 180));
 console.log("--- page 4 ---");
 console.log(pages[3]?.slice(0, 180));
-
