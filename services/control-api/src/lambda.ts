@@ -133,11 +133,23 @@ export async function buildControlApiFromEnv(options: BuildFromEnvOptions = {}):
     ? (await import("./repo/dynamo.js")).dynamoRepositories(metadataTable).eventRepo
     : undefined;
   const roomMetadata = metadataEventRepo
-    ? resolveRoomMetadataPublisher(env, async (eventId) => {
+    ? await resolveRoomMetadataPublisher(env, secrets, async (eventId) => {
         const ev = await metadataEventRepo.get(eventId);
         return ev?.media?.livekitUrl;
       })
     : undefined;
+  if (!roomMetadata) {
+    // 無効だと composer は投影を読めない。黙って落ちると気づけないので必ず残す。
+    // eslint-disable-next-line no-console
+    console.warn(
+      JSON.stringify({
+        level: "warn",
+        msg: "room metadata publisher disabled (composer は投影状態を読めない)",
+        hasTable: !!metadataEventRepo,
+        hasLiveKitArn: !!env.LIVEKIT_SECRET_ARN,
+      }),
+    );
+  }
   const egressStarter = resolveEgressStarter(env, secrets);
   const streamKeyResolver = resolveStreamKeyResolver(env, secrets);
   // R12-followup-19: KVS_SIGNALING_CHANNEL_ARN があれば KVS WebRTC TURN provider を構築。
@@ -222,13 +234,16 @@ export async function buildControlApiFromEnv(options: BuildFromEnvOptions = {}):
  * 書く直前にイベントから引く。まだ room が無い (配信前) イベントでは何もしない:
  * room が作られた後に stage-web が入室して状態を書き直すので、そこで追いつく。
  */
-function resolveRoomMetadataPublisher(
+async function resolveRoomMetadataPublisher(
   env: NodeJS.ProcessEnv,
+  secrets: SecretsResolver,
   lookupLiveKitUrl: (eventId: string) => Promise<string | undefined>,
-): RoomMetadataPublisher | undefined {
-  const apiKey = env.LIVEKIT_API_KEY;
-  const apiSecret = env.LIVEKIT_API_SECRET;
-  if (!apiKey || !apiSecret) return undefined;
+): Promise<RoomMetadataPublisher | undefined> {
+  // 資格情報の取り方は resolveLiveKit と同じ (ARN 優先 → env フォールバック)。
+  // env だけを見ると、本番は LIVEKIT_SECRET_ARN なので**無言で無効化される**。
+  const creds = await resolveLiveKitCredentials(env, secrets);
+  if (!creds) return undefined;
+  const { apiKey, apiSecret } = creds;
   return {
     async publish(eventId, metadata) {
       const wsUrl = await lookupLiveKitUrl(eventId);
@@ -389,6 +404,26 @@ async function resolveInviteSecret(
     return value;
   }
   return env.INVITE_TOKEN_SECRET;
+}
+
+/**
+ * LiveKit の apiKey/apiSecret を解決する (ADR 0008 D-5)。
+ * 本番は `LIVEKIT_SECRET_ARN` (Secrets Manager)、ローカルは env。
+ */
+async function resolveLiveKitCredentials(
+  env: NodeJS.ProcessEnv,
+  secrets: SecretsResolver,
+): Promise<{ apiKey: string; apiSecret: string } | undefined> {
+  const arn = env.LIVEKIT_SECRET_ARN;
+  if (arn) {
+    const lk = await secrets.getSecretJson(arn);
+    if (lk.apiKey && lk.apiSecret) return { apiKey: lk.apiKey, apiSecret: lk.apiSecret };
+    return undefined;
+  }
+  if (env.LIVEKIT_API_KEY && env.LIVEKIT_API_SECRET) {
+    return { apiKey: env.LIVEKIT_API_KEY, apiSecret: env.LIVEKIT_API_SECRET };
+  }
+  return undefined;
 }
 
 async function resolveLiveKit(
