@@ -25,21 +25,23 @@ R12-followup-1〜22 で **stage-web から SFU への WebRTC 接続** が完了 
 
 ### 🔥 すぐやる (1〜3 日以内)
 
-> 🟢 **2026-09-15 追記: ADR 0023 (CloudFormation Express モード + 起動進捗の可視化) を実装**。
-> スタック作成を Express 化し、CaptionWorker の service 名不一致で pending→live のタスク
-> 引き上げが起きていなかったバグを修正、管理画面に「配信インフラ」カードを追加した。
-> **実機確認が残作業**: ①スタック作成時間が実際に短縮されるか (CloudFormation コンソールで
-> Express 適用を確認)、②準備中→配信中でタスクが 1 になるか、③管理画面の phase が
-> `creating → starting → ready` と進むか。
+> 🟢 **2026-09-16 追記: ADR 0023 は実配信で検証済み ✅**。
+> スタック作成 **89 秒** (07:05:39 → CREATE_COMPLETE 07:07:08)、`ready` 到達まで **154 秒**。
+> phase が `none → creating → ready` と進み、`sfu: 0/1` / `captionworker: 1/1` の
+> サービス単位の進捗も管理データに出た。CaptionWorker がスタック完成前に 1/1 になっており、
+> D-2 の「CREATE_IN_PROGRESS でも引き上げる」が効いていることも確認できた。
 > あわせて **`DesiredEvent.captionEnabled` が未配線**のまま残っている (ADR 0017 で型に
 > 足されたきり `toDesiredEvent` が埋めておらず、`CaptionSettings` にも字幕オフの項目が無い)。
 > ADR 0023 D-2 で「目標 0 なら引き上げない」形は入れたので、字幕オフを選べるようにすれば
 > ADR 0017 D-2 のコスト削減 (-35%) が実際に効くようになる。
 
-> 🔴 **2026-09-15 追記: F-3 (スライド投影, #211 マージ済み) は実機未確認**。
-> D9 (AssetsBucket の CORS) はコード上は対応したが、**デプロイして実機で通すまでが残作業**。
-> 手順は下の **D9** を参照。あわせて composer の描画サイズ (1280x720 出力でスライドが
-> 親領域いっぱいに出るか) はブラウザ実機での目視確認が必要。
+> 🟢 **2026-09-16 追記: F-3 (スライド投影) は実配信で検証済み ✅**。
+> stage-web から PDF をアップロード → 投影 → ページ送り → composer での描画まで通った。
+> **D9 (AssetsBucket の CORS) も実機で通過**している (ブラウザから署名付き URL へ直接 PUT
+> できているため)。あわせて ADR 0022 により **投影状態の正がサーバーに移り**、composer は
+> room metadata を読んで接続と同時に投影を復元する (配り直し待ちが不要になった)。
+>
+> 残る目視確認: composer の描画サイズ (1280x720 出力でスライドが親領域いっぱいに出るか)。
 
 1. **R12 完了 ✅ (2026-06-21 R12-followup-23 で映像受信成功)**
    - R12-followup-23 (PR #119) で Egress config に `insecure: true` を追加 → Chrome 147+ の LNA WebSocket 制限を回避 → YouTube Live で映像受信成功 ✅
@@ -343,7 +345,7 @@ reconcile Lambda 自身は `cloudformation:*` (スタック操作) + `iam:PassRo
 - 残: エンジン側 (Transcribe/Translate/Bedrock) の一過性エラー再試行は二重字幕回避を考慮しつつ別途。
   YouTube ingest など他の外部呼び出しにも `withRetry` を横展開
 
-### D9. AssetsBucket に CORS 設定が無く、ブラウザからの直接アクセスが通らない ✅ コード対応済み (要デプロイ)
+### D9. AssetsBucket に CORS 設定が無く、ブラウザからの直接アクセスが通らない ✅ 対応済み (2026-09-16 実機確認)
 
 ~~`AssetsBucket` には `cors` が未設定 (infra 側の CORS 設定は API Gateway の
 `corsConfiguration` のみ)。署名付き URL は発行できるが、ブラウザからクロスオリジンで叩く経路は
@@ -383,7 +385,7 @@ F-3 のデッキ 2 ルートと `GET /event-requests/public` の登録が漏れ�
 ルーターが if チェーンである限り静的には検出できないので、`app.ts` のルート定義をテーブル化して
 一覧を生成できる形にするところまでやるかは別途判断する。
 
-### D11. admin-web のログインが頻繁に切れる (refresh token 未実装) ✅ コード対応済み (要デプロイ)
+### D11. admin-web のログインが頻繁に切れる (refresh token 未実装) ✅ 対応済み (2026-09-16 実機確認)
 
 管理コンソールを開き直すたび、また 6 時間ごとに Cognito のログインからやり直しになる。
 **Cognito 側の有効期限設定の問題ではない** (`control-plane-stack.ts:320-322` で access/id は 6 時間、
@@ -676,3 +678,23 @@ devDependencies : "@voidzero-dev/vite-plus-core": "^0.1.24" → 0.1.24 を解決
    (ただし CLAUDE.md で「触らない方が良いもの」に指定されている箇所)
 
 どちらにせよ **1 を待つのが素直**。上流が alpha 段階なので、揃ってから動く。
+
+### D14. 字幕オフを選べない (`captionEnabled` が未配線 / コスト削減が効いていない)
+
+ADR 0017 D-2 は「字幕が不要なイベントでは CaptionWorker を起動しない」ことでコストを
+**-35%** 削減する設計だが、**実際には常に起動している**。
+
+- `DesiredEvent.captionEnabled` は型にはあるが `toDesiredEvent` が埋めていない
+- `CaptionSettings` にも「字幕オフ」に相当する項目が無い
+- そのため `reconcile-handler.ts` は `d2.captionEnabled ?? true` で**常に有効扱い**になる
+  (ADR 0023 D-2 で「目標 0 なら引き上げない」形は入っているので、**受け皿は既にある**)
+
+実配信の検証でも CaptionWorker が必ず 1/1 で起動していた。
+
+必要な作業:
+
+1. `CaptionSettings` に字幕の有効/無効を足す (または `engine: "none"` を許す)
+2. admin-web のイベント設定に UI を足す
+3. `toDesiredEvent` で `captionEnabled` を埋める
+
+ADR 0023 D-2 の実装が済んでいるので、**上の 3 点だけで -35% が実際に効く**ようになる。
