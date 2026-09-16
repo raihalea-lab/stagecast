@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { App } from "aws-cdk-lib";
 import { Match, Template } from "aws-cdk-lib/assertions";
+import { MATERIALS_PREFIX } from "@stagecast/shared";
 import { ControlPlaneStack, resolveCfnValidateWasm } from "../lib/control-plane-stack";
 
 function synth(): Template {
@@ -632,7 +633,7 @@ describe("翻訳参考資料の旧バージョン期限切れ", () => {
         Rules: Match.arrayWith([
           Match.objectLike({
             Id: "expire-materials-old-versions",
-            Prefix: "assets/materials/",
+            Prefix: MATERIALS_PREFIX,
             Status: "Enabled",
             NoncurrentVersionExpiration: { NoncurrentDays: 1 },
             ExpiredObjectDeleteMarker: true,
