@@ -56,8 +56,13 @@ S3 イベント通知 (`OBJECT_CREATED` / `OBJECT_REMOVED`) を張る。制御�
 - **`pdfjs-dist/legacy/build/pdf.mjs` を使う。** 通常ビルドは Node で
   `hashOriginal.toHex is not a function` で落ちる (pdf.js 自身が「Node では legacy を使え」と
   警告を出す)。esbuild のバンドル対象もこちらに向ける
-- `@napi-rs/canvas` は `optionalDependencies` なので、インストール時に除外すればバンドルに
-  入らない。テキスト抽出では参照されない
+- `@napi-rs/canvas` は `optionalDependencies` なので `externalModules` に入れてバンドルから
+  外す。テキスト抽出では参照されない (読み込み失敗の警告がログに出るだけ)
+- **worker は静的 import して `globalThis.pdfjsWorker` に載せる。** pdf.js は worker を
+  `await import(GlobalWorkerOptions.workerSrc)` で読み、既定値が `"./pdf.worker.mjs"` という
+  相対パスなので、esbuild で 1 ファイルに束ねた後は `Setting up fake worker failed` になる。
+  `globalThis.pdfjsWorker` は pdf.js が動的 import より先に見るフックで、ここに置けば
+  追加ファイルの同梱が要らない。**bundle 後にしか起きないので `cdk synth` では検知できない**
 - 出力: `assets/materials/{eventId}/_context.json`
   ```
   { version, updatedAt,
@@ -118,15 +123,15 @@ Amazon Translate の Custom Terminology に `ImportTerminology` する。
 
 ## 変更範囲
 
-| 場所 | 変更 |
-| --- | --- |
-| `infra` | `MaterialsExtractFunction` を追加。S3 イベント通知 (`assets/materials/`)。抽出 Lambda のロール: S3 get/put (prefix 限定)・`bedrock:InvokeModel`・`translate:ImportTerminology` / `DeleteTerminology`。`SharedCaptionTaskRole` に `s3:GetObject` (prefix 限定)。字幕ワーカーに `ASSETS_BUCKET` env |
-| `services/control-api` | `POST /events/{id}/materials/upload-url` (admin)・一覧・削除。`/stage/decks/upload-url` を materials に統合。イベント終了時に `DeleteTerminology` |
-| `services/materials-extract` (新規) | 抽出・用語集生成・`_context.json` 書き出し・`ImportTerminology`。外部依存はインターフェース + fake |
-| `services/caption-pipeline` | `_context.json` の読み込みと 60 秒更新。`AmazonTranslateTranslator` に `TerminologyNames`。`LlmAdapter.translate` に文脈 (資料プレフィックス + 直近発話) を渡す。Bedrock アダプタでキャッシュポイント |
-| `apps/admin-web` | イベント設定に「翻訳参考資料」の登録 UI (既存アセットライブラリの経路を流用) |
-| `apps/stage-web` | デッキ投入先を materials prefix に変更 |
-| `packages/shared` | 用語集 CSV と `_context.json` の型 |
+| 場所                                | 変更                                                                                                                                                                                                                                                                                              |
+| ----------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `infra`                             | `MaterialsExtractFunction` を追加。S3 イベント通知 (`assets/materials/`)。抽出 Lambda のロール: S3 get/put (prefix 限定)・`bedrock:InvokeModel`・`translate:ImportTerminology` / `DeleteTerminology`。`SharedCaptionTaskRole` に `s3:GetObject` (prefix 限定)。字幕ワーカーに `ASSETS_BUCKET` env |
+| `services/control-api`              | `POST /events/{id}/materials/upload-url` (admin)・一覧・削除。`/stage/decks/upload-url` を materials に統合。イベント終了時に `DeleteTerminology`                                                                                                                                                 |
+| `services/materials-extract` (新規) | 抽出・用語集生成・`_context.json` 書き出し・`ImportTerminology`。外部依存はインターフェース + fake                                                                                                                                                                                                |
+| `services/caption-pipeline`         | `_context.json` の読み込みと 60 秒更新。`AmazonTranslateTranslator` に `TerminologyNames`。`LlmAdapter.translate` に文脈 (資料プレフィックス + 直近発話) を渡す。Bedrock アダプタでキャッシュポイント                                                                                             |
+| `apps/admin-web`                    | イベント設定に「翻訳参考資料」の登録 UI (既存アセットライブラリの経路を流用)                                                                                                                                                                                                                      |
+| `apps/stage-web`                    | デッキ投入先を materials prefix に変更                                                                                                                                                                                                                                                            |
+| `packages/shared`                   | 用語集 CSV と `_context.json` の型                                                                                                                                                                                                                                                                |
 
 ## 影響・トレードオフ
 
@@ -164,16 +169,18 @@ Phase 1 は既定の `transcribe` イベントには効かない。Phase 2 で�
 
 `docswell-5QR21Y.pdf` (13 ページ, 2.5MB, 日本語, フォント埋め込み済み) で実測:
 
-| 項目 | 結果 |
-| --- | --- |
-| テキスト抽出 | **成功**。日本語が文字化けせず取れた |
-| 所要時間 | 91ms (13 ページ全体, 読み込み 33ms 含む) |
-| RSS | 136MB |
-| 抽出文字数 | 3,345 字 (13 ページ合計) |
-| canvas | **不要**。参照されない |
-| CMap | **不要**。有り/無しで出力は同一 (3,345 字で一致) |
+| 項目         | 結果                                             |
+| ------------ | ------------------------------------------------ |
+| テキスト抽出 | **成功**。日本語が文字化けせず取れた             |
+| 所要時間     | 91ms (13 ページ全体, 読み込み 33ms 含む)         |
+| RSS          | 136MB                                            |
+| 抽出文字数   | 3,345 字 (13 ページ合計)                         |
+| canvas       | **不要**。参照されない                           |
+| CMap         | **不要**。有り/無しで出力は同一 (3,345 字で一致) |
 
 - ビルドは `legacy` を使うこと (上記 D-2)
+- esbuild で bundle + minify した状態でも同じ結果を確認済み (13 ページ / 60ms / RSS 97MB)。
+  worker の差し込みが無いと bundle 後だけ失敗するので、実装時はバンドル後の動作確認まで行う
 - 3,345 字は D-2 の上限 (1 資料 30,000 字) に対して十分小さい。通常のスライドなら上限に
   当たらない
 - 実行時間から、Lambda のメモリは 512MB〜1024MB で足りる見込み (実 Lambda での確認は
