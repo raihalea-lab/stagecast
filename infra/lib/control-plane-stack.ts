@@ -1138,6 +1138,14 @@ export class ControlPlaneStack extends Stack {
     const orchestratorAlarmTopic = new sns.Topic(this, "OrchestratorAlarmTopic", {
       displayName: "Stagecast orchestrator alarms",
     });
+    // **購読者がいないとアラームは誰にも届かない。** CloudWatch は SNS に publish するだけで、
+    // 購読が無ければそこで消える。2026-09-17 時点で実際に購読者ゼロだったため、
+    // D16 で足した provision 失敗アラームが鳴っても気づけない状態だった。
+    // 設定は `infra/user-config.ts` に書く (`-c` では渡せない。context は読んでいない)。
+    // 未設定なら購読は作らない (誤って他人のアドレスに送らないため)。
+    if (uc.opsEmail) {
+      orchestratorAlarmTopic.addSubscription(new snsSubscriptions.EmailSubscription(uc.opsEmail));
+    }
     new logs.MetricFilter(this, "StaleStackFilter", {
       logGroup: reconcileLogGroup,
       metricNamespace: "Stagecast/Orchestrator",
@@ -1199,7 +1207,7 @@ export class ControlPlaneStack extends Stack {
     // --- AWS Budgets: 月額コスト監視アラート (O1, L3) ---
     // 暴走したリソースや想定外コストを早期検知。AWS Budgets 自体は無料 (アカウントあたり 2 つまで)。
     // context で閾値とメール通知先を指定:
-    //   cdk deploy -c budgetMonthlyUsd=50 -c budgetEmail=ops@example.com
+    // 設定は `infra/user-config.ts` に書く。**`-c` では渡せない** (context は読んでいない)。
     // メール未指定なら OrchestratorAlarmTopic に通知する (運用者が事前に subscribe しておく前提)。
     const budgetMonthlyUsd = uc.budgetMonthlyUsd ?? 50;
     const budgetEmail = uc.budgetEmail;

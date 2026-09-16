@@ -501,8 +501,10 @@ refresh token の実装だけで体感が改善するかを見てから判断す
   - メディア層 (`event-media-stack.ts`): TaskHealth / CaptionLatency / RtmpDisconnect /
     SinkError / TranslateError の 5 種 + CloudWatch Dashboard
 - 残 1: **Fargate の X-Ray** (Lambda 4 つは `tracing: ACTIVE` 済み)
-- 残 2: **Ops 系トピックの購読先**。`CostAlarmTopic` は `budgetEmail` を渡せばメール購読が付くが、
-  `OrchestratorAlarmTopic` とメディア層の `AlarmTopic` は**購読者ゼロ**なので誰にも届かない。
+- ✅ **`OrchestratorAlarmTopic` の購読先を用意した** (2026-09-17)。`user-config.ts` に
+  `opsEmail` を設定するとメール購読が付く。**設定するまでアラームは誰にも届かない**ので、
+  デプロイ前に必ず設定すること (2026-09-17 時点で実際に購読者ゼロだった)
+- 残 2: **メディア層の `AlarmTopic`** (`event-media-stack.ts`) は購読者ゼロのまま。
   Slack webhook を使うなら `user-config.ts` に設定項目を足すところから
 
 ### N4. 配信前リハーサル機能
@@ -816,6 +818,8 @@ RenderTemplateFunction は Lambda の中で `app.synth()` する (ADR 0023 D-1)�
 >   スタックがまだ無くても失敗していれば `failed` を出す (従来は「未作成」に見えていた)。
 >   成功した tick では消えるので、直れば表示も消える。
 > - reconcile の失敗に CloudWatch アラーム (`stagecast-reconcile-step-error`) を追加。
+>   **通知を受け取るには `user-config.ts` の `opsEmail` 設定が必要** (未設定だと SNS に publish
+>   されて消えるだけで誰にも届かない)。
 >   60 秒 tick で **2 回連続失敗**したら `OrchestratorAlarmTopic` に通知する。
 >   単発の失敗は次 tick で回復しうるので、それでは鳴らさない。
 >
