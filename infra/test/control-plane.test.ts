@@ -694,7 +694,9 @@ describe("運用アラームの通知先 (D16 の実効性)", () => {
       Protocol: "email",
       Endpoint: "ops@example.com",
     });
-  });
+    // 2 つ目のスタックを synth するので全 Lambda の esbuild が走る。キャッシュの無い CI では
+    // 既定の 5 秒を超える (実際に落ちた)。memo 化した `synth()` とは別物なので個別に伸ばす。
+  }, 120_000);
 
   it("opsEmail 未設定なら購読を作らない (他人のアドレスに送らない)", () => {
     // 既定の synth には opsEmail を渡していない。email 購読はコスト用の budgetEmail 分だけ。
