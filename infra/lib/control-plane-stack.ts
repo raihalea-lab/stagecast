@@ -139,6 +139,10 @@ export class ControlPlaneStack extends Stack {
       // スパイク実測: 13 ページ PDF で 91ms / RSS 136MB (ADR 0021)。
       memorySize: 1024,
       timeout: Duration.minutes(5),
+      // 資料を複数まとめてアップロードすると通知が並列に届き、list() の結果が古い方が
+      // 後に _context.json を書いて資料を取りこぼす。直列化して最後の実行が正になるようにする。
+      // 起動頻度はアップロード時だけなので、同時実行枠を 1 つ予約するコストに見合う。
+      reservedConcurrentExecutions: 1,
       tracing: lambda.Tracing.ACTIVE,
       environment: {
         ASSETS_BUCKET: assetsBucket.bucketName,
