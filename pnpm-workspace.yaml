@@ -9,6 +9,9 @@ packages:
 allowBuilds:
   esbuild: true
 
+minimumReleaseAgeExclude:
+  - "@types/node@24.13.5"
+
 # Vite+ への切替: ワークスペース全体の vite / vitest を Vite+ パッケージに
 # エイリアスする。各 package.json では従来通り "vite" / "vitest" を
 # devDependencies に記述しておけば、pnpm がインストール時に Vite+ 版を解決する。
