@@ -930,7 +930,23 @@ export class ControlPlaneStack extends Stack {
         target: "node24",
         minify: true,
         format: lambdaNodejs.OutputFormat.ESM,
-        externalModules: ["@aws-sdk/*", "@aws-sdk/client-route-53"],
+        // ADR 0023 D-1: client-cloudformation だけは **バンドルする**。Express モードの
+        // DeploymentConfig は新しい SDK にしか無く、Lambda 同梱版が古いとパラメータが
+        // 黙って落ちて「速くならないが成功する」状態になるため、バージョンを固定する。
+        // 他の SDK クライアントは従来どおりランタイム同梱を使い、バンドルを小さく保つ。
+        // client-cloudformation だけは新しい版を bundle したいのでワイルドカードを使えない。
+        // **新しく `@aws-sdk/*` を import したらここに足すこと**。漏れると黙って bundle され、
+        // サイズと cold start が増える (ランタイム同梱のものを使えなくなる)。
+        externalModules: [
+          "@aws-sdk/client-dynamodb",
+          "@aws-sdk/lib-dynamodb",
+          "@aws-sdk/client-ecs",
+          "@aws-sdk/client-ec2",
+          "@aws-sdk/client-lambda",
+          "@aws-sdk/client-route-53",
+          // ADR 0021 D-3: 用語集の棚卸しで使う。
+          "@aws-sdk/client-translate",
+        ],
         banner:
           "import{createRequire}from'node:module';const require=createRequire(import.meta.url);",
       },
@@ -946,6 +962,9 @@ export class ControlPlaneStack extends Stack {
         RENDER_TEMPLATE_FUNCTION_NAME: renderTemplateFn.functionName,
         // ADR 0008 D-6: 並列イベント数の soft cap (コスト暴走防止)。
         MAX_PARALLEL_EVENTS: "10",
+        // ADR 0023 D-1: CloudFormation Express モードで EventMediaStack の作成を短縮する。
+        // 事故時は "false" にすると従来の STANDARD デプロイに戻る。
+        CFN_EXPRESS_MODE: "true",
         // ADR 0015 Phase 3: 共有 Cluster 名を reconcile に渡す (サービス名解決に使う)。
         SHARED_CLUSTER_NAME: sharedMediaCluster.clusterName,
         // Route53 更新用のホストゾーン / ドメイン名 (reconcile が DNS レコードを操作する)。

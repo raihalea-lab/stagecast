@@ -37,6 +37,13 @@ export const LIVEKIT_PORTS = {
  */
 export const SFU_SERVICE_NAME = "sfu";
 
+/**
+ * CaptionWorker の ECS service 名 (ADR 0023 D-2)。
+ * reconcile が `ecs:DescribeServices` / `ecs:UpdateService` で名指しするため、
+ * CloudFormation の自動生成名ではなく規約名を明示する。
+ */
+export const CAPTION_WORKER_SERVICE_NAME = "captionworker";
+
 /** ECS Cluster の予測可能命名 (reconcile が `ecs:ListTasks` で使う)。 */
 export function eventMediaClusterName(eventId: string): string {
   return `stagecast-event-${eventId}`;
@@ -183,6 +190,9 @@ export class EventMediaStack extends Stack {
           containerInsightsV2: ecs.ContainerInsights.ENABLED,
         });
     const sfuServiceName = props.sharedClusterName ? `sfu-${props.eventId}` : SFU_SERVICE_NAME;
+    const captionWorkerServiceName = props.sharedClusterName
+      ? `${CAPTION_WORKER_SERVICE_NAME}-${props.eventId}`
+      : CAPTION_WORKER_SERVICE_NAME;
 
     // --- 共有状態: Valkey (ADR 0015 → ADR 0017 sidecar 化) ---
     // ADR 0017: Valkey を SFU Task の sidecar に統合。全コンテナが localhost:6379 で通信する。
@@ -500,6 +510,9 @@ export class EventMediaStack extends Stack {
       images.captionWorker ?? "public.ecr.aws/docker/library/node:24-alpine",
       {
         taskRole: captionTaskRole,
+        // ADR 0023 D-2: 名前が自動生成だと reconcile が DescribeServices で引けず、
+        // pending (desiredCount=0) から live への引き上げが永久に起きなかった。
+        serviceName: captionWorkerServiceName,
         desiredCount: props.captionDesiredCount ?? props.desiredCount,
         // ADR 0021 D-6: 翻訳参考資料の _context.json を S3 から直接読む。
         environment: { ASSETS_BUCKET: recordingsBucketName },
@@ -754,6 +767,11 @@ export class EventMediaStack extends Stack {
     new CfnOutput(this, "SfuServiceName", {
       value: sfuServiceName,
       description: "reconcile Lambda が ecs:ListTasks で参照する SFU service 名 (ADR 0008 D-2)",
+    });
+    new CfnOutput(this, "CaptionWorkerServiceName", {
+      value: captionWorkerServiceName,
+      description:
+        "reconcile Lambda が ecs:UpdateService で引き上げる CaptionWorker service 名 (ADR 0023 D-2)",
     });
     new CfnOutput(this, "AlarmTopicArn", { value: alarmTopic.topicArn });
     new CfnOutput(this, "DashboardName", {

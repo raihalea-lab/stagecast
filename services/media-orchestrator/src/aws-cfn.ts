@@ -14,7 +14,9 @@ import {
 } from "@aws-sdk/client-cloudformation";
 import {
   CloudFormationMediaStackProvisioner,
+  type CfnProvisionerConfig,
   type CloudFormationLike,
+  type DeploymentMode,
   type DescribeResult,
 } from "./cfn-provisioner.js";
 import type { EventMediaSpec } from "./provisioner.js";
@@ -33,6 +35,7 @@ export class AwsCloudFormationClient implements CloudFormationLike {
     TemplateBody: string;
     Capabilities?: string[] | undefined;
     RoleARN?: string | undefined;
+    DeploymentMode?: DeploymentMode | undefined;
   }): Promise<{ StackId?: string | undefined }> {
     const res = await this.client.send(
       new CreateStackCommand({
@@ -40,6 +43,10 @@ export class AwsCloudFormationClient implements CloudFormationLike {
         TemplateBody: input.TemplateBody,
         Capabilities: input.Capabilities as never,
         ...(input.RoleARN ? { RoleARN: input.RoleARN } : {}),
+        // ADR 0023 D-1: Express モードはリソースが安定するのを待たずに完了するので、
+        // EventMediaStack の作成が大幅に速くなる。ロールバックは既定で無効になり、
+        // 失敗は CREATE_FAILED のまま残る → reconcile が destroy → 再作成で復旧する。
+        ...(input.DeploymentMode ? { DeploymentConfig: { Mode: input.DeploymentMode } } : {}),
       }),
     );
     return { StackId: res.StackId };
@@ -54,6 +61,9 @@ export class AwsCloudFormationClient implements CloudFormationLike {
     return {
       Stacks: res.Stacks?.map((s) => ({
         StackStatus: s.StackStatus,
+        // ADR 0023 D-1: 実際に Express が効いたかを観測できるようにする (SDK / リージョンが
+        // 未対応ならパラメータは黙って落ちるため、ログで気づけるようにしておく)。
+        DeploymentMode: s.DeploymentConfig?.Mode,
         Outputs: s.Outputs?.map((o) => ({ OutputKey: o.OutputKey, OutputValue: o.OutputValue })),
       })),
     };
@@ -69,6 +79,10 @@ export interface AwsProvisionerConfig {
   maxPolls?: number;
   /** CFN サービスロール ARN (R5)。createStack の RoleARN に渡す。 */
   roleArn?: string | undefined;
+  /** CloudFormation Express モードで作成する (ADR 0023 D-1)。 */
+  expressMode?: boolean | undefined;
+  /** describeStacks の観測結果 (Express が実際に効いたかの確認に使う)。 */
+  onObserve?: CfnProvisionerConfig["onObserve"];
 }
 
 /**
@@ -85,5 +99,7 @@ export function createAwsMediaStackProvisioner(
     pollIntervalMs: config.pollIntervalMs,
     maxPolls: config.maxPolls,
     roleArn: config.roleArn,
+    expressMode: config.expressMode,
+    onObserve: config.onObserve,
   });
 }

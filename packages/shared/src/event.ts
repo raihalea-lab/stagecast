@@ -63,6 +63,55 @@ export interface EventMediaInfo {
   readyAt: number;
 }
 
+/**
+ * EventMediaStack のプロビジョニング進捗 (ADR 0023 D-3)。
+ *
+ * CloudFormation の完了 = 配信可能ではない。特に Express モード (ADR 0023 D-1) では
+ * CFN は「設定を適用した時点」で CREATE_COMPLETE を返し、ECS タスクはまだ起動途中である。
+ * 管理画面が「どこまで進んだか」を出せるよう、reconcile が毎 tick この観測結果を書き戻す。
+ */
+export type ProvisioningPhase =
+  /** スタックがまだ存在しない (作成要求前)。 */
+  | "none"
+  /** CloudFormation がスタックを作成/更新中。 */
+  | "creating"
+  /** スタックは完成したが ECS タスクがまだ RUNNING でない。 */
+  | "starting"
+  /** タスクが RUNNING かつ LiveKit URL が確定済み = 配信開始できる。 */
+  | "ready"
+  /** スタックが FAILED/ROLLBACK。次の tick で作り直される。 */
+  | "failed"
+  /** スタックを破棄中。 */
+  | "deleting";
+
+/** ECS サービス 1 つ分の観測結果 (desired と running の乖離が「起動待ち」を表す)。 */
+export interface EcsServiceStatus {
+  /** ECS service 名 (`sfu-{eventId}` / `captionworker-{eventId}` 等)。 */
+  name: string;
+  /** 期待タスク数。0 は事前プロビジョニング状態 (ADR 0016 D-4)。 */
+  desiredCount: number;
+  /** 実際に RUNNING なタスク数。 */
+  runningCount: number;
+  /** DescribeServices で見つからなかった (= スタック作成途中でまだ存在しない)。 */
+  missing?: boolean;
+}
+
+/**
+ * 管理画面に出すプロビジョニング状況 (ADR 0023 D-3)。reconcile Lambda が書き、
+ * control-api の GET /events/:id がそのまま返す。
+ */
+export interface EventProvisioningInfo {
+  phase: ProvisioningPhase;
+  /** CloudFormation の生ステータス (`CREATE_IN_PROGRESS` 等)。診断用。 */
+  stackStatus?: string;
+  /** ECS サービスごとの desired/running。 */
+  services: EcsServiceStatus[];
+  /** LiveKit URL が確定済みか (= `media` フィールドが埋まっているか)。 */
+  mediaReady: boolean;
+  /** この観測を書き込んだエポックミリ秒。 */
+  observedAtMs: number;
+}
+
 /** イベント定義 (DESIGN.md 8 章)。 */
 export interface EventDefinition {
   /** イベント ID。 */
@@ -87,6 +136,11 @@ export interface EventDefinition {
    * status="draft"/"ended" や、status="live" でも起動完了前は undefined。
    */
   media?: EventMediaInfo;
+  /**
+   * メディア層の起動進捗 (ADR 0023 D-3)。reconcile が毎 tick 書き戻す観測値で、
+   * 管理画面の「配信インフラ」カードがこれを表示する。
+   */
+  provisioning?: EventProvisioningInfo;
   createdAtMs: number;
   updatedAtMs: number;
 }

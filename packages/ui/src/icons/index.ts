@@ -50,6 +50,7 @@ export {
   ScreenShare,
   ScreenShareOff,
   Search,
+  Server,
   Settings,
   Square,
   Sun,

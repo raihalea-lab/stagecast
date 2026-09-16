@@ -12,7 +12,7 @@
     "clean": "rm -rf dist *.tsbuildinfo"
   },
   "dependencies": {
-    "@aws-sdk/client-cloudformation": "^3.1068.0",
+    "@aws-sdk/client-cloudformation": "^3.1077.0",
     "@aws-sdk/client-dynamodb": "^3.1068.0",
     "@aws-sdk/client-ec2": "^3.1068.0",
     "@aws-sdk/client-ecs": "^3.1068.0",

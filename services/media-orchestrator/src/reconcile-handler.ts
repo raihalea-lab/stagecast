@@ -35,26 +35,28 @@ const DEFAULT_MAX_PARALLEL_EVENTS = 10;
 /** LiveKit Server (Fargate task) が listen するシグナリングポート。 */
 const LIVEKIT_SIGNAL_PORT = 7880;
 
-/**
- * ECS Cluster 名を解決する (ADR 0015 Phase 3)。
- * SHARED_CLUSTER_NAME が設定されていれば共有 Cluster を使い、なければ per-event Cluster。
- */
-function clusterName(eventId: string): string {
-  return process.env.SHARED_CLUSTER_NAME ?? `stagecast-event-${eventId}`;
-}
-
-/**
- * SFU サービス名を解決する (ADR 0015 Phase 3)。
- * 共有 Cluster 時は `sfu-{eventId}` で衝突回避、per-event Cluster 時は固定 `sfu`。
- */
-function sfuServiceName(eventId: string): string {
-  return process.env.SHARED_CLUSTER_NAME ? `sfu-${eventId}` : "sfu";
-}
-
+import {
+  clusterName,
+  eventServiceNames,
+  readServiceStatuses,
+  scaleUpServices,
+  sfuServiceName,
+  type EcsLike,
+} from "./ecs-services.js";
+import {
+  createProvisioningPublisher,
+  type ProvisioningInput,
+  type ProvisioningStore,
+} from "./provisioning.js";
 import { createMediaPublisher, type MediaResolver, type MediaStore } from "./media-publisher.js";
-import type { EventMediaInfo } from "@stagecast/shared";
+import type { EventMediaInfo, EventProvisioningInfo } from "@stagecast/shared";
 // 型だけの import なので実行時の読み込みは増えない。
 import type { DynamoDBDocumentClient } from "@aws-sdk/lib-dynamodb";
+
+/** 環境変数から共有 Cluster 名を読む (未設定なら per-event Cluster, ADR 0015 Phase 3)。 */
+function sharedCluster(): string | undefined {
+  return process.env.SHARED_CLUSTER_NAME;
+}
 
 /** 環境変数 → 結線。Lambda の cold start で 1 度だけ評価する。 */
 interface HandlerDeps {
@@ -64,6 +66,10 @@ interface HandlerDeps {
   terminologySweep: TerminologySweepDeps;
   executor: ReconcileExecutor;
   mediaPublisher: ReturnType<typeof createMediaPublisher>;
+  /** ADR 0023 D-3: 起動進捗を events 行に書き戻す。 */
+  provisioningPublisher: ReturnType<typeof createProvisioningPublisher>;
+  /** ADR 0016 D-6 / ADR 0023 D-2: ECS サービスの観測とスケールアップ。 */
+  ecs: EcsLike;
   maxParallel: number;
 }
 
@@ -105,11 +111,11 @@ async function deps(): Promise<HandlerDeps> {
 
       // 2) ECS task の Public IP を解決する (ADR 0008 D-2)。
       //    CFN Output がある場合でも Route53 Aレコード UPSERT に IP が必要。
-      const cluster = clusterName(eventId);
+      const cluster = clusterName(eventId, sharedCluster());
       const listed = await ecs.send(
         new ListTasksCommand({
           cluster,
-          serviceName: sfuServiceName(eventId),
+          serviceName: sfuServiceName(eventId, sharedCluster()),
           desiredStatus: "RUNNING",
         }),
       );
@@ -190,6 +196,71 @@ async function deps(): Promise<HandlerDeps> {
     },
   };
   const mediaPublisher = createMediaPublisher({ resolver, store });
+
+  // ADR 0023 D-3: 起動進捗 (events.provisioning) の読み書き。
+  const provisioningStore: ProvisioningStore = {
+    get: async (eventId) => {
+      const res = await dynamo.send(
+        new QueryCommand({
+          TableName: tableName,
+          KeyConditionExpression: "pk = :pk AND sk = :sk",
+          ExpressionAttributeValues: { ":pk": `EVENT#${eventId}`, ":sk": "META" },
+          Limit: 1,
+        }),
+      );
+      return res.Items?.[0]?.provisioning as EventProvisioningInfo | undefined;
+    },
+    // `provisioning` は DynamoDB の予約語なので式中で直接書けない (media は予約語ではない)。
+    put: async (eventId, info) => {
+      await dynamo.send(
+        new UpdateCommand({
+          TableName: tableName,
+          Key: { pk: `EVENT#${eventId}`, sk: "META" },
+          UpdateExpression: "SET #prov = :p, updatedAtMs = :t",
+          ExpressionAttributeNames: { "#prov": "provisioning" },
+          ExpressionAttributeValues: { ":p": info, ":t": Date.now() },
+        }),
+      );
+    },
+    clear: async (eventId) => {
+      await dynamo.send(
+        new UpdateCommand({
+          TableName: tableName,
+          Key: { pk: `EVENT#${eventId}`, sk: "META" },
+          UpdateExpression: "REMOVE #prov SET updatedAtMs = :t",
+          ExpressionAttributeNames: { "#prov": "provisioning" },
+          ExpressionAttributeValues: { ":t": Date.now() },
+        }),
+      );
+    },
+  };
+  const provisioningPublisher = createProvisioningPublisher({ store: provisioningStore });
+
+  // ADR 0016 D-6 / ADR 0023 D-2: ECS サービスの desired/running 観測とスケールアップ。
+  const { DescribeServicesCommand, UpdateServiceCommand } = await import("@aws-sdk/client-ecs");
+  const ecsLike: EcsLike = {
+    describeServices: async (cluster, services) => {
+      // 存在しないサービスは failures に入るだけで例外にはならない (= 作成途中を素通りできる)。
+      // 破棄直後は同名の INACTIVE/DRAINING な残骸が返ることがあり、これを「存在する」と
+      // 扱うと UpdateService が ECS に拒否されるので ACTIVE だけを採用する。
+      const res = await ecs.send(new DescribeServicesCommand({ cluster, services }));
+      return (res.services ?? []).flatMap((svc) =>
+        svc.serviceName && svc.status === "ACTIVE"
+          ? [
+              {
+                name: svc.serviceName,
+                desiredCount: svc.desiredCount ?? 0,
+                runningCount: svc.runningCount ?? 0,
+              },
+            ]
+          : [],
+      );
+    },
+    updateDesiredCount: async (cluster, service, desiredCount) => {
+      await ecs.send(new UpdateServiceCommand({ cluster, service, desiredCount }));
+    },
+  };
+
   const maxParallel = process.env.MAX_PARALLEL_EVENTS
     ? Number(process.env.MAX_PARALLEL_EVENTS)
     : DEFAULT_MAX_PARALLEL_EVENTS;
@@ -251,7 +322,8 @@ async function deps(): Promise<HandlerDeps> {
           if (!s.StackName?.startsWith("StagecastEventMedia-")) continue;
           const eventId = s.StackName.slice("StagecastEventMedia-".length);
           const ageMs = s.CreationTime ? Date.now() - s.CreationTime.getTime() : undefined;
-          stacks.push({ eventId, kind: classifyStackStatus(s.StackStatus ?? ""), ageMs });
+          const status = s.StackStatus ?? "";
+          stacks.push({ eventId, kind: classifyStackStatus(status), status, ageMs });
         }
         next = res.NextToken;
       } while (next);
@@ -259,6 +331,8 @@ async function deps(): Promise<HandlerDeps> {
     },
     executor: makeExecutor(),
     mediaPublisher,
+    provisioningPublisher,
+    ecs: ecsLike,
     maxParallel,
   };
   return cached;
@@ -516,6 +590,7 @@ function makeExecutor(): ReconcileExecutor {
       const lambda = new LambdaClient({});
       const fnName = process.env.RENDER_TEMPLATE_FUNCTION_NAME;
       if (!fnName) throw new Error("RENDER_TEMPLATE_FUNCTION_NAME is required");
+      const expressMode = process.env.CFN_EXPRESS_MODE !== "false";
       return createAwsMediaStackProvisioner({
         renderTemplate: async (spec) => {
           const res = await lambda.send(
@@ -549,6 +624,25 @@ function makeExecutor(): ReconcileExecutor {
         maxPolls: 1,
         // CFN にリソース作成権限を委譲する実行ロール (R5, ADR 0005 D-5)。
         roleArn: process.env.CFN_EXEC_ROLE_ARN,
+        // ADR 0023 D-1: CloudFormation Express モードでスタック作成を短縮する。
+        // 事故時の退避用に CFN_EXPRESS_MODE=false で従来の STANDARD に戻せる。
+        expressMode,
+        // Express を要求したのに STANDARD で返ってきたら、パラメータが黙って落ちている
+        // (SDK / リージョン未対応)。「速くならないが成功する」状態に気づけるよう警告する。
+        onObserve: (o) => {
+          // DeploymentConfig ごと返ってこない (= パラメータが落ちた) 場合も検知対象。
+          if (expressMode && o.deploymentMode !== "EXPRESS") {
+            log.warn("express mode not applied", {
+              stackName: o.stackName,
+              deploymentMode: o.deploymentMode,
+            });
+          }
+          log.info("stack observed", {
+            stackName: o.stackName,
+            status: o.status,
+            deploymentMode: o.deploymentMode,
+          });
+        },
       });
     })();
     return provisionerPromise;
@@ -596,34 +690,30 @@ function isWarmupEvent(event: unknown): event is WarmupEvent {
 }
 
 /**
- * ADR 0016 D-6: pending → live 遷移時に desiredCount=0 のサービスを 1 に引き上げる。
- * 全 ECS サービスの desiredCount が 0 なら 1 に更新する。
+ * 1 イベント分の ECS サービスを観測し、必要ならスケールアップする
+ * (ADR 0016 D-6 / ADR 0023 D-2)。
+ *
+ * `scaleUp=true` (= live/warmup) のとき、pending で `desiredCount=0` のまま作られた
+ * サービスを 1 に引き上げる。スタックが CREATE_IN_PROGRESS でも Express モードでは
+ * サービスが先に出来上がっているので、running を待たずに引き上げを試みる。
  */
-async function scaleUpIfNeeded(eventId: string): Promise<void> {
-  const { ECSClient, DescribeServicesCommand, UpdateServiceCommand } =
-    await import("@aws-sdk/client-ecs");
-  const ecsClient = new ECSClient({});
-  const cluster = clusterName(eventId);
-  const serviceNames = [
-    sfuServiceName(eventId),
-    process.env.SHARED_CLUSTER_NAME ? `valkey-${eventId}` : "valkey",
-    process.env.SHARED_CLUSTER_NAME ? `captionworker-${eventId}` : "captionworker",
-  ];
-  const desc = await ecsClient.send(
-    new DescribeServicesCommand({ cluster, services: serviceNames }),
-  );
-  for (const svc of desc.services ?? []) {
-    if (svc.desiredCount === 0 && svc.serviceName) {
-      await ecsClient.send(
-        new UpdateServiceCommand({
-          cluster,
-          service: svc.serviceName,
-          desiredCount: 1,
-        }),
-      );
-      log.info("scaled up service", { eventId, service: svc.serviceName });
-    }
+async function observeAndScale(
+  ecs: EcsLike,
+  eventId: string,
+  scaleUp: boolean,
+  captionEnabled: boolean,
+): Promise<EventProvisioningInfo["services"]> {
+  const names = eventServiceNames(eventId, sharedCluster());
+  const observed = await readServiceStatuses(ecs, names);
+  if (!scaleUp) return observed;
+  // ADR 0017 D-2: 字幕不要なイベントの CaptionWorker=0 は意図した 0 なので引き上げない。
+  const targets = { [names.sfu]: 1, [names.captionWorker]: captionEnabled ? 1 : 0 };
+  const { scaled, failures, statuses } = await scaleUpServices(ecs, names, observed, targets);
+  for (const service of scaled) log.info("scaled up service", { eventId, service });
+  for (const f of failures) {
+    log.error("scale up failed", { eventId, service: f.name, error: String(f.err) });
   }
+  return statuses;
 }
 
 /** EventBridge スケジュールまたはウォームアップスケジューラから呼ばれるエントリ。 */
@@ -713,40 +803,73 @@ export async function handler(
     },
   });
 
-  // ADR 0016 D-6: live イベントで running スタックの desiredCount が 0 の場合、1 に引き上げる。
+  // 1 イベントずつ「ECS 観測 → スケールアップ → media 確定 → 進捗の書き戻し」を回す。
+  //  - ADR 0016 D-6 / ADR 0023 D-2: pending で作った desiredCount=0 を live 遷移後に 1 へ。
+  //  - ADR 0008 D-2: task の Public IP から livekitUrl を確定させる。
+  //  - ADR 0023 D-3: 上記の観測結果を events.provisioning に書き戻し、管理画面に出す。
   const actualById = new Map(actual.map((a) => [a.eventId, a]));
-  for (const d2 of desired.filter((d) => !d.pending)) {
+  let mediaUpdated = 0;
+  for (const d2 of desired) {
     const a = actualById.get(d2.eventId);
-    if (a?.kind === "running") {
+    const wantTasks = !d2.pending;
+
+    // Express モードでは CREATE_IN_PROGRESS の時点で既にサービスが存在しうるので、
+    // running を待たずに観測・引き上げを試みる (無ければ missing として次 tick に持ち越す)。
+    // failed / deleting は上の executePlan が既に DeleteStack を出しているので触らない。
+    let services: EventProvisioningInfo["services"] = [];
+    // ROLLBACK 系は classifyStackStatus が in_progress に落とすが、CFN が巻き戻している
+    // 最中なので触らない。引き上げても直後に消されるうえ、管理画面にも「作成中」と誤表示される。
+    // (Express はロールバック無効だが、CFN_EXPRESS_MODE=false の退避口では起きる)
+    const rollingBack = a?.status?.includes("ROLLBACK") ?? false;
+    if (a && !rollingBack && (a.kind === "running" || a.kind === "in_progress")) {
       try {
-        await scaleUpIfNeeded(d2.eventId);
+        // captionEnabled 未指定は有効扱い (reconcile.ts の toSpec と同じ既定, ADR 0017)。
+        services = await observeAndScale(d.ecs, d2.eventId, wantTasks, d2.captionEnabled ?? true);
       } catch (err) {
-        log.error("scale-up failed", { eventId: d2.eventId, error: String(err) });
+        log.error("ecs observe/scale failed", { eventId: d2.eventId, error: String(err) });
       }
+    }
+
+    let mediaReady = false;
+    if (a?.kind === "running") {
+      const outcome = await d.mediaPublisher.publish(d2.eventId);
+      mediaReady = outcome.status === "updated" || outcome.status === "unchanged";
+      if (outcome.status === "updated") {
+        mediaUpdated++;
+        log.info("media publish", { eventId: d2.eventId, status: "updated" });
+      } else if (outcome.status === "error") {
+        log.error("media publish", { eventId: d2.eventId, err: outcome.err });
+      } else {
+        log.info("media publish", { eventId: d2.eventId, status: outcome.status });
+      }
+    }
+
+    const input: ProvisioningInput = {
+      ...(a ? { stack: { kind: a.kind, status: a.status } } : {}),
+      services,
+      mediaReady,
+      wantTasks,
+    };
+    const progress = await d.provisioningPublisher.publish(d2.eventId, input);
+    if (progress.status === "error") {
+      log.error("provisioning publish", { eventId: d2.eventId, err: progress.err });
+    } else if (progress.status === "updated") {
+      log.info("provisioning publish", {
+        eventId: d2.eventId,
+        phase: progress.info.phase,
+        stackStatus: progress.info.stackStatus,
+      });
     }
   }
 
-  // ADR 0008 D-2: live + 既にスタック running の各イベントに対して media を確定させる。
-  const runningIds = new Set(actual.filter((a) => a.kind === "running").map((a) => a.eventId));
-  const liveRunning = desired.filter((d) => runningIds.has(d.eventId));
-  let mediaUpdated = 0;
-  for (const d2 of liveRunning) {
-    const outcome = await d.mediaPublisher.publish(d2.eventId);
-    if (outcome.status === "updated") {
-      mediaUpdated++;
-      log.info("media publish", { eventId: d2.eventId, status: "updated" });
-    } else if (outcome.status === "error") {
-      log.error("media publish", { eventId: d2.eventId, err: outcome.err });
-    } else {
-      log.info("media publish", { eventId: d2.eventId, status: outcome.status });
-    }
-  }
   // ADR 0008 D-2: desired に無いのにスタックがあった (= destroy 対象) なら media をクリア。
+  // ADR 0023 D-3: 進捗表示も同時に畳む (管理画面に「破棄中」を出してからクリアする)。
   const desiredIds = new Set(desired.map((e) => e.eventId));
   for (const a of actual) {
     if (desiredIds.has(a.eventId)) continue;
     if (a.kind !== "deleting") continue;
     await d.mediaPublisher.clear(a.eventId);
+    await d.provisioningPublisher.clear(a.eventId);
     log.info("media clear", { eventId: a.eventId });
   }
 
