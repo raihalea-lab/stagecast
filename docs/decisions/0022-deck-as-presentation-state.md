@@ -182,6 +182,39 @@ ADR 0021 の翻訳は資料全体を文脈にするので投影状態に依存�
 2. `setSlide` の権限 → **moderator と speaker の両方に許した**。取得は speaker も可。
 3. テストは外部接続なしで完結 → 済 (`control-api.test.ts` の in-memory 経路)
 
+## 実配信での検証 (2026-09-16, 実 AWS)
+
+イベント `test1` (ja → en, transcribe) で実際に配信を立てて確認した。
+
+| 確認項目                          | 結果                                                     |
+| --------------------------------- | -------------------------------------------------------- |
+| デッキ投入 → 投影状態の永続化     | ✅ `slideSource` / `slidePage` / `deck` すべて保存       |
+| room metadata への書き込み        | ✅ LiveKit 側に `UpdateRoomMetadata` が 200              |
+| **composer が接続時に投影を復元** | ✅ `ROOM_METADATA_APPLIED` が `START_RECORDING` と同時刻 |
+| ページ送りの反映                  | ✅ `RoomMetadataChanged` 経由で切り替わり                |
+
+**デッキ投入の 7 分後**に composer を接続したが (配り直しは 5 分間隔)、**接続した瞬間に
+投影を復元した**。本 ADR の中心的な主張が実測で確認できた。
+
+### 実配信で見つかった不具合
+
+**room metadata が空のまま publish されていなかった** (PR #226 で修正)。
+`resolveRoomMetadataPublisher` が `env.LIVEKIT_API_KEY` だけを見ていたが、本番は
+`LIVEKIT_SECRET_ARN` (Secrets Manager)。publisher が undefined になり、
+`publishRoomMetadata` が即 return していた。**エラーログも出ず、API は 200 を返し、
+DynamoDB にも保存される**ので、LiveKit の metadata を直接読むまで気づけなかった。
+
+教訓: 同じ資格情報を 2 通りの方法で取ると、片方だけが本番の設定に合っていないという
+形で壊れる。解決は 1 箇所に寄せること (`resolveLiveKitCredentials`)。
+「設定が無いので無効」の経路にも warn を残すこと。
+
+そのほか、デプロイして初めて分かった不具合が 2 件:
+
+- **公開ルートの登録漏れ** (PR #224)。`$default` の JWT authorizer が招待トークンの
+  呼び出しを 401 で弾いていた (ADR 0001 D-10)。`cdk synth` も単体テストも通る
+- **`deck` の読み出し漏れ** (PR #225)。`itemToPresentation` が明示列挙で、書けるのに
+  読み戻すと消えていた。往復テストに全フィールドを載せて再発を防いだ
+
 ## 補足: コードとコメントの乖離 (解消済み)
 
 `services/control-api/src/usecases/presentation.ts` と `packages/shared/src/presentation.ts` の
