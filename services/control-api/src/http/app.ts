@@ -5,6 +5,7 @@
  * トランスポート固有の変換は adapter (index.ts) 側で行う。これにより外部接続なしの
  * 単体テストが容易になる。
  */
+import { materialsPrefix, parseMaterialKey } from "@stagecast/shared";
 import type {
   AssetMetadata,
   InvitedRole,
@@ -24,7 +25,7 @@ import type { createInviteService } from "../usecases/invites.js";
 import type { createPresentationService } from "../usecases/presentation.js";
 import { ServiceUnavailableError, type createJoinService } from "../usecases/join.js";
 import type { createAssetUploadService } from "../assets/asset-upload.js";
-import type { createDeckUploadService } from "../assets/asset-upload.js";
+import type { createMaterialUploadService } from "../assets/asset-upload.js";
 import type { createArtifactDownloadService } from "../assets/artifact-download.js";
 import type { AdminTokenService } from "../usecases/admin-token.js";
 import type { EgressService } from "../usecases/egress.js";
@@ -52,7 +53,7 @@ type InviteService = ReturnType<typeof createInviteService>;
 type PresentationService = ReturnType<typeof createPresentationService>;
 type JoinService = ReturnType<typeof createJoinService>;
 type AssetUploadService = ReturnType<typeof createAssetUploadService>;
-type DeckUploadService = ReturnType<typeof createDeckUploadService>;
+type MaterialUploadService = ReturnType<typeof createMaterialUploadService>;
 type ArtifactDownloadService = ReturnType<typeof createArtifactDownloadService>;
 
 export interface AppDeps {
@@ -64,7 +65,7 @@ export interface AppDeps {
   /** 素材アップロード署名サービス (S3 未設定なら省略され 503)。 */
   assets?: AssetUploadService;
   /** 事前アップロードスライド (PDF) のデッキ用アップロード署名サービス (F-3, 5.2)。 */
-  decks?: DeckUploadService;
+  materials?: MaterialUploadService;
   /** 成果物ダウンロードサービス (S3 未設定なら省略され 503)。 */
   artifacts?: ArtifactDownloadService;
   /** 運用設定 (LiveKit / YouTube 認証情報) 管理 (Secrets Manager 未設定なら省略され 503)。 */
@@ -242,35 +243,35 @@ export function createApp(deps: AppDeps) {
 
     // 公開: stage-web からデッキ (事前アップロードスライド PDF) のアップロード URL 取得
     // (invite-token 認証, F-3, DESIGN.md 5.2)。`assets/decks/{eventId}/` 配下に PDF のみ許可。
-    if (req.method === "POST" && req.path === "/stage/decks/upload-url") {
-      if (!deps.decks) throw new ServiceUnavailableError("deck storage not configured");
+    if (req.method === "POST" && req.path === "/stage/materials/upload-url") {
+      if (!deps.materials) throw new ServiceUnavailableError("material storage not configured");
       const inviteToken = String(body.inviteToken ?? "");
       const verified = await invites.verify(inviteToken);
       if (!verified.valid) return json(401, { ok: false, reason: verified.reason });
       if (verified.role !== "moderator") {
-        return json(403, { error: "only moderator can upload decks" });
+        return json(403, { error: "only moderator can upload materials" });
       }
       const filename = String(body.filename ?? "deck.pdf");
       const contentType = String(body.contentType ?? "application/pdf");
-      const result = await deps.decks.createUploadUrl(verified.eventId, filename, contentType);
+      const result = await deps.materials.createUploadUrl(verified.eventId, filename, contentType);
       return json(201, result);
     }
 
-    // 公開: stage-web からデッキ (PDF) のダウンロード URL 取得 (invite-token 認証, F-3, 5.2)。
+    // 公開: stage-web から資料 (投影用 PDF) のダウンロード URL 取得 (invite-token 認証, F-3, 5.2)。
     // composer-template が署名付き GET URL から pdf.js で描画するために使う。
-    if (req.method === "POST" && req.path === "/stage/decks/download-url") {
-      if (!deps.artifactStore) throw new ServiceUnavailableError("deck storage not configured");
+    if (req.method === "POST" && req.path === "/stage/materials/download-url") {
+      if (!deps.artifactStore) throw new ServiceUnavailableError("material storage not configured");
       const inviteToken = String(body.inviteToken ?? "");
       const verified = await invites.verify(inviteToken);
       if (!verified.valid) return json(401, { ok: false, reason: verified.reason });
       if (verified.role !== "moderator") {
-        return json(403, { error: "only moderator can access decks" });
+        return json(403, { error: "only moderator can access materials" });
       }
       const assetKey = String(body.assetKey ?? "");
       if (!assetKey) return json(400, { error: "assetKey is required" });
-      // デッキプレフィックス配下のキーだけ presign する (任意キーを許すと他イベントの素材を取得できる)。
-      const prefix = `assets/decks/${verified.eventId}/`;
-      if (!assetKey.startsWith(prefix)) return json(404, { error: "deck not found" });
+      // 資料プレフィックス配下のキーだけ presign する (任意キーを許すと他イベントの素材を取得できる)。
+      const prefix = materialsPrefix(verified.eventId);
+      if (!assetKey.startsWith(prefix)) return json(404, { error: "material not found" });
       const downloadUrl = await deps.artifactStore.presignGet(assetKey);
       return json(200, { downloadUrl });
     }
@@ -412,6 +413,40 @@ export function createApp(deps: AppDeps) {
         }
       } else if (segments[2] === "status" && req.method === "POST") {
         return json(200, await events.setStatus(eventId, body.status as never));
+      } else if (segments[2] === "materials") {
+        // 翻訳参考資料 (ADR 0021 D-1)。イベント準備の段階で事前に登録できるようにする。
+        // 当日 stage-web から入れる投影デッキも同じ prefix に置かれる。
+        if (!deps.artifactStore) {
+          throw new ServiceUnavailableError("material storage not configured");
+        }
+        if (segments.length === 3 && req.method === "GET") {
+          const objects = await deps.artifactStore.list(materialsPrefix(eventId));
+          // _context.json は抽出結果であって資料ではないので一覧から外す。
+          const items = objects
+            .map((o) => ({ object: o, parsed: parseMaterialKey(o.key) }))
+            .flatMap(({ object, parsed }) =>
+              parsed
+                ? [{ assetId: parsed.assetId, filename: parsed.filename, key: object.key }]
+                : [],
+            );
+          return json(200, { materials: items });
+        }
+        if (segments[3] === "upload-url" && req.method === "POST") {
+          if (!deps.materials) {
+            throw new ServiceUnavailableError("material storage not configured");
+          }
+          const result = await deps.materials.createUploadUrl(
+            eventId,
+            String(body.filename ?? ""),
+            String(body.contentType ?? ""),
+          );
+          return json(201, result);
+        }
+        if (segments[3] && req.method === "DELETE") {
+          // assetId 配下をまとめて消す。消えると S3 通知で _context.json も作り直される。
+          await deps.artifactStore.deletePrefix(`${materialsPrefix(eventId)}${segments[3]}/`);
+          return json(204, null);
+        }
       } else if (segments[2] === "presentation") {
         if (segments.length === 3 && req.method === "GET") {
           return json(200, await presentation.getState(eventId));

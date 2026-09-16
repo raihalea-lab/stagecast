@@ -220,6 +220,8 @@ export class EventMediaStack extends Stack {
                 "transcribe:StartStreamTranscriptionWebSocket",
                 "transcribe:StartStreamTranscription",
                 "translate:TranslateText",
+                // TranslateText に TerminologyNames を添えると用語集の読み取りが要る (ADR 0021 D-3)。
+                "translate:GetTerminology",
                 "bedrock:InvokeModel",
                 "bedrock:InvokeModelWithResponseStream",
               ],
@@ -512,6 +514,8 @@ export class EventMediaStack extends Stack {
         // pending (desiredCount=0) から live への引き上げが永久に起きなかった。
         serviceName: captionWorkerServiceName,
         desiredCount: props.captionDesiredCount ?? props.desiredCount,
+        // ADR 0021 D-6: 翻訳参考資料の _context.json を S3 から直接読む。
+        environment: { ASSETS_BUCKET: recordingsBucketName },
         ...(props.customCaptionApi ? { ports: [{ containerPort: 8080 }] } : {}),
         // プレースホルダイメージ (node:24-alpine) は引数なしで即終了する。
         // 実 caption-worker イメージが ECR に push されるまで sleep で生かしておく。

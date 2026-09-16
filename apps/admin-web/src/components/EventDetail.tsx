@@ -22,6 +22,11 @@ import type {
 } from "../api/types.js";
 import { toErrorMessage } from "../lib/errors.js";
 import {
+  MATERIAL_ACCEPT,
+  type MaterialItem,
+  type MaterialsService,
+} from "../api/materials-service.js";
+import {
   AlertDialog,
   AlertDialogAction,
   AlertDialogCancel,
@@ -543,12 +548,15 @@ export function EventDetail(props: {
   client: ControlApiClient;
   assets: AssetService;
   artifacts: ArtifactService;
+  materials: MaterialsService;
   onChanged: () => void;
   onDelete: (id: string) => void;
 }) {
-  const { event, client, assets, artifacts, onChanged } = props;
+  const { event, client, assets, artifacts, materials, onChanged } = props;
   const [invites, setInvites] = useState<IssuedInvite[]>([]);
   const [artifactList, setArtifactList] = useState<Artifact[] | undefined>();
+  // ADR 0021: 翻訳参考資料。登録すると抽出 Lambda がテキストを取り出し、字幕翻訳の文脈になる。
+  const [materialList, setMaterialList] = useState<MaterialItem[]>([]);
   const [error, setError] = useState<string | undefined>();
   const [busy, setBusy] = useState(false);
 
@@ -563,6 +571,28 @@ export function EventDetail(props: {
       setBusy(false);
     }
   };
+
+  const loadMaterials = useCallback(() => {
+    // 一覧の取得失敗で画面全体を止めない (資料は補助的な機能)。
+    materials
+      .list(event.id)
+      .then(setMaterialList)
+      .catch(() => setMaterialList([]));
+  }, [materials, event.id]);
+
+  useEffect(loadMaterials, [loadMaterials]);
+
+  const uploadMaterial = (file: File) =>
+    guard(async () => {
+      await materials.upload(event.id, file);
+      loadMaterials();
+    })();
+
+  const removeMaterial = (assetId: string) =>
+    guard(async () => {
+      await materials.remove(event.id, assetId);
+      loadMaterials();
+    })();
 
   const loadArtifacts = guard(async () => {
     setArtifactList(await artifacts.list(event.id));
@@ -710,6 +740,59 @@ export function EventDetail(props: {
               </div>
               {event.qrAsset && (
                 <p className="text-sm text-text-secondary">登録済み QR: {event.qrAsset.key}</p>
+              )}
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2 text-base">
+                <File className="size-4" />
+                翻訳参考資料
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <p className="text-sm text-text-secondary">
+                登壇資料を登録すると、本文を字幕翻訳の文脈に使って用語の訳を揃えます。
+                投影しない発表原稿や話者ノートも登録できます。
+              </p>
+              <div className="grid gap-2">
+                <Label htmlFor="material-upload">資料 (PDF / PPTX / Markdown / テキスト)</Label>
+                <Input
+                  id="material-upload"
+                  type="file"
+                  accept={MATERIAL_ACCEPT}
+                  disabled={busy}
+                  onChange={(e) => {
+                    const file = e.target.files?.[0];
+                    if (file) void uploadMaterial(file);
+                    // 同じファイルを選び直せるように値を消す。
+                    e.target.value = "";
+                  }}
+                />
+              </div>
+              {materialList.length > 0 ? (
+                <ul className="space-y-2">
+                  {materialList.map((m) => (
+                    <li
+                      key={m.assetId}
+                      className="flex items-center justify-between rounded-md border border-line-1 px-3 py-2 text-sm"
+                    >
+                      <span className="truncate text-text-primary">{m.filename}</span>
+                      <Button
+                        variant="ghost"
+                        size="icon-sm"
+                        disabled={busy}
+                        onClick={() => void removeMaterial(m.assetId)}
+                        aria-label={`${m.filename} を削除`}
+                      >
+                        <Trash2 className="size-4" />
+                      </Button>
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <p className="text-sm text-text-tertiary">まだ登録されていません。</p>
               )}
             </CardContent>
           </Card>

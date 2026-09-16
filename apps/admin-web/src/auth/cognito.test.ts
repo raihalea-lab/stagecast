@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { CognitoAuthClient, createPkceChallenge, type SessionStorageLike } from "./cognito.js";
 
 class MemoryStorage implements SessionStorageLike {
@@ -20,6 +20,36 @@ const config = {
   redirectUri: "https://admin.example/auth/callback",
   logoutUri: "https://admin.example/",
 };
+
+function jsonResponse(body: unknown, status = 200): Response {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: { "content-type": "application/json" },
+  });
+}
+
+afterEach(() => {
+  vi.unstubAllGlobals();
+  vi.useRealTimers();
+});
+
+/** 使えるトークンが返ったときだけ id token を取り出す。 */
+async function idTokenOf(auth: CognitoAuthClient): Promise<string | undefined> {
+  const result = await auth.getValidToken();
+  return result.status === "ok" ? result.tokens.idToken : undefined;
+}
+
+/** 期限切れ + refresh token あり、の状態を作る。 */
+function expiredWithRefreshToken(storage: SessionStorageLike): CognitoAuthClient {
+  const auth = new CognitoAuthClient(config, storage);
+  auth.saveTokens({
+    idToken: "old-id",
+    accessToken: "old-ac",
+    expiresAtMs: Date.now() - 1,
+    refreshToken: "rt-1",
+  });
+  return auth;
+}
 
 describe("CognitoAuthClient (T6 / F-12)", () => {
   it("PKCE challenge は base64url 形式 (RFC 7636)", async () => {
@@ -67,6 +97,373 @@ describe("CognitoAuthClient (T6 / F-12)", () => {
     expect(auth.getTokens()?.idToken).toBe("id");
     auth.saveTokens({ idToken: "id", accessToken: "ac", expiresAtMs: Date.now() - 1 });
     expect(auth.getTokens()).toBeUndefined();
+  });
+
+  it("exchangeCode は応答の refresh_token を保存する (D11)", async () => {
+    const storage = new MemoryStorage();
+    storage.setItem("stagecast.auth.oauth.state", "s");
+    storage.setItem("stagecast.auth.pkce.verifier", "v");
+    const fetchMock = vi.fn(async () =>
+      jsonResponse({
+        id_token: "id-1",
+        access_token: "ac-1",
+        expires_in: 21_600,
+        refresh_token: "rt-1",
+      }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const auth = new CognitoAuthClient(config, storage);
+    const tokens = await auth.exchangeCode("code", "s");
+
+    expect(tokens.refreshToken).toBe("rt-1");
+    expect(storage.getItem("stagecast.refreshToken")).toBe("rt-1");
+  });
+
+  it("期限が近いと refresh token で更新する (D11)", async () => {
+    const storage = new MemoryStorage();
+    const auth = new CognitoAuthClient(config, storage);
+    // 残り 1 分 = リード時間 (5 分) を切っているので更新対象。
+    auth.saveTokens({
+      idToken: "old-id",
+      accessToken: "old-ac",
+      expiresAtMs: Date.now() + 60_000,
+      refreshToken: "rt-1",
+    });
+    // リクエスト内容を検証するので引数の型を明示する (vi.fn(() => ...) だと calls が [] 型になる)。
+    const fetchMock = vi.fn(async (_url: string, _init: RequestInit) =>
+      jsonResponse({ id_token: "new-id", access_token: "new-ac", expires_in: 21_600 }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await auth.getValidToken();
+
+    expect(result).toEqual({
+      status: "ok",
+      tokens: expect.objectContaining({ idToken: "new-id" }),
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const body = new URLSearchParams(fetchMock.mock.calls[0]?.[1].body as string);
+    expect(body.get("grant_type")).toBe("refresh_token");
+    expect(body.get("refresh_token")).toBe("rt-1");
+    expect(body.get("client_id")).toBe(config.clientId);
+    // Cognito は更新応答に refresh_token を含めないので、既存のものを持ち越す。
+    expect(storage.getItem("stagecast.refreshToken")).toBe("rt-1");
+  });
+
+  it("期限切れでも refresh token が生きていれば復帰する (D11)", async () => {
+    const storage = new MemoryStorage();
+    const auth = new CognitoAuthClient(config, storage);
+    auth.saveTokens({
+      idToken: "old-id",
+      accessToken: "old-ac",
+      expiresAtMs: Date.now() - 1,
+      refreshToken: "rt-1",
+    });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        jsonResponse({ id_token: "new-id", access_token: "new-ac", expires_in: 21_600 }),
+      ),
+    );
+
+    expect(auth.getTokens()).toBeUndefined();
+    expect(await idTokenOf(auth)).toBe("new-id");
+  });
+
+  it("期限に余裕があれば更新しない (D11)", async () => {
+    const storage = new MemoryStorage();
+    const auth = new CognitoAuthClient(config, storage);
+    auth.saveTokens({
+      idToken: "id",
+      accessToken: "ac",
+      expiresAtMs: Date.now() + 3_600_000,
+      refreshToken: "rt-1",
+    });
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+
+    expect(await idTokenOf(auth)).toBe("id");
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("同時に呼ばれても更新リクエストは 1 回に畳む (single-flight)", async () => {
+    const storage = new MemoryStorage();
+    const auth = new CognitoAuthClient(config, storage);
+    auth.saveTokens({
+      idToken: "old",
+      accessToken: "old",
+      expiresAtMs: Date.now() - 1,
+      refreshToken: "rt-1",
+    });
+    const fetchMock = vi.fn(async () =>
+      jsonResponse({ id_token: "new-id", access_token: "new-ac", expires_in: 21_600 }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const results = await Promise.all([
+      auth.getValidToken(),
+      auth.getValidToken(),
+      auth.getValidToken(),
+    ]);
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(results.map((r) => (r.status === "ok" ? r.tokens.idToken : r.status))).toEqual([
+      "new-id",
+      "new-id",
+      "new-id",
+    ]);
+  });
+
+  it("refresh token が失効 (4xx) していればトークンを捨てる", async () => {
+    const storage = new MemoryStorage();
+    const auth = new CognitoAuthClient(config, storage);
+    auth.saveTokens({
+      idToken: "id",
+      accessToken: "ac",
+      expiresAtMs: Date.now() - 1,
+      refreshToken: "rt-dead",
+    });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => jsonResponse({ error: "invalid_grant" }, 400)),
+    );
+
+    expect(await auth.getValidToken()).toEqual({ status: "expired" });
+    expect(storage.getItem("stagecast.refreshToken")).toBeNull();
+  });
+
+  it("Cognito 側の一時障害 (5xx) では refresh token を残す", async () => {
+    const storage = new MemoryStorage();
+    const auth = new CognitoAuthClient(config, storage);
+    auth.saveTokens({
+      idToken: "id",
+      accessToken: "ac",
+      expiresAtMs: Date.now() - 1,
+      refreshToken: "rt-1",
+    });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => jsonResponse({ error: "internal" }, 500)),
+    );
+
+    // 一時障害なので "expired" ではない (ログイン画面に飛ばさない)。
+    expect(await auth.getValidToken()).toEqual({ status: "unavailable" });
+    expect(storage.getItem("stagecast.refreshToken")).toBe("rt-1");
+  });
+
+  it("ネットワーク断では更新を諦めるが期限内トークンは使い続ける", async () => {
+    const storage = new MemoryStorage();
+    const auth = new CognitoAuthClient(config, storage);
+    // 残り 1 分。更新はしたいが、失敗しても期限内なので現行トークンで粘る。
+    auth.saveTokens({
+      idToken: "id",
+      accessToken: "ac",
+      expiresAtMs: Date.now() + 60_000,
+      refreshToken: "rt-1",
+    });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => {
+        throw new TypeError("network error");
+      }),
+    );
+
+    expect(await idTokenOf(auth)).toBe("id");
+    expect(storage.getItem("stagecast.refreshToken")).toBe("rt-1");
+  });
+
+  it("refresh token を持っていなければ更新できない", async () => {
+    const storage = new MemoryStorage();
+    const auth = new CognitoAuthClient(config, storage);
+    auth.saveTokens({ idToken: "id", accessToken: "ac", expiresAtMs: Date.now() - 1 });
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+
+    expect(await auth.getValidToken()).toEqual({ status: "expired" });
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("ログインし直したら前のセッションの refresh token は残さない", async () => {
+    const storage = new MemoryStorage();
+    const auth = new CognitoAuthClient(config, storage);
+    auth.saveTokens({
+      idToken: "old",
+      accessToken: "old",
+      expiresAtMs: Date.now() - 1,
+      refreshToken: "rt-old",
+    });
+    storage.setItem("stagecast.auth.oauth.state", "s");
+    storage.setItem("stagecast.auth.pkce.verifier", "v");
+    // refresh_token を返さない応答でも、古いものを引き継いではいけない。
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => jsonResponse({ id_token: "id", access_token: "ac", expires_in: 21_600 })),
+    );
+
+    await auth.exchangeCode("code", "s");
+
+    expect(storage.getItem("stagecast.refreshToken")).toBeNull();
+  });
+
+  it("更新応答が壊れていても例外にせず更新失敗として扱う", async () => {
+    const storage = new MemoryStorage();
+    const auth = new CognitoAuthClient(config, storage);
+    auth.saveTokens({
+      idToken: "id",
+      accessToken: "ac",
+      expiresAtMs: Date.now() + 60_000,
+      refreshToken: "rt-1",
+    });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response("<html>not json</html>", { status: 200 })),
+    );
+
+    // 期限内なので現行トークンで粘る。reject させない (認証判定ごと落ちてしまうため)。
+    expect(await idTokenOf(auth)).toBe("id");
+  });
+
+  it("429 / 408 は失効扱いにせずトークンを残す (レビュー指摘 1)", async () => {
+    for (const status of [429, 408]) {
+      const storage = new MemoryStorage();
+      const auth = expiredWithRefreshToken(storage);
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async () => jsonResponse({ error: "TooManyRequestsException" }, status)),
+      );
+
+      // 混雑しているだけなので refresh token は生きている。捨てたら再ログインになってしまう。
+      expect(await auth.getValidToken()).toEqual({ status: "unavailable" });
+      expect(storage.getItem("stagecast.refreshToken")).toBe("rt-1");
+    }
+  });
+
+  it("通信断では expired にせず、セッションを生かしたままにする (レビュー指摘 2)", async () => {
+    const auth = expiredWithRefreshToken(new MemoryStorage());
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => {
+        throw new TypeError("network error");
+      }),
+    );
+
+    // "expired" を返すと画面がログイン画面に落ちる。復帰できる見込みがあるうちは落とさない。
+    expect(await auth.getValidToken()).toEqual({ status: "unavailable" });
+  });
+
+  it("更新中にログアウトされたら応答を保存し直さない (レビュー指摘 3)", async () => {
+    const storage = new MemoryStorage();
+    const auth = expiredWithRefreshToken(storage);
+    let releaseResponse: (() => void) | undefined;
+    const blocked = new Promise<void>((resolve) => {
+      releaseResponse = resolve;
+    });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => {
+        await blocked;
+        return jsonResponse({ id_token: "new-id", access_token: "new-ac", expires_in: 21_600 });
+      }),
+    );
+
+    const pending = auth.getValidToken();
+    auth.clearTokens(); // 応答が返る前にログアウト。
+    releaseResponse?.();
+
+    expect(await pending).toEqual({ status: "expired" });
+    expect(storage.getItem("stagecast.idToken")).toBeNull();
+    expect(storage.getItem("stagecast.refreshToken")).toBeNull();
+  });
+
+  it("失効で捨てたトークンを ok として返さない (レビュー指摘 4)", async () => {
+    const storage = new MemoryStorage();
+    const auth = new CognitoAuthClient(config, storage);
+    // まだ期限内だがリード時間に入っている状態で、refresh token だけが失効している。
+    auth.saveTokens({
+      idToken: "id",
+      accessToken: "ac",
+      expiresAtMs: Date.now() + 60_000,
+      refreshToken: "rt-dead",
+    });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => jsonResponse({ error: "invalid_grant" }, 400)),
+    );
+
+    // clearTokens() で消したトークンを「まだ使える」と返してはいけない。
+    expect(await auth.getValidToken()).toEqual({ status: "expired" });
+    expect(storage.getItem("stagecast.idToken")).toBeNull();
+  });
+
+  it("200 でも中身が欠けていれば保存しない (レビュー指摘 5)", async () => {
+    const storage = new MemoryStorage();
+    const auth = new CognitoAuthClient(config, storage);
+    auth.saveTokens({
+      idToken: "good-id",
+      accessToken: "good-ac",
+      expiresAtMs: Date.now() + 60_000,
+      refreshToken: "rt-1",
+    });
+    // id_token が無い応答。素のキャストだと "undefined" を保存してしまう。
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => jsonResponse({ access_token: "ac", expires_in: 21_600 })),
+    );
+
+    expect(await auth.getValidToken()).toEqual({
+      status: "ok",
+      tokens: expect.objectContaining({ idToken: "good-id" }),
+    });
+    expect(storage.getItem("stagecast.idToken")).toBe("good-id");
+  });
+
+  it("更新に失敗したら間隔を空けて叩き続けない (レビュー指摘 6)", async () => {
+    const auth = expiredWithRefreshToken(new MemoryStorage());
+    const fetchMock = vi.fn(async () => {
+      throw new TypeError("network error");
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await auth.getValidToken();
+    await auth.getValidToken();
+    await auth.getValidToken();
+
+    // リード時間中は毎回更新条件を満たすので、間隔を空けないと際限なく叩いてしまう。
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("更新に成功すれば次の期限切れで再び更新できる (クールダウンが居座らない)", async () => {
+    const auth = expiredWithRefreshToken(new MemoryStorage());
+    const fetchMock = vi
+      .fn()
+      .mockRejectedValueOnce(new TypeError("network error"))
+      .mockResolvedValue(
+        jsonResponse({ id_token: "new-id", access_token: "new-ac", expires_in: 21_600 }),
+      );
+    vi.stubGlobal("fetch", fetchMock);
+
+    expect(await auth.getValidToken()).toEqual({ status: "unavailable" });
+    // クールダウン中は叩かない。
+    expect(await auth.getValidToken()).toEqual({ status: "unavailable" });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+
+    vi.setSystemTime(Date.now() + 31_000);
+    expect(await idTokenOf(auth)).toBe("new-id");
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("clearTokens は refresh token も消す", () => {
+    const storage = new MemoryStorage();
+    const auth = new CognitoAuthClient(config, storage);
+    auth.saveTokens({
+      idToken: "id",
+      accessToken: "ac",
+      expiresAtMs: Date.now() + 60_000,
+      refreshToken: "rt-1",
+    });
+    auth.clearTokens();
+    expect(storage.getItem("stagecast.refreshToken")).toBeNull();
   });
 
   it("logout URL に client_id と logout_uri が載る", () => {

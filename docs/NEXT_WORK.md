@@ -383,6 +383,45 @@ F-3 のデッキ 2 ルートと `GET /event-requests/public` の登録が漏れ�
 ルーターが if チェーンである限り静的には検出できないので、`app.ts` のルート定義をテーブル化して
 一覧を生成できる形にするところまでやるかは別途判断する。
 
+### D11. admin-web のログインが頻繁に切れる (refresh token 未実装) ✅ コード対応済み (要デプロイ)
+
+管理コンソールを開き直すたび、また 6 時間ごとに Cognito のログインからやり直しになる。
+**Cognito 側の有効期限設定の問題ではない** (`control-plane-stack.ts:320-322` で access/id は 6 時間、
+refresh は 30 日と十分に長い)。原因は admin-web 側の 2 点。
+
+- `apps/admin-web/src/auth/cognito.ts` は `grant_type: "authorization_code"` しか実装しておらず、
+  **token エンドポイントの応答から `refresh_token` を読んでいない** (レスポンスの型が
+  `{id_token, access_token, expires_in}` のみ)。保存も更新もしないので 30 日の refresh token が
+  完全に死んでいる。期限が切れると `getTokens()` が `undefined` を返し、`Authorization` ヘッダが
+  落ちて API 呼び出しが 401 になる (画面にはエラー表示が出るだけ。`App.tsx` の auth 判定は初回
+  マウント時のみなので、ログイン画面に戻るのは再読み込みしたとき)
+- トークンの保管先が `sessionStorage` (`CognitoAuthClient` の既定引数)。**タブを閉じると消える**ので、
+  有効期限内でも開き直すと再ログインになる
+
+対応 (`apps/admin-web/src/auth/cognito.ts`):
+
+- `exchangeCode` が `refresh_token` を保存するようにし、`grant_type: "refresh_token"` での更新
+  (`refreshTokens`) を追加。Cognito は更新応答に `refresh_token` を含めないので既存のものを持ち越す
+- `getValidToken()` が入口。残り 5 分 (`REFRESH_LEAD_MS`) を切っていれば更新してから返す。画面から
+  同時に API が飛んでも更新は 1 回に畳む (single-flight)
+- 戻り値は `TokenLookup` (`ok` / `expired` / `unavailable`) で、**「セッションが終わった」と「今は
+  更新できない」を分ける**。ログイン画面へ倒すのは `expired` のときだけ。通信断で一度でも
+  `expired` を返すと、生きている 30 日の refresh token を捨てて再ログインさせてしまう
+- 失効 (`invalid_grant` 等の 4xx) はトークンを捨てるが、通信断・Cognito の 5xx・混雑 (408/429) は
+  捨てずに再試行する。期限内であれば更新に失敗しても現行トークンで粘る
+- 更新に失敗したら 30 秒 (`REFRESH_RETRY_COOLDOWN_MS`) は再試行しない。リード時間中は API 呼び出しの
+  たびに更新条件を満たすため、これが無いと通信断のあいだ `/oauth2/token` を叩き続けて 429 を招く
+- 応答は `parseTokenResponse` で検証してから保存する。素のキャストだと `id_token` が欠けた 200 応答で
+  `"undefined"` を保存し、正常なトークンを壊す
+- `clearTokens()` は世代カウンタを進め、進行中の更新が**ログアウト後に応答を保存し直すのを防ぐ**
+- API クライアント 3 種 (`http-client` / `http-asset-service` / `http-artifact-service`) のトークン
+  供給を `TokenProvider` (非同期可) に変更。呼び出しのたびに期限を見るので、タブを放置していても
+  次の操作で更新が入る。加えて `App.tsx` が 60 秒間隔で期限前更新をかける
+
+**残り**: 保管先は `sessionStorage` のままなので、**タブを閉じると再ログインになる問題は残っている**。
+`localStorage` に変えると XSS 時に refresh token (30 日) を持ち出される範囲が広がるため、まず
+refresh token の実装だけで体感が改善するかを見てから判断する。
+
 ---
 
 ## N: Nice-to-have (UX / DX 改善・遠い未来)
