@@ -12,6 +12,16 @@ import type { LanguageCode } from "./caption.js";
  */
 export type EventStatus = "draft" | "scheduled" | "warmup" | "live" | "ended";
 
+/**
+ * **終了済み (`ended`) イベント**の保存上限。超過分は startsAt が古い順に自動削除される。
+ *
+ * draft / scheduled / warmup / live は削除されないし、この件数にも数えない (ADR 0024)。
+ * 合計で数えると「下書きを 1 件作るたびに終了済みイベントが 1 件 (録画ごと) 消える」ため。
+ *
+ * UI にも同じ数字を出すので shared に置く (制御 API と admin-web で二重管理しないため)。
+ */
+export const MAX_EVENTS = 1000;
+
 /** 字幕エンジンの経路種別 (DESIGN.md 6.2)。 */
 export type CaptionEngineKind = "transcribe" | "llm" | "self-hosted-asr";
 

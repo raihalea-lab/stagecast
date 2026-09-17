@@ -7,7 +7,7 @@ StreamYard 型 YouTube ライブ配信プラットフォーム (`stagecast`) の
 
 - **`DESIGN.md`** が設計の唯一の正。要件・非機能 (N-1〜N-6)・コスト方針・アーキテクチャ図はここから引く。
 - **逸脱する変更は ADR を書いてから**。`docs/decisions/0001-tech-stack.md` 〜 `0007-caption-resilience.md` 参照
-  (0006 LiveKit デプロイ / 0007 字幕レジリエンス)。新規 ADR は `0024-*.md` に (最新は 0023 Express モード/起動進捗)。
+  (0006 LiveKit デプロイ / 0007 字幕レジリエンス)。新規 ADR は `0025-*.md` に (最新は 0024 イベント保持ポリシー)。
   テンプレ: ステータス/日付/関連/コンテキスト/決定/影響・トレードオフ。
 - 残作業ロードマップ:
   - `docs/REMAINING_WORK.md` (T1〜T10) … **完了** ✅
