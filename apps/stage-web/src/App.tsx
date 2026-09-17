@@ -188,6 +188,34 @@ export function App(props: {
   const elapsedRef = useRef<ReturnType<typeof setInterval>>(undefined);
   const previewIframeRef = useRef<HTMLIFrameElement>(null);
 
+  /**
+   * room metadata を画面に反映する (ADR 0025 D-2 / 0026 D-2)。
+   *
+   * 「他のウィンドウ / 他のユーザーの操作が見える」唯一の経路。接続時にも同じ関数を通すので、
+   * 後から開いたウィンドウが初期値から始まらない。
+   */
+  const applyRoomMetadata = useCallback((raw: string | undefined) => {
+    const meta = decodeRoomMetadata(raw);
+    if (!meta) return;
+    if (meta.layout) {
+      setLayout(meta.layout);
+      setFocusIdentity(meta.focusIdentity);
+    }
+    // 送出状態は**方向を見て**取り込む。無条件に上書きすると、開始 API の応答待ち中に
+    // 誰かがスライドを送った拍子に "idle" へ戻り、開始ボタンがもう一度押せてしまう
+    // (= 二重送出)。逆に遷移中の通知を全部捨てると "送出開始中" のまま固まる。
+    setEgressState((prev) => {
+      if (prev === "starting") return meta.egressActive ? "active" : prev;
+      if (prev === "stopping") return meta.egressActive ? prev : "idle";
+      return meta.egressActive ? "active" : "idle";
+    });
+  }, []);
+  // 受信ハンドラは mount 時に 1 回だけ登録するので ref 越しに最新を呼ぶ。
+  const applyRoomMetadataRef = useRef(applyRoomMetadata);
+  useEffect(() => {
+    applyRoomMetadataRef.current = applyRoomMetadata;
+  }, [applyRoomMetadata]);
+
   useEffect(() => {
     controller.onDisconnected((reason) => {
       setSession(undefined);
@@ -205,14 +233,8 @@ export function App(props: {
     });
     controller.onReconnecting(() => setReconnecting(true));
     controller.onReconnected(() => setReconnecting(false));
-    // ADR 0025 D-2: 他のウィンドウが変えたレイアウトは metadata で届く。
-    controller.onRoomMetadataChanged((raw) => {
-      const meta = decodeRoomMetadata(raw);
-      if (meta?.layout) {
-        setLayout(meta.layout);
-        setFocusIdentity(meta.focusIdentity);
-      }
-    });
+    // ADR 0025 D-2 / 0026 D-2: 他のウィンドウ・他のユーザーの操作は metadata で届く。
+    controller.onRoomMetadataChanged((raw) => applyRoomMetadataRef.current(raw));
     controller.onParticipantsChanged((next, joined) => {
       setParticipants(next);
       // プレビューの composer は hidden ではないので入室を検知できる。待たずに配り直す
@@ -297,13 +319,9 @@ export function App(props: {
       .then(() => {
         setSession(controller.currentSession);
         setMyIdentity(controller.localIdentity ?? "");
-        // 接続時点の metadata に現在のレイアウトが入っている (ADR 0025 D-2)。
-        // 後から開いたウィンドウが grid から始まらないために要る。
-        const meta = decodeRoomMetadata(controller.roomMetadata);
-        if (meta?.layout) {
-          setLayout(meta.layout);
-          setFocusIdentity(meta.focusIdentity);
-        }
+        // 接続時点の metadata に現在のレイアウトと送出状態が入っている (ADR 0025 D-2 / 0026 D-2)。
+        // 後から開いたウィンドウが初期値から始まらないために要る。
+        applyRoomMetadata(controller.roomMetadata);
         setRoomState("running");
         elapsedRef.current = setInterval(() => setElapsedSec((s) => s + 1), 1000);
       })
@@ -333,6 +351,9 @@ export function App(props: {
       }
       setSession(controller.currentSession);
       setMyIdentity(res.identity);
+      // 初回 join では RoomMetadataChanged が飛ばない (livekit-client は前回値と違うときだけ
+      // emit する)。招待リンクで入った人も現在の状態から始める (ADR 0025 D-2 / 0026 D-2)。
+      applyRoomMetadata(controller.roomMetadata);
     } finally {
       setBusy(false);
       setRetryInfo(undefined);
@@ -1093,11 +1114,32 @@ export function App(props: {
                   { kind: "youtube", label: "YouTube Live" },
                   { kind: "s3", label: "S3 録画" },
                 ]}
+                // ADR 0026 D-3: サーバに送出を指示する。ここが空だったので、押しても
+                // 自分の画面の表示が変わるだけで、実際には何も起きていなかった。
+                // 状態は metadata で返ってくるので、成功時に自分で active にはしない。
                 onStart={wrap(async () => {
-                  setEgressState("active");
+                  if (!inviteToken) throw new Error("配信操作の資格情報がありません");
+                  setEgressState("starting");
+                  // 失敗したら "starting" のまま固まる (EgressControl は idle/error でしか
+                  // 開始ボタンを押せない)。error に落としてやり直せるようにする。
+                  try {
+                    await client.startEgress(inviteToken);
+                  } catch (e) {
+                    setEgressState("error");
+                    throw e;
+                  }
                 })}
                 onStop={wrap(async () => {
-                  setEgressState("idle");
+                  if (!inviteToken) throw new Error("配信操作の資格情報がありません");
+                  setEgressState("stopping");
+                  try {
+                    await client.stopEgress(inviteToken);
+                  } catch (e) {
+                    // **停止に失敗した = まだ送出中**。error に落とすと画面に「開始」ボタンが
+                    // 出てしまい、押すと二重送出になる。active に戻して停止を再試行させる。
+                    setEgressState("active");
+                    throw e;
+                  }
                 })}
               />
               <Tabs defaultValue="control" className="w-full">

@@ -35,6 +35,8 @@ export interface EgressStarter {
     roomName: string;
     streamUrl: string;
   }): Promise<{ egressId: string }>;
+  /** 送出を止める (ADR 0026 D-4)。`livekitUrl` は Egress API の宛先解決に要る。 */
+  stopRtmpEgress(input: { livekitUrl: string; egressId: string }): Promise<void>;
 }
 
 export interface EgressServiceConfig {
@@ -54,6 +56,12 @@ export function createEgressService(config: EgressServiceConfig) {
       const event = await config.events.get(eventId);
       if (event.status !== "live") {
         throw new ValidationError("event is not live");
+      }
+      // 既に送出中なら LiveKit を呼ばない (ADR 0026 D-1)。 管理ウィンドウが 2 枚あって
+      // 両方から押されると、 2 本目が同じストリームキーに送出を始め、 1 本目の egressId は
+      // 失われて**二度と止められなくなる** (Fargate の課金も残る)。
+      if (event.egress) {
+        return { egressId: event.egress.egressId, rtmpUrl: "" };
       }
       if (!event.media?.livekitUrl) {
         // EventMediaStack 起動中。reconcile が livekitUrl を書き戻すのを待ってから再試行する。
@@ -77,7 +85,33 @@ export function createEgressService(config: EgressServiceConfig) {
         roomName: eventId,
         streamUrl,
       });
+      // ADR 0026 D-1: ここで保存しないと「配信中かどうか」がどこにも残らず、
+      // 他のウィンドウからは永久に分からない (冒頭コメントだけがそう書いてあった)。
+      await config.events.update(eventId, {
+        egress: { egressId: result.egressId, startedAtMs: Date.now() },
+      } as never);
       return { egressId: result.egressId, rtmpUrl: streamUrl };
+    },
+
+    /** 送出を止めて状態を消す (ADR 0026 D-4)。停止済みなら何もしない。 */
+    async stop(eventId: string): Promise<{ stopped: boolean; warning?: string }> {
+      const event = await config.events.get(eventId);
+      const egress = event.egress;
+      if (!event.media?.livekitUrl || !egress) return { stopped: false };
+      let warning: string | undefined;
+      try {
+        await config.starter.stopRtmpEgress({
+          livekitUrl: event.media.livekitUrl,
+          egressId: egress.egressId,
+        });
+      } catch (err) {
+        // LiveKit 側が先に終わっている (YouTube がキーを拒否した等) と stopEgress は失敗する。
+        // ここで投げ返すと状態が残り続け、 全ウィンドウが「送出中」のまま停止も再開始もできず、
+        // DynamoDB を直接いじる以外に復帰手段が無くなる。 状態は消して警告だけ返す。
+        warning = err instanceof Error ? err.message : String(err);
+      }
+      await config.events.update(eventId, { egress: undefined } as never);
+      return warning === undefined ? { stopped: true } : { stopped: true, warning };
     },
   };
 }

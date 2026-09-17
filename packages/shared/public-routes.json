@@ -24,6 +24,8 @@
     "POST /stage/presentation/state",
     "POST /stage/presentation/slide",
     "POST /stage/presentation/layout",
+    "POST /stage/egress/start",
+    "POST /stage/egress/stop",
     "POST /stage/presets",
     "POST /stage/presets/list",
     "DELETE /stage/presets/{presetId}",
