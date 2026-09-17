@@ -59,8 +59,6 @@ export const AppShell = React.forwardRef<HTMLDivElement, AppShellProps>(
       if (!e.currentTarget.hasPointerCapture(e.pointerId)) return;
       setWidth(clampWidth(e.clientX));
     };
-    // pointerup と pointercancel の両方で使う。タッチのキャンセルや OS ジェスチャでは
-    // pointerup が来ず、保存されないまま次回リロードで幅が巻き戻るため。
     const onPointerUp = (e: React.PointerEvent<HTMLDivElement>) => {
       if (!e.currentTarget.hasPointerCapture(e.pointerId)) return;
       e.currentTarget.releasePointerCapture(e.pointerId);
@@ -69,6 +67,13 @@ export const AppShell = React.forwardRef<HTMLDivElement, AppShellProps>(
       const next = clampWidth(e.clientX);
       setWidth(next);
       save(next);
+    };
+    // pointercancel の clientX は当てにならない (0 が来る実装がある)。ここで再計算すると
+    // キャンセルしただけで最小幅に張り付いて保存されるので、最後の state をそのまま残す。
+    const onPointerCancel = (e: React.PointerEvent<HTMLDivElement>) => {
+      if (!e.currentTarget.hasPointerCapture(e.pointerId)) return;
+      e.currentTarget.releasePointerCapture(e.pointerId);
+      save(width);
     };
     const onKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
       const delta = e.key === "ArrowLeft" ? -RESIZE_STEP : e.key === "ArrowRight" ? RESIZE_STEP : 0;
@@ -107,7 +112,7 @@ export const AppShell = React.forwardRef<HTMLDivElement, AppShellProps>(
             onPointerDown={onPointerDown}
             onPointerMove={onPointerMove}
             onPointerUp={onPointerUp}
-            onPointerCancel={onPointerUp}
+            onPointerCancel={onPointerCancel}
             onKeyDown={onKeyDown}
             onDoubleClick={() => {
               setWidth(sidebarWidth);
