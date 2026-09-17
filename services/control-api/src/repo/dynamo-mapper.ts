@@ -63,6 +63,8 @@ export function itemToEvent(item: Item): EventDefinition {
     youtube: item.youtube as EventDefinition["youtube"],
     // ADR 0008 D-1: reconcile が書き戻す per-event LiveKit URL 等。
     media: item.media as EventDefinition["media"],
+    // ADR 0026 D-1: 送出中の Egress。読み漏らすと「開始したのに未送出」に見える。
+    egress: item.egress as EventDefinition["egress"],
     // ADR 0023 D-3: reconcile が毎 tick 書き戻すメディア層の起動進捗。
     provisioning: item.provisioning as EventDefinition["provisioning"],
     createdAtMs: item.createdAtMs as number,
