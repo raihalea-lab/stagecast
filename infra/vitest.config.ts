@@ -8,5 +8,8 @@ import { defineConfig } from "vitest/config";
 export default defineConfig({
   test: {
     include: ["test/**/*.test.ts"],
+    // CDK の synth と esbuild バンドルは単体でも数秒かかり、pre-push で他パッケージの
+    // テストと並走すると既定の 5 秒を超えて落ちる (中身は正しいのにフレークになる)。
+    testTimeout: 30_000,
   },
 });
