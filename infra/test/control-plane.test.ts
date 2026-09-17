@@ -58,6 +58,22 @@ function synth(): Template {
   return synthAll().base;
 }
 
+/** RenderTemplateFunction (CAPTION_WORKER_IMAGE + CADDY_SIDECAR_IMAGE を持つ Lambda) の env。 */
+function renderTemplateEnv(template: Template): string {
+  const envTextOf = (f: { Properties?: unknown }): string =>
+    JSON.stringify(
+      (f.Properties as { Environment?: { Variables?: unknown } } | undefined)?.Environment
+        ?.Variables ?? {},
+    );
+  const fns = Object.values(template.findResources("AWS::Lambda::Function"));
+  const renderFn = fns.find((f) => {
+    const envText = envTextOf(f);
+    return envText.includes("CAPTION_WORKER_IMAGE") && envText.includes("CADDY_SIDECAR_IMAGE");
+  });
+  if (!renderFn) throw new Error("RenderTemplateFunction が見つからない");
+  return envTextOf(renderFn);
+}
+
 describe("ControlPlaneStack", () => {
   const template = synth();
 
@@ -446,6 +462,18 @@ describe("ControlPlaneStack", () => {
 
   it("ADR 0016 D-6: Caddy サイドカーは DockerImageAsset で自動ビルド (GHA 不要)", () => {
     // DockerImageAsset は CDK Assets ECR を使うため、専用 ECR::Repository は不要 (上のテストで 0 件を検証)。
+  });
+
+  it("O0: opsEmail があれば ACME_EMAIL として RenderTemplateFunction に渡す (acmeEmail へのフォールバック)", () => {
+    const envText = renderTemplateEnv(synthAll().withOpsEmail);
+    expect(envText).toContain("ACME_EMAIL");
+    expect(envText).toContain("ops@example.com");
+  });
+
+  it("O0: acmeEmail も opsEmail も無ければ ACME_EMAIL を渡さない (deploy は止めない)", () => {
+    // ここで env を必須にすると RenderTemplateFunction の synth が落ち、配信を開始できなくなる
+    // (D15/D16 と同じ失敗クラス)。未設定は deploy 時の警告で知らせる方針。
+    expect(renderTemplateEnv(synth())).not.toContain("ACME_EMAIL");
   });
 
   it("ADR 0016 D-6: MediaHostedZone* / MediaDomainName を CfnOutput する", () => {

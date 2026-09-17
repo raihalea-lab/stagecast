@@ -4,6 +4,7 @@ import { Match, Template } from "aws-cdk-lib/assertions";
 import { liveKitEgressConfig } from "../lib/event-media-stack";
 import {
   EventMediaStack,
+  caddyStartCommand,
   ecrRepositoryArnFromUri,
   eventMediaStackName,
   isEcrImage,
@@ -36,6 +37,33 @@ function synthWithTls(): Template {
     certBucketName: "stagecast-assets-123",
   });
   return Template.fromStack(stack);
+}
+
+/** O0 (2026-09-18): acmeEmail を渡したときの synth (ACME アカウントのメールを明示)。 */
+function synthWithAcmeEmail(): Template {
+  const app = new App();
+  const stack = new EventMediaStack(app, eventMediaStackName("evt-acme"), {
+    env: { account: "111111111111", region: "ap-northeast-1" },
+    eventId: "evt-acme",
+    captionEngine: "transcribe",
+    customCaptionApi: false,
+    caddySidecarImage:
+      "111111111111.dkr.ecr.ap-northeast-1.amazonaws.com/stagecast/caddy-sidecar:latest",
+    mediaDomainName: "media.aws.example.com",
+    mediaHostedZoneId: "Z1234567890",
+    certBucketName: "stagecast-assets-123",
+    acmeEmail: "ops@example.com",
+  });
+  return Template.fromStack(stack);
+}
+
+function caddyContainer(template: Template): string {
+  const taskDefs = template.findResources("AWS::ECS::TaskDefinition");
+  const withCaddy = Object.values(taskDefs).filter((d) =>
+    JSON.stringify(d).includes("CaddyContainer"),
+  );
+  expect(withCaddy.length).toBe(1);
+  return JSON.stringify(withCaddy[0]);
 }
 
 describe("EventMediaStack (DESIGN.md 7.1/7.3, N-5)", () => {
@@ -427,6 +455,67 @@ describe("EventMediaStack with TLS (Caddy ACME sidecar, ADR 0016 D-6)", () => {
         Value: "event-evt-tls.media.aws.example.com",
       }),
     );
+  });
+
+  it("O0: acmeEmail 未指定なら email 行も ACME_EMAIL env も出さない (後方互換)", () => {
+    const json = caddyContainer(template);
+    expect(json).not.toContain("ACME_EMAIL");
+    expect(json).not.toContain("email %s");
+  });
+});
+
+describe("EventMediaStack with acmeEmail (O0, 2026-09-18)", () => {
+  const template = synthWithAcmeEmail();
+
+  it("Caddyfile のグローバルオプションに email を書き出す", () => {
+    const json = caddyContainer(template);
+    expect(json).toContain("email %s");
+  });
+
+  it("メールアドレスの値は env (ACME_EMAIL) から渡す", () => {
+    const json = caddyContainer(template);
+    expect(json).toContain("ACME_EMAIL");
+    expect(json).toContain("ops@example.com");
+    expect(json).toContain("$ACME_EMAIL");
+  });
+});
+
+describe("caddyStartCommand (O0, ADR 0016 D-6)", () => {
+  it("acmeEmail 指定時は email を globals に足し、%s の順と実引数の順が揃う", () => {
+    const cmd = caddyStartCommand({ acmeEmail: "ops@example.com" });
+    // printf の書式側: email → host → bucket → ドメイン
+    const fmt = cmd.slice(0, cmd.indexOf("' "));
+    expect(fmt.indexOf("email %s")).toBeLessThan(fmt.indexOf("host"));
+    // 実引数側も同じ順であること。ここがズレるとメールアドレスがバケット名の位置に入り、
+    // Caddyfile は一見通るのに証明書取得だけが壊れる。
+    expect(cmd).toContain(
+      `' "$ACME_EMAIL" "$AWS_REGION" "$CERT_BUCKET" "$CADDY_DOMAIN" > /tmp/Caddyfile`,
+    );
+  });
+
+  it("acmeEmail 未指定なら email 行も $ACME_EMAIL も出ない (従来の挙動)", () => {
+    const cmd = caddyStartCommand();
+    expect(cmd).not.toContain("email %s");
+    expect(cmd).not.toContain("ACME_EMAIL");
+    expect(cmd).toContain('"$AWS_REGION" "$CERT_BUCKET" "$CADDY_DOMAIN"');
+  });
+
+  it("acmeEmail 未指定時の出力は切り出し前の文字列と 1 バイト違わない", () => {
+    // ここがズレると、メールアドレスを設定していない環境でも TaskDefinition が
+    // 新リビジョンになり、全イベントの SFU タスクが無意味に作り直される。
+    // String.raw なので `\n` は「バックスラッシュ + n」の 2 文字 (printf が改行に変える)。
+    const before =
+      String.raw`printf '{\n  storage s3 {\n    host "s3.%s.amazonaws.com"\n    bucket "%s"\n    prefix "caddy-certs/"\n    use_iam_provider true\n  }\n}\n\n*.%s {\n  tls {\n    dns route53\n  }\n  reverse_proxy localhost:7880\n}\n' ` +
+      String.raw`"$AWS_REGION" "$CERT_BUCKET" "$CADDY_DOMAIN" > /tmp/Caddyfile && exec caddy run --config /tmp/Caddyfile --adapter caddyfile`;
+    expect(caddyStartCommand()).toBe(before);
+  });
+
+  it("reverse_proxy と dns route53 は email の有無にかかわらず出る", () => {
+    for (const cmd of [caddyStartCommand(), caddyStartCommand({ acmeEmail: "a@b.example" })]) {
+      expect(cmd).toContain("reverse_proxy localhost:7880");
+      expect(cmd).toContain("dns route53");
+      expect(cmd).toContain("use_iam_provider true");
+    }
   });
 });
 
