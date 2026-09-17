@@ -51,6 +51,7 @@ import {
   itemToPresentation,
   presetToItem,
   presentationToItem,
+  type Item,
 } from "./dynamo-mapper.js";
 
 export function createDocClient(client?: DynamoDBClient): DynamoDBDocumentClient {
@@ -75,15 +76,24 @@ export class DynamoEventRepository implements EventRepository {
     return res.Item ? itemToEvent(res.Item) : undefined;
   }
   async list(): Promise<EventDefinition[]> {
-    const res = await this.doc.send(
-      new QueryCommand({
-        TableName: this.table,
-        IndexName: "gsi1",
-        KeyConditionExpression: "gsi1pk = :pk",
-        ExpressionAttributeValues: { ":pk": "EVENT" },
-      }),
-    );
-    return (res.Items ?? []).map(itemToEvent);
+    // Query は 1 リクエスト 1MB で打ち切られる。資料 (slideAssets 等) を持つイベントだと
+    // MAX_EVENTS に届く前に結果が切れ、trimOldEvents の件数判定ごと壊れるので全ページ読む。
+    const items: Item[] = [];
+    let startKey: Record<string, unknown> | undefined;
+    do {
+      const res = await this.doc.send(
+        new QueryCommand({
+          TableName: this.table,
+          IndexName: "gsi1",
+          KeyConditionExpression: "gsi1pk = :pk",
+          ExpressionAttributeValues: { ":pk": "EVENT" },
+          ExclusiveStartKey: startKey,
+        }),
+      );
+      items.push(...(res.Items ?? []));
+      startKey = res.LastEvaluatedKey;
+    } while (startKey);
+    return items.map(itemToEvent);
   }
   async delete(eventId: string): Promise<void> {
     await this.doc.send(

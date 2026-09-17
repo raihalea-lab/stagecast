@@ -587,10 +587,60 @@ describe("control-api integration (in-memory)", () => {
     expect(res.status).toBe(404);
   });
 
-  // 上と同じく MAX_EVENTS+2 件を順に作るので、並列負荷下では既定 5s に収まらない。
-  it("上限超過時に startsAt が古いイベントから自動削除される", { timeout: 30_000 }, async () => {
-    // MAX_EVENTS=1000 だと大量に作る必要があるので、小さい上限でテストする。
-    // createEventService を直接使ってテスト。
+  // 終了済みを MAX_EVENTS+2 件そろえるため create + 状態遷移を 1000 回超え回す。
+  // 並列負荷下では既定 5s に収まらない。
+  it(
+    "上限超過時に終了済みイベントだけが startsAt の古い順に削除される",
+    { timeout: 60_000 },
+    async () => {
+      const { MemoryEventRepository } = await import("./repo/memory.js");
+      const { createEventService, MAX_EVENTS } = await import("./usecases/events.js");
+      const memRepo = new MemoryEventRepository();
+      const deletedIds: string[] = [];
+      let cnt = 0;
+      const svc = createEventService({
+        repo: memRepo,
+        newId: () => `evt-${++cnt}`,
+        now: () => 1_000_000,
+        cleanupStorage: async (id) => {
+          deletedIds.push(id);
+        },
+      });
+
+      // 終了済みを上限 +2 件。startsAt は 1 分ずつ新しくしていくので先頭 2 件が最古。
+      const ended: string[] = [];
+      for (let i = 0; i < MAX_EVENTS + 2; i++) {
+        const e = await svc.create({
+          title: `Ended-${i}`,
+          startsAt: new Date(Date.UTC(2020, 0, 1) + i * 60_000).toISOString(),
+          caption,
+        });
+        await svc.setStatus(e.id, "live");
+        await svc.setStatus(e.id, "ended");
+        ended.push(e.id);
+      }
+      // 未終了 2 件。ended より startsAt が古いが、終了していないので消してはいけない。
+      const live = await svc.create({ title: "Live", startsAt: "2019-01-01T00:00:00Z", caption });
+      await svc.setStatus(live.id, "live");
+      const draft = await svc.create({
+        title: "Draft",
+        startsAt: "2019-01-02T00:00:00Z",
+        caption,
+      });
+
+      const all = await svc.list();
+      // 消えたのは終了済みの古い 2 件だけ。未終了は件数にも数えないので巻き込まれない。
+      expect(deletedIds).toEqual([ended[0], ended[1]]);
+      expect(all.filter((e) => e.status === "ended").length).toBe(MAX_EVENTS);
+      expect(all.find((e) => e.id === live.id)).toBeDefined();
+      expect(all.find((e) => e.id === draft.id)).toBeDefined();
+      expect(all.length).toBe(MAX_EVENTS + 2);
+    },
+  );
+
+  // 未終了イベントだけで上限に達しても消さない (ソフトキャップ)。予定中のイベントが
+  // 押し出されて消えるのが一番避けたい事故なので、上限超過を許す方を選んでいる。
+  it("未終了イベントは上限を超えても自動削除されない", { timeout: 30_000 }, async () => {
     const { MemoryEventRepository } = await import("./repo/memory.js");
     const { createEventService, MAX_EVENTS } = await import("./usecases/events.js");
     const memRepo = new MemoryEventRepository();
@@ -605,56 +655,20 @@ describe("control-api integration (in-memory)", () => {
       },
     });
 
-    // MAX_EVENTS + 2 件作る (startsAt を日付でずらす)
-    for (let i = 0; i < MAX_EVENTS + 2; i++) {
-      const day = String(i + 1).padStart(4, "0");
-      await svc.create({
-        title: `E-${day}`,
-        startsAt: `2026-01-01T00:00:00Z`,
-        caption,
-      });
-    }
-
-    const all = await svc.list();
-    expect(all.length).toBe(MAX_EVENTS);
-    // 最初に作った2件 (startsAt が同じなのでソート安定性は保証しないが、2件削除されたことを検証)
-    expect(deletedIds.length).toBe(2);
-  });
-
-  // MAX_EVENTS (1000) 件を順に作るため、vp run -r test の並列負荷下では既定 5s を超えることがある。
-  it("live イベントは自動削除の対象外", { timeout: 30_000 }, async () => {
-    const { MemoryEventRepository } = await import("./repo/memory.js");
-    const { createEventService, MAX_EVENTS } = await import("./usecases/events.js");
-    const memRepo = new MemoryEventRepository();
-    let cnt = 0;
-    const svc = createEventService({
-      repo: memRepo,
-      newId: () => `evt-${++cnt}`,
-      now: () => 1_000_000,
-    });
-
-    // 1件を live にする (startsAt が最も古い)
-    const live = await svc.create({
-      title: "Live",
-      startsAt: "2020-01-01T00:00:00Z",
+    const scheduled = await svc.create({
+      title: "Scheduled",
+      startsAt: "2019-01-01T00:00:00Z",
       caption,
     });
-    await svc.setStatus(live.id, "live");
-
-    // MAX_EVENTS 件追加 → 合計 MAX_EVENTS+1 だが live は消せない
-    for (let i = 0; i < MAX_EVENTS; i++) {
-      await svc.create({
-        title: `E-${i}`,
-        startsAt: "2026-06-01T00:00:00Z",
-        caption,
-      });
+    await svc.setStatus(scheduled.id, "scheduled");
+    for (let i = 0; i < MAX_EVENTS + 2; i++) {
+      await svc.create({ title: `Draft-${i}`, startsAt: "2026-06-01T00:00:00Z", caption });
     }
 
     const all = await svc.list();
-    // live 1件 + MAX_EVENTS-1件の非live = MAX_EVENTS件 (1件は自動削除された)
-    // ただし live は消せないので total は MAX_EVENTS+1 にはならず MAX_EVENTS
-    expect(all.length).toBe(MAX_EVENTS);
-    expect(all.find((e) => e.id === live.id)).toBeDefined();
+    expect(all.length).toBe(MAX_EVENTS + 3);
+    expect(deletedIds).toEqual([]);
+    expect(all.find((e) => e.id === scheduled.id)).toBeDefined();
   });
 
   it("イベントを削除でき、一覧から消える", async () => {
