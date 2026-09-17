@@ -800,41 +800,35 @@ RenderTemplateFunction は Lambda の中で `app.synth()` する (ADR 0023 D-1)�
 やること: `cdk.out/asset.*/index.mjs` を実際に実行して `handler()` を叩くテストを用意する
 (手順は PR #236 の検証で使ったものと同じ)。少なくとも aws-cdk-lib を上げる PR では必ず走らせる。
 
-### D17. pre-push フックが CI と重複し、push に 10 分以上かかる (認証切れの件は解消済み)
+### D17. pre-push フックと CI の重複 ✅ 対応済み (2026-09-17)
 
-> **2026-09-17: 認証切れで push が止まる問題だけ修正した** (`.git/hooks/pre-push`)。
-> 原因は「認証が取れないとき偽アカウント `111111111111` にフォールバックしていた」こと。
-> 偽アカウントだと `cdk.context.json` のキャッシュキーと一致せず実 AWS を叩きにいく。
-> **実アカウントさえ渡せば、認証が切れていてもキャッシュで synth は通る** (検証済み)。
-> 取れないときは synth をスキップする (CI が同じ検証をするため)。
+> **2026-09-17: `cdk synth` を pre-push から外した** (`.git/hooks/pre-push`)。
 >
-> なお `CDK_DEFAULT_*` を単純に外す (CI と同じ修正) のは**ローカルでは不正解**。
-> ローカルには `user-config.ts` があり `HostedZone.fromLookup` が走るので、
-> 環境非依存では synth できない。CI では同ファイルが gitignore で存在しないため成立していた。
+> 外した理由は 3 つ:
 >
-> **残: CI との重複そのもの**。下記の選択肢は未決。
+> 1. **実 AWS のアカウント ID が要る。** `user-config.ts` に `mediaHostedZoneName` があると
+>    `HostedZone.fromLookup` が走るので、環境非依存では synth できない。
+>    そのため「**AWS 認証が切れているだけで push が止まる**」事故が起きていた (同日 3 回)
+> 2. **遅い。** 全 Lambda の esbuild が走る
+> 3. **CI が同じ synth をやる。** しかも CI 側は `user-config.ts` が gitignore で存在しないため
+>    環境非依存で通り、認証も不要 (PR #246)
+>
+> 残った lint / build / typecheck / test は CI と重複するが、
+> 「壊れたものを push しない」ことを優先して残している。
+>
+> **補足: CI と同じ修正 (`CDK_DEFAULT_*` を外す) をローカルに当てるのは不正解。**
+> 上記 1 のとおりローカルには `user-config.ts` があるので前提が違う。実際に一度これで
+> 別の壊れ方をさせた。ローカルと CI で synth の前提が違うことを忘れないこと。
 
-2026-09-17 に CI を再有効化した (PR #246) 結果、`.git/hooks/pre-push` が
-**CI とまったく同じチェック** (lint → build → typecheck → test → cdk synth) を
-ローカルでも走らせる形になった。push のたびに 10 分以上待つ。
+以下は起票時の記録:
 
-フック自身のコメントも「CI (ci.yml) は一時無効化し、push 前にここで検証する」のままで、
-前提が変わったことを反映していない。
+CI を再有効化した (PR #246) 結果、`.git/hooks/pre-push` が **CI とまったく同じチェック**
+(lint → build → typecheck → test → cdk synth) をローカルでも走らせる形になり、
+push のたびに 10 分以上待つようになった。加えて、フックが `CDK_DEFAULT_ACCOUNT` を渡して
+synth するため、AWS 認証が切れていると無関係な理由で push が失敗していた。
 
-**もう 1 つ、実害のある問題がある。** フックは `CDK_DEFAULT_ACCOUNT` を渡して synth するため、
-**AWS 認証が切れていると、push しようとしているコードと無関係な理由で失敗する**
-(`StackAccountRegionNotSpecified`)。CI 側は PR #246 でこれを外して直したが、フックは直していない。
-2026-09-17 の作業中に実際に踏んだ。
-
-選択肢:
-
-1. **フックを軽くする** (lint + typecheck だけ残す)。重い検証は CI に任せる。push は速くなるが、
-   壊れた状態を push してから気づく
-2. **フックをやめる**。CI が同じことをする
-3. **フックから `CDK_DEFAULT_*` を外すだけ**にして重さは許容する (最小の修正。認証切れの問題だけ消える)
-
-`.git/hooks/` はリポジトリで共有されない**ローカル設定**なので、運用者が決めること。
-共有したいなら `.husky/` などに移して `core.hooksPath` を設定する必要がある。
+`.git/hooks/` はリポジトリで共有されない**ローカル設定**。共有したいなら `.husky/` などに
+移して `core.hooksPath` を設定する必要がある (今回はローカルのまま直した)。
 
 ### D16. スタックが立たない障害が無言で進行する (provision 失敗が見えない) ✅ 1-2 対応済み (2026-09-17)
 
