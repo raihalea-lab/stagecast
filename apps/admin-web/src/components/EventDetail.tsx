@@ -198,10 +198,31 @@ function ProvisioningCard(props: {
           </ul>
         )}
 
+        {/*
+          ADR 0027: タスクが RUNNING でも配信できるとは限らない。実際に外から叩いた
+          結果をタスク数と並べて出す。ここを出さないと「タスクはあるのに誰も入れない」
+          状態が管理画面からは正常に見える (2026-09-17 に実際に踏んだ)。
+        */}
+        {info?.signalingReady === false && (
+          <div className="rounded-md border border-error/40 bg-error/5 px-3 py-2">
+            <p className="text-sm font-medium text-error">
+              シグナリングに到達できません（配信・入室ともにできない状態です）
+            </p>
+            {info.signalingError && (
+              <p className="mt-1 break-all text-xs text-text-secondary">{info.signalingError}</p>
+            )}
+          </div>
+        )}
+
         {info && (
           <p className="text-xs text-text-tertiary">
-            LiveKit URL: {info.mediaReady ? "確定済み" : "未確定"} ／ 最終確認{" "}
-            {new Date(info.observedAtMs).toLocaleTimeString()}
+            LiveKit URL: {info.mediaReady ? "確定済み" : "未確定"} ／ 配信接続:{" "}
+            {info.signalingReady === undefined
+              ? "未確認"
+              : info.signalingReady
+                ? "応答あり"
+                : "応答なし"}{" "}
+            ／ 最終確認 {new Date(info.observedAtMs).toLocaleTimeString()}
           </p>
         )}
       </CardContent>
