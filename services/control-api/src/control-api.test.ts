@@ -257,6 +257,69 @@ describe("control-api integration (in-memory)", () => {
     expect(cleared.body).toMatchObject({ slideSource: undefined, deck: undefined });
   });
 
+  it("レイアウトの正をサーバーに置く: 保存して読み戻せる (ADR 0025 D-1)", async () => {
+    const eventId = await createEvent(app);
+    const inviteFor = async (role: "moderator" | "speaker") => {
+      const res = await app.handle(
+        req({
+          method: "POST",
+          path: `/events/${eventId}/invites`,
+          headers: adminAuth,
+          body: { role, ttlSec: 3600 },
+        }),
+      );
+      return (res.body as { token: string }).token;
+    };
+    const moderator = await inviteFor("moderator");
+    const speaker = await inviteFor("speaker");
+
+    const put = await app.handle(
+      req({
+        method: "POST",
+        path: "/stage/presentation/layout",
+        body: { inviteToken: moderator, layout: "spotlight", focusIdentity: "speaker-1" },
+      }),
+    );
+    expect(put.status).toBe(200);
+    expect(put.body).toMatchObject({ layout: "spotlight", focusIdentity: "speaker-1" });
+
+    // 2 枚目の管理ウィンドウ (後から読む人) が同じ状態を見る。これがマルチウィンドウの要。
+    const read = await app.handle(
+      req({ method: "POST", path: "/stage/presentation/state", body: { inviteToken: speaker } }),
+    );
+    expect(read.body).toMatchObject({ layout: "spotlight", focusIdentity: "speaker-1" });
+
+    // grid に戻したら主役も消える (残すと次に spotlight にしたとき古い人が主役になる)。
+    const back = await app.handle(
+      req({
+        method: "POST",
+        path: "/stage/presentation/layout",
+        body: { inviteToken: moderator, layout: "grid", focusIdentity: "speaker-1" },
+      }),
+    );
+    expect(back.body).toMatchObject({ layout: "grid", focusIdentity: undefined });
+
+    // 登壇者は変えられない。
+    const denied = await app.handle(
+      req({
+        method: "POST",
+        path: "/stage/presentation/layout",
+        body: { inviteToken: speaker, layout: "pip" },
+      }),
+    );
+    expect(denied.status).toBe(403);
+
+    // 不正な値は保存しない (composer が知らないレイアウトで壊れる)。
+    const bad = await app.handle(
+      req({
+        method: "POST",
+        path: "/stage/presentation/layout",
+        body: { inviteToken: moderator, layout: "cinema" },
+      }),
+    );
+    expect(bad.status).toBe(400);
+  });
+
   it("デッキ URL は moderator にだけ出す (資料ダウンロードの制限を迂回させない)", async () => {
     const eventId = await createEvent(app);
     const inviteFor = async (role: "moderator" | "speaker") => {

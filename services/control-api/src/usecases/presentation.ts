@@ -6,7 +6,14 @@
  * 永続化は制御層の DynamoDB (`DynamoPresentationRepository`)。合成処理と登壇者は
  * 入室時にこれを読めば現在の投影が分かる。
  */
-import type { DeckRef, PresentationState, SlideSource, SpeakerVisibility } from "@stagecast/shared";
+import {
+  ALL_LAYOUTS,
+  type DeckRef,
+  type LayoutKind,
+  type PresentationState,
+  type SlideSource,
+  type SpeakerVisibility,
+} from "@stagecast/shared";
 import type { PresentationRepository, SlideUpdate } from "../repo/types.js";
 import { ValidationError } from "./events.js";
 
@@ -14,6 +21,21 @@ import { ValidationError } from "./events.js";
 function validateSpeakerId(value: unknown): string {
   if (typeof value !== "string" || !value.trim()) {
     throw new ValidationError("speakerId is required");
+  }
+  return value;
+}
+
+function validateLayout(value: unknown): LayoutKind {
+  if (typeof value !== "string" || !(ALL_LAYOUTS as readonly string[]).includes(value)) {
+    throw new ValidationError(`layout must be one of ${ALL_LAYOUTS.join(", ")}`);
+  }
+  return value as LayoutKind;
+}
+
+function validateFocusIdentity(value: unknown): string | undefined {
+  if (value === undefined || value === null) return undefined;
+  if (typeof value !== "string" || !value.trim()) {
+    throw new ValidationError("focusIdentity must be a non-empty string");
   }
   return value;
 }
@@ -116,5 +138,26 @@ export function createPresentationService(deps: {
     return repo.setSlide(eventId, update);
   }
 
-  return { getState, setSpeakerVisibility, setSlide };
+  /**
+   * レイアウトを更新する (ADR 0025 D-1)。
+   *
+   * `layoutUpdatedAtMs` は**サーバの時計で打つ**。管理ウィンドウが複数あるとき、
+   * クライアント時計のずれで新しい操作が古い扱いになるのを避ける。
+   */
+  async function setLayout(
+    eventId: string,
+    layout: unknown,
+    focusIdentity?: unknown,
+  ): Promise<PresentationState> {
+    const kind = validateLayout(layout);
+    const focus = validateFocusIdentity(focusIdentity);
+    return repo.setLayout(eventId, {
+      layout: kind,
+      // focus はレイアウトに紐づく。grid に戻したら主役も消す。
+      focusIdentity: kind === "spotlight" || kind === "pip" ? focus : undefined,
+      layoutUpdatedAtMs: now(),
+    });
+  }
+
+  return { getState, setSpeakerVisibility, setSlide, setLayout };
 }

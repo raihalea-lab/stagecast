@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { decodeStageMessage } from "@stagecast/shared";
+import { decodeRoomMetadata, decodeStageMessage, encodeRoomMetadata } from "@stagecast/shared";
 import { StageController } from "./stage-controller.js";
 import { FakeRoomConnector, type ParticipantSnapshot } from "./lib/room.js";
 import type {
@@ -8,7 +8,7 @@ import type {
   SlideStateUpdate,
   StageClient,
 } from "./api/stage-client.js";
-import type { SpeakerVisibility } from "@stagecast/shared";
+import type { LayoutKind, SpeakerVisibility } from "@stagecast/shared";
 
 /** identity だけが意味を持つテスト用の participant。 */
 const p = (identity: string): ParticipantSnapshot => ({
@@ -50,6 +50,14 @@ class FakeStageClient implements StageClient {
     update: SlideStateUpdate,
   ): Promise<PresentationSnapshot> {
     this.presentation = { ...this.presentation, ...update };
+    return this.presentation;
+  }
+  async setLayoutState(
+    _inviteToken: string,
+    layout: LayoutKind,
+    focusIdentity?: string,
+  ): Promise<PresentationSnapshot> {
+    this.presentation = { ...this.presentation, layout, focusIdentity };
     return this.presentation;
   }
   async listAssets() {
@@ -402,5 +410,26 @@ describe("StageController.localIdentity", () => {
     await controller.connectAdmin("wss://x", "lk-token", "evt-1");
 
     expect(controller.localIdentity).toBe("admin-user-1-abcdef");
+  });
+});
+
+describe("StageController.roomMetadata (ADR 0025 D-2)", () => {
+  it("接続時点の metadata を読め、更新も受け取れる", async () => {
+    const room = new FakeRoomConnector();
+    const controller = new StageController(new FakeStageClient(speakerJoin), room);
+    const seen: (string | undefined)[] = [];
+    controller.onRoomMetadataChanged((raw) => seen.push(raw));
+
+    // 接続時に必ず届く。これが無いと後から開いたウィンドウが grid から始まる。
+    room.roomMetadata = encodeRoomMetadata({ layout: "spotlight", focusIdentity: "speaker-1" });
+    await controller.connectAdmin("wss://x", "lk-token", "evt-1");
+    expect(decodeRoomMetadata(controller.roomMetadata)).toMatchObject({
+      layout: "spotlight",
+      focusIdentity: "speaker-1",
+    });
+
+    // 他のウィンドウがレイアウトを変えたとき。
+    room.emitRoomMetadata(encodeRoomMetadata({ layout: "grid" }));
+    expect(decodeRoomMetadata(seen.at(-1))).toMatchObject({ layout: "grid" });
   });
 });

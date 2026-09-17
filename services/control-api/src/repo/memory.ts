@@ -19,7 +19,7 @@ import type {
   PresetRepository,
   PresentationRepository,
 } from "./types.js";
-import { applySlide, type SlideUpdate } from "./types.js";
+import { applyLayout, applySlide, type LayoutUpdate, type SlideUpdate } from "./types.js";
 
 export class MemoryEventRepository implements EventRepository {
   private readonly store = new Map<string, EventDefinition>();
@@ -111,6 +111,12 @@ export class MemoryPresentationRepository implements PresentationRepository {
   async setSlide(eventId: string, slide: SlideUpdate): Promise<PresentationState> {
     const s = this.ensure(eventId);
     applySlide(s, slide);
+    return structuredClone(s);
+  }
+
+  async setLayout(eventId: string, update: LayoutUpdate): Promise<PresentationState> {
+    const s = this.ensure(eventId);
+    applyLayout(s, update);
     return structuredClone(s);
   }
 }

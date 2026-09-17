@@ -46,6 +46,10 @@ export interface RoomConnector {
   readonly state: RoomState;
   /** 接続後の自分の identity。 未接続なら undefined (D8: チャットの自他判定に使う)。 */
   readonly localIdentity: string | undefined;
+  /** room metadata の生文字列 (ADR 0022 D-1 / 0025 D-2)。 接続時点の投影状態が入る。 */
+  readonly roomMetadata: string | undefined;
+  /** room metadata の更新ハンドラ。 他のウィンドウの操作もここから届く。 */
+  onRoomMetadataChanged(handler: (metadata: string | undefined) => void): void;
   connect(url: string, token: string, options?: ConnectOptions): Promise<void>;
   setPreferredDevices(prefs: PreferredDevices): void;
   setMicrophoneEnabled(enabled: boolean): Promise<void>;
@@ -71,6 +75,8 @@ export interface RoomConnector {
 export class FakeRoomConnector implements RoomConnector {
   state: RoomState = "idle";
   localIdentity: string | undefined;
+  roomMetadata: string | undefined;
+  private metadataHandler?: (metadata: string | undefined) => void;
   readonly calls: string[] = [];
   readonly slides: SlideMessage[] = [];
   readonly publishedData: Uint8Array[] = [];
@@ -95,6 +101,14 @@ export class FakeRoomConnector implements RoomConnector {
   }
   onDisconnected(handler: (reason?: string) => void): void {
     this.disconnectHandler = handler;
+  }
+  onRoomMetadataChanged(handler: (metadata: string | undefined) => void): void {
+    this.metadataHandler = handler;
+  }
+  /** テストから metadata 更新を流し込む (他ウィンドウの操作が届いた状況を作る)。 */
+  emitRoomMetadata(metadata: string | undefined): void {
+    this.roomMetadata = metadata;
+    this.metadataHandler?.(metadata);
   }
   onReconnecting(handler: () => void): void {
     this.reconnectingHandler = handler;
