@@ -78,11 +78,17 @@ export interface EventMediaInfo {
   livekitUrl: string;
   /** URL が確定し DynamoDB に書き戻されたエポックミリ秒。診断用。 */
   readyAt: number;
-  /**
-   * 送出中の Egress (ADR 0026 D-1)。**存在すれば送出中**、無ければ停止中。
-   * ここに書かないと「配信中かどうか」がどこにも残らず、ウィンドウ間で共有できない。
-   */
-  egress?: { egressId: string; startedAtMs: number };
+}
+
+/**
+ * 送出中の Egress (ADR 0026 D-1)。**存在すれば送出中**、無ければ停止中。
+ *
+ * `media` の中ではなく直下に置く。 reconcile は `SET media = :m` で media マップごと
+ * 差し替えるので、 中に入れると LiveKit タスク再作成のたびに送出ハンドルを失う。
+ */
+export interface EventEgressInfo {
+  egressId: string;
+  startedAtMs: number;
 }
 
 /**
@@ -169,6 +175,8 @@ export interface EventDefinition {
    * status="draft"/"ended" や、status="live" でも起動完了前は undefined。
    */
   media?: EventMediaInfo;
+  /** 送出中の Egress (ADR 0026 D-1)。 無ければ停止中。 */
+  egress?: EventEgressInfo;
   /**
    * メディア層の起動進捗 (ADR 0023 D-3)。reconcile が毎 tick 書き戻す観測値で、
    * 管理画面の「配信インフラ」カードがこれを表示する。

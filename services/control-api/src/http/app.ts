@@ -142,16 +142,19 @@ export function createApp(deps: AppDeps) {
    */
   async function publishRoomMetadata(
     state: PresentationState & { deckUrl?: string },
+    knownEgressActive?: boolean,
   ): Promise<void> {
     if (!deps.roomMetadata) return;
     try {
       // ADR 0026 D-2: metadata は全文置換なので、送出中フラグは**発行側がここで埋める**。
       // 呼び出し側に渡させると、スライドを送った拍子に消える (0025 で focusIdentity を
       // まさにその形で落とした)。
-      const egressActive = await events
-        .get(state.eventId)
-        .then((e) => Boolean(e.media?.egress))
-        .catch(() => false);
+      // egress の開始/停止だけは書いた値を渡してもらう。 直後の読み直しは結果整合で
+      // 古い値を拾いうるため。
+      // 読めなかったときは publish 自体をやめる。 false に倒すと、 一過性の読み取り失敗で
+      // 「配信中なのに全ウィンドウが未送出」に切り替わる。
+      const egressActive =
+        knownEgressActive ?? (await events.get(state.eventId).then((e) => Boolean(e.egress)));
       await deps.roomMetadata.publish(
         state.eventId,
         encodeRoomMetadata({
@@ -354,12 +357,22 @@ export function createApp(deps: AppDeps) {
       const eventId = verified.eventId;
       if (segments[2] === "start") {
         const result = await egress.start(eventId);
-        await publishRoomMetadata(await withDeckUrl(await presentation.getState(eventId), true));
-        return json(202, result);
+        // egressActive は書いた値を渡す。 直後に読み直すと結果整合で古い値を拾い、
+        // 「開始したのに全ウィンドウが未送出のまま」になる。
+        await publishRoomMetadata(
+          await withDeckUrl(await presentation.getState(eventId), true),
+          true,
+        );
+        // **rtmpUrl はストリームキー込みなので返さない。** この経路は moderator も通る
+        // (ADR 0026 D-3) ので、返すと YouTube のキーが招待相手に渡る。
+        return json(202, { egressId: result.egressId });
       }
       if (segments[2] === "stop") {
         const result = await egress.stop(eventId);
-        await publishRoomMetadata(await withDeckUrl(await presentation.getState(eventId), true));
+        await publishRoomMetadata(
+          await withDeckUrl(await presentation.getState(eventId), true),
+          false,
+        );
         return json(200, result);
       }
     }

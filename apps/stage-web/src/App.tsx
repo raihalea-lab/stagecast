@@ -201,7 +201,14 @@ export function App(props: {
       setLayout(meta.layout);
       setFocusIdentity(meta.focusIdentity);
     }
-    setEgressState(meta.egressActive ? "active" : "idle");
+    // 送出状態は**方向を見て**取り込む。無条件に上書きすると、開始 API の応答待ち中に
+    // 誰かがスライドを送った拍子に "idle" へ戻り、開始ボタンがもう一度押せてしまう
+    // (= 二重送出)。逆に遷移中の通知を全部捨てると "送出開始中" のまま固まる。
+    setEgressState((prev) => {
+      if (prev === "starting") return meta.egressActive ? "active" : prev;
+      if (prev === "stopping") return meta.egressActive ? prev : "idle";
+      return meta.egressActive ? "active" : "idle";
+    });
   }, []);
   // 受信ハンドラは mount 時に 1 回だけ登録するので ref 越しに最新を呼ぶ。
   const applyRoomMetadataRef = useRef(applyRoomMetadata);
@@ -1111,6 +1118,7 @@ export function App(props: {
                 // 自分の画面の表示が変わるだけで、実際には何も起きていなかった。
                 // 状態は metadata で返ってくるので、成功時に自分で active にはしない。
                 onStart={wrap(async () => {
+                  if (!inviteToken) throw new Error("配信操作の資格情報がありません");
                   setEgressState("starting");
                   // 失敗したら "starting" のまま固まる (EgressControl は idle/error でしか
                   // 開始ボタンを押せない)。error に落としてやり直せるようにする。
@@ -1122,11 +1130,14 @@ export function App(props: {
                   }
                 })}
                 onStop={wrap(async () => {
+                  if (!inviteToken) throw new Error("配信操作の資格情報がありません");
                   setEgressState("stopping");
                   try {
                     await client.stopEgress(inviteToken);
                   } catch (e) {
-                    setEgressState("error");
+                    // **停止に失敗した = まだ送出中**。error に落とすと画面に「開始」ボタンが
+                    // 出てしまい、押すと二重送出になる。active に戻して停止を再試行させる。
+                    setEgressState("active");
                     throw e;
                   }
                 })}

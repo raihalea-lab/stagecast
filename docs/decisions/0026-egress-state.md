@@ -26,7 +26,9 @@
 
 ### D-1: Egress の状態は `EventDefinition` に持つ
 
-`EventMediaInfo` に `egress?: { egressId: string; startedAtMs: number }` を足す。
+`EventDefinition` に `egress?: EventEgressInfo` を足す (`media` の**中ではなく直下**)。
+reconcile は `SET media = :m` で media マップごと差し替えるので、 中に入れると LiveKit タスク
+再作成のたびに送出ハンドルを失う。
 **存在すれば送出中**、無ければ停止中。`start()` が書き、`stop()` が消す。
 
 `PresentationState` ではなく**イベント側**に置く。Egress はインフラのライフサイクルであって
@@ -67,3 +69,14 @@ API Gateway の JWT authorizer に弾かれて Lambda に届かない事故を�
   イベントの削除のような不可逆な操作ではない。
 - 送出中に Lambda が `egressId` を失う経路 (DynamoDB 書き込み失敗) が残る。その場合は
   LiveKit 側で送出が続き、UI からは停止できない。頻度と影響から、監視の課題として別に扱う。
+
+## 補足 (レビュー反映)
+
+- **`rtmpUrl` は招待トークン経路のレスポンスに含めない。** `joinRtmpUrl` の戻り値は
+  ストリームキー込みの完全 URL で、これを返すと moderator が YouTube のキーを取得できる
+  (キーはイベント単位ではなくアカウント共通)。`egressId` だけ返す。
+- **`start()` は送出中なら LiveKit を呼ばない。** 管理ウィンドウが 2 枚あって両方から
+  押されると、2 本目が同じキーに送出を始め、1 本目の `egressId` を失って止められなくなる。
+- **`stop()` は LiveKit の失敗でも状態を消す。** YouTube がキーを拒否した等で LiveKit 側が
+  先に終了していると `stopEgress` は失敗する。状態を残すと全ウィンドウが「送出中」のまま
+  停止も再開始もできず、DynamoDB を直接いじる以外に復帰手段が無くなる。警告だけ返す。
