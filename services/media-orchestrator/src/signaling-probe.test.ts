@@ -17,11 +17,21 @@ describe("toHttpUrl", () => {
 });
 
 describe("probeSignaling", () => {
-  it("応答が返れば ok (ステータスは問わない)", async () => {
-    // LiveKit はルートに 200、/rtc/validate に 401 を返す。見たいのは到達性だけ。
+  it("LiveKit 自身の応答 (200/401) なら ok", async () => {
+    // LiveKit はルートに 200、/rtc/validate に 401 を返す。どちらも「生きている」。
     const fake = vi.fn(async (_url: string) => new Response("", { status: 401 }));
     expect(await probeSignaling("wss://x.example.com", fake as never)).toEqual({ ok: true });
     expect(fake.mock.calls[0]?.[0]).toBe("https://x.example.com");
+  });
+
+  it("5xx は ok にしない (Caddy は生きているが LiveKit に繋がっていない)", async () => {
+    // Caddy と LiveKit は同一タスクの sidecar で起動順の保証が無い。LiveKit がまだ
+    // listen していない窓では Caddy が 502 を返す。ここを ok にすると
+    // 「タスクはあるのに誰も入れない」という、この probe が拾いたい状態を取り逃がす。
+    const fake = vi.fn(async (_url: string) => new Response("", { status: 502 }));
+    const res = await probeSignaling("wss://x.example.com", fake as never);
+    expect(res.ok).toBe(false);
+    expect(res.error).toContain("502");
   });
 
   it("接続できなければ理由付きで ok:false を返す (投げない)", async () => {
@@ -31,6 +41,20 @@ describe("probeSignaling", () => {
     const res = await probeSignaling("wss://x.example.com", fake as never);
     expect(res.ok).toBe(false);
     expect(res.error).toContain("fetch failed");
+  });
+
+  it("undici の cause を展開する (でないと何が起きても fetch failed になる)", async () => {
+    // 証明書切れも SG 閉塞も DNS 未反映も、undici は一律 "TypeError: fetch failed" にする。
+    // 実際の原因は cause にしか入っていないので、そこを出さないと画面から切り分けられない。
+    const cause = Object.assign(new Error("certificate has expired"), {
+      code: "CERT_HAS_EXPIRED",
+    });
+    const fake = vi.fn(async () => {
+      throw Object.assign(new TypeError("fetch failed"), { cause });
+    });
+    const res = await probeSignaling("wss://x.example.com", fake as never);
+    expect(res.error).toContain("CERT_HAS_EXPIRED");
+    expect(res.error).toContain("certificate has expired");
   });
 
   it("応答が返らなければタイムアウトとして打ち切る", async () => {

@@ -38,7 +38,7 @@ export interface ProvisioningInput {
 }
 
 /** 全サービスが desired 分だけ RUNNING になっているか (desired=0 のサービスは対象外)。 */
-function tasksRunning(services: EcsServiceStatus[]): boolean {
+export function tasksRunning(services: EcsServiceStatus[]): boolean {
   const scaled = services.filter((s) => !s.missing && s.desiredCount > 0);
   if (scaled.length === 0) return false;
   return scaled.every((s) => s.runningCount >= s.desiredCount);

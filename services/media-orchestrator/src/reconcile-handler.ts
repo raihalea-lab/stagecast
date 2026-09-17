@@ -45,6 +45,7 @@ import {
 } from "./ecs-services.js";
 import {
   createProvisioningPublisher,
+  tasksRunning,
   type ProvisioningInput,
   type ProvisioningStore,
 } from "./provisioning.js";
@@ -877,8 +878,11 @@ export async function handler(
 
     // ADR 0027 D-1: タスクが RUNNING でも配信できるとは限らない。外から実際に叩いて確かめる。
     // タスクを動かさない事前プロビジョニング (wantTasks: false) では打たない。
+    // タスクが RUNNING になるまでは打たない。`resolveLivekitUrl` は CFN Output があれば
+    // タスク 0 本でも URL を返すので、条件を URL の有無にすると**正常な起動中**に
+    // 「配信できない」と誤判定し、赤帯と無駄な書き戻しを毎 tick 出すことになる。
     let signaling: { signalingReady?: boolean; signalingError?: string } = {};
-    if (wantTasks && livekitUrl) {
+    if (wantTasks && livekitUrl && tasksRunning(services)) {
       const probe = await d.probeSignaling(livekitUrl);
       signaling = probe.ok
         ? { signalingReady: true }
