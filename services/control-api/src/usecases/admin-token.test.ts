@@ -130,6 +130,11 @@ describe("AdminTokenService.issue (R16, ADR 0012 D-4)", () => {
     expect(result.livekitUrl).toBe("wss://event-X.example.com");
     expect(result.expiresAt).toBeGreaterThan(Date.now());
     expect(result.stageUrl).toBe(STAGE_URL);
+    // プレビュー iframe が親と同じ identity で繋ぐと LiveKit が親を切断する。
+    expect(result.previewToken).toBeTruthy();
+    expect(minter.calls[1]?.identity).toMatch(/^preview-/);
+    expect(minter.calls[1]?.identity).not.toBe(minter.calls[0]?.identity);
+    expect(minter.calls[1]?.role).toBe("viewer");
     expect(minter.calls[0]?.identity).toBe("admin-cognito-user-abc");
   });
 

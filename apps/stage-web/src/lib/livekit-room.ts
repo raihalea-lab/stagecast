@@ -5,7 +5,7 @@
  *
  * D8: publishData + 参加者追跡 + DataChannel 受信を追加。
  */
-import { Room, RoomEvent, Track } from "livekit-client";
+import { DisconnectReason, Room, RoomEvent, Track } from "livekit-client";
 import { encodeStageMessage } from "@stagecast/shared";
 import type { PreferredDevices } from "./devices.js";
 import type {
@@ -44,10 +44,10 @@ export class LiveKitRoomConnector implements RoomConnector {
   setPreferredDevices(prefs: PreferredDevices): void {
     this.prefs = prefs;
   }
-  onDisconnected(handler: () => void): void {
-    this.room.on(RoomEvent.Disconnected, () => {
+  onDisconnected(handler: (reason?: string) => void): void {
+    this.room.on(RoomEvent.Disconnected, (reason) => {
       this.state = "disconnected";
-      handler();
+      handler(reason === undefined ? undefined : DisconnectReason[reason]);
     });
   }
   onReconnecting(handler: () => void): void {

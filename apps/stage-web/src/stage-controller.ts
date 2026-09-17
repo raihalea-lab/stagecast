@@ -47,13 +47,13 @@ export class StageController {
     this.room.setPreferredDevices(prefs);
   }
 
-  onDisconnected(handler: () => void): void {
-    this.room.onDisconnected(() => {
+  onDisconnected(handler: (reason?: string) => void): void {
+    this.room.onDisconnected((reason) => {
       this.session = undefined;
       this.lastJoin = undefined;
       // 再入室したときに全員を「既知」と誤認して join を検知できなくなるのを防ぐ。
       this.knownIdentities.clear();
-      handler();
+      handler(reason);
     });
   }
 
