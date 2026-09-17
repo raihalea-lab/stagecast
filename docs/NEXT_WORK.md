@@ -303,17 +303,28 @@ R12-followup-1〜22 で **stage-web から SFU への WebRTC 接続** が完了 
 > - 未設定のまま `cdk deploy` すると **`Annotations.addWarning` が出る**。ここで `throw` は
 >   しない。RenderTemplateFunction の synth が落ちると配信を開始できなくなる (D15/D16 と同じ
 >   失敗クラス) ので、警告にとどめている
+> - ただし **値が入っていて Caddyfile を壊す形のとき (空白・クオート・非メール形式) は
+>   `cdk deploy` で throw する**。ControlPlaneStack は人が deploy する場所なので止めてよい。
+>   Caddy は `essential: true` なので、パースに失敗すると SFU Task ごと落ちてイベントを開始できない
 >
 > **やること (この順で)**:
 >
-> 1. `infra/user-config.ts` に `acmeEmail: "<運用者アドレス>"` を書く (gitignore されている)
+> 1. `infra/user-config.ts` に `acmeEmail: "<運用者アドレス>"` を書く (gitignore されている。
+>    雛形は `infra/user-config.ts.example`)。表示名付き (`Ops Team <ops@example.com>`) は不可で、
+>    そのまま書くと `cdk deploy` が止まる
 > 2. `vp run --filter @stagecast/infra cdk deploy StagecastControlPlane`
 >    — 証明書を持つのは EventMediaStack 側なので、**次に作られるイベントから**効く
-> 3. 新規イベントを 1 つ作り、EventMedia のロググループを `tls.obtain` / `tls.renew` で絞って
+> 3. **`scheduled` で事前作成済みのイベントスタックを消す。** ADR 0016 D-4 で `scheduled` の
+>    時点で desiredCount 0 のスタックを作ってあるが、`CloudFormationMediaStackProvisioner` は
+>    **CreateStack しか呼ばない** (`cfn-provisioner.ts`) ので、既存スタックは古い (email 無しの)
+>    Caddy 起動コマンドを持ったまま残る。放っておくと開催時に立ち上がって
+>    **`caddy-certs/` に壊れた ACME アカウントを作り直す**。該当イベントのスタックを削除すれば、
+>    次の tick で新しいテンプレートから作り直される
+> 4. 新規イベントを 1 つ作り、EventMedia のロググループを `tls.obtain` / `tls.renew` で絞って
 >    `invalidContact` が消えていることを確認する
-> 4. S3 の `caddy-certs/` を確認する。**壊れた ACME アカウント (`users` という名前のパス) が
+> 5. S3 の `caddy-certs/` を確認する。**壊れた ACME アカウント (`users` という名前のパス) が
 >    残っている可能性がある**。`email` を明示すると一覧を引かなくなるので実害は消えるはずだが、
->    ゴミが残っているなら消しておく
+>    ゴミが残っているなら消しておく (3 を先にやらないと作り直される)
 >
 > **根本原因**: `email` が無いと Caddy は storage から既存の ACME アカウントを探しに行き、
 > `acme/<ca>/users/` の一覧から拾った名前をメールアドレスとして使う。certmagic-s3 では

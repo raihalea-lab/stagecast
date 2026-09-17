@@ -963,7 +963,11 @@ export function liveKitEgressConfig(valkeyEndpoint: string, composerTemplateUrl?
 export function caddyStartCommand(opts: { acmeEmail?: string } = {}): string {
   // printf の書式に渡す %s の順番と、下の実引数の順番を必ず合わせること。
   const globals = [
-    ...(opts.acmeEmail ? ["  email %s"] : []),
+    // %s をダブルクオートで囲む。囲まないと、空白を含む値 (例: 表示名付きアドレス) が
+    // Caddyfile のトークンとして割れてパースに失敗し、**essential な Caddy が落ちて
+    // SFU Task ごと死ぬ** (= そのイベントは開始できない)。値の妥当性そのものは
+    // isCaddyfileSafeEmail で ControlPlaneStack の deploy 時に弾く。
+    ...(opts.acmeEmail ? ['  email "%s"'] : []),
     '  storage s3 {\\n    host "s3.%s.amazonaws.com"\\n    bucket "%s"\\n    prefix "caddy-certs/"\\n    use_iam_provider true\\n  }',
   ];
   const format = [
@@ -986,4 +990,20 @@ export function caddyStartCommand(opts: { acmeEmail?: string } = {}): string {
     '"$CADDY_DOMAIN"',
   ].join(" ");
   return `printf '${format}' ${args} > /tmp/Caddyfile && exec caddy run --config /tmp/Caddyfile --adapter caddyfile`;
+}
+
+/**
+ * ACME 連絡先として Caddyfile にそのまま書ける値か (O0)。
+ *
+ * Caddyfile の `email` はダブルクオートで囲んで出すので、**値にダブルクオートが混ざると
+ * トークンが割れる**。Caddy は `essential: true` なので、パースに失敗するとコンテナが落ち、
+ * SFU Task ごと再起動ループに入って**そのイベントは開始できない**。
+ * 空白・改行・クオートを弾き、最低限メールアドレスの形 (`@` を挟む) であることまで見る。
+ *
+ * 呼ぶのは ControlPlaneStack (= 人が `cdk deploy` する場所) だけにすること。
+ * RenderTemplateFunction の中で throw すると、配信を開始できない形で壊れる (D15/D16)。
+ */
+export function isCaddyfileSafeEmail(value: string): boolean {
+  if (/["\s]/.test(value)) return false;
+  return /^[^@]+@[^@]+\.[^@]+$/.test(value);
 }
