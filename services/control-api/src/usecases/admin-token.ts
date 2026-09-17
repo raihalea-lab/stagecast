@@ -39,6 +39,12 @@ export interface StageTokenResult {
    * 親ページと同じ identity で繋ぐと LiveKit が先に繋いだ方を切断するので、 別 identity で発行する。
    */
   previewToken: string;
+  /**
+   * stage-web が `/stage/*` を叩くための招待トークン (ADR 0025 D-3, role: moderator)。
+   * admin は Cognito JWT も招待トークンも持たずに入ってくるので、 これが無いと
+   * プリセット・アセット・投影状態のどれも読めない。
+   */
+  inviteToken: string;
 }
 
 export interface AdminTokenServiceConfig {
@@ -46,6 +52,12 @@ export interface AdminTokenServiceConfig {
   liveKitMinter: LiveKitTokenMinter;
   /** stage-web の origin (INVITE_BASE_URL と同じディストリビューション)。 */
   stageUrl: string;
+  /**
+   * stage 用の招待トークンを発行する (ADR 0025 D-3)。
+   * role は moderator。 admin ができることは moderator の上位集合なので、
+   * `INVITED_ROLES` に admin を足して control-api 中の分岐を書き換えて回るより安い。
+   */
+  issueInviteToken: (eventId: string, ttlSec: number) => Promise<string>;
   /** Admin token の有効期間 (秒)。 layout 切替操作中に切れないよう長めに取る (デフォルト 6 時間)。 */
   ttlSec?: number;
 }
@@ -100,6 +112,7 @@ export function createAdminTokenService(config: AdminTokenServiceConfig) {
         expiresAt: Date.now() + ttlSec * 1000,
         stageUrl: config.stageUrl,
         previewToken,
+        inviteToken: await config.issueInviteToken(eventId, ttlSec),
       };
     },
   };

@@ -203,7 +203,14 @@ export function buildControlApi(config: FactoryConfig = {}) {
   // stage-web の origin は招待 URL (INVITE_BASE_URL) と同じ配信元。admin-web は別 origin なので
   // クライアント側の window.location.origin では開けない (Cognito に飛ばされる)。
   const adminToken = liveKitMinter
-    ? createAdminTokenService({ events, liveKitMinter, stageUrl: new URL(baseUrl).origin })
+    ? createAdminTokenService({
+        events,
+        liveKitMinter,
+        stageUrl: new URL(baseUrl).origin,
+        // ADR 0025 D-3: admin も stage ルートを叩けるようにする。
+        issueInviteToken: async (eventId, ttlSec) =>
+          (await invites.issue({ eventId, role: "moderator", ttlSec })).token,
+      })
     : undefined;
   // R17 / ADR 0012 D-6: プレビュー用 LiveKit token 発行 (viewer role, iframe 埋め込み用)。
   const previewToken = liveKitMinter

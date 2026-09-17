@@ -13,13 +13,16 @@ describe("parseInviteToken", () => {
 });
 
 describe("parseAdminDirectParams", () => {
-  it("previewToken を含めて取り出す", () => {
-    const params = parseAdminDirectParams("?token=lk&url=wss://x&eventId=e1&previewToken=pv");
+  it("previewToken / inviteToken を含めて取り出す", () => {
+    const params = parseAdminDirectParams(
+      "?token=lk&url=wss://x&eventId=e1&previewToken=pv&inviteToken=inv",
+    );
     expect(params).toEqual({
       livekitToken: "lk",
       livekitUrl: "wss://x",
       eventId: "e1",
       previewToken: "pv",
+      inviteToken: "inv",
     });
   });
   it("previewToken が無くても admin 接続自体は成立する (Lambda が旧版のとき)", () => {

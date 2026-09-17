@@ -42,6 +42,7 @@ describe("OpenStageButton", () => {
     fireEvent.click(getByRole("button"));
     await waitFor(() => expect(open).toHaveBeenCalled());
     expect(String(open.mock.calls[0]?.[0])).not.toContain("previewToken");
+    expect(String(open.mock.calls[0]?.[0])).not.toContain("inviteToken");
     open.mockRestore();
   });
 
@@ -56,13 +57,14 @@ describe("OpenStageButton", () => {
           expiresAt: 0,
           stageUrl: "https://stage.example.com",
           previewToken: "pv-token",
+          inviteToken: "inv-token",
         })}
       />,
     );
     fireEvent.click(getByRole("button"));
     await waitFor(() => expect(open).toHaveBeenCalled());
     expect(open.mock.calls[0]?.[0]).toBe(
-      "https://stage.example.com/?token=lk-token&url=wss%3A%2F%2Fx&eventId=evt-001&previewToken=pv-token",
+      "https://stage.example.com/?token=lk-token&url=wss%3A%2F%2Fx&eventId=evt-001&previewToken=pv-token&inviteToken=inv-token",
     );
     open.mockRestore();
   });
