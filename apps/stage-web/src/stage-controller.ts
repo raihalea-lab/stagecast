@@ -39,6 +39,10 @@ export class StageController {
   get currentSession(): StageSession | undefined {
     return this.session;
   }
+  /** 接続後の自分の identity。 admin は URL から知りようがないので room に聞く。 */
+  get localIdentity(): string | undefined {
+    return this.room.localIdentity;
+  }
   get slideDeck(): SlideDeckState {
     return this.deck;
   }
@@ -47,13 +51,13 @@ export class StageController {
     this.room.setPreferredDevices(prefs);
   }
 
-  onDisconnected(handler: () => void): void {
-    this.room.onDisconnected(() => {
+  onDisconnected(handler: (reason?: string) => void): void {
+    this.room.onDisconnected((reason) => {
       this.session = undefined;
       this.lastJoin = undefined;
       // 再入室したときに全員を「既知」と誤認して join を検知できなくなるのを防ぐ。
       this.knownIdentities.clear();
-      handler();
+      handler(reason);
     });
   }
 

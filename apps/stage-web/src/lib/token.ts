@@ -16,6 +16,12 @@ export interface AdminDirectParams {
   livekitToken: string;
   livekitUrl: string;
   eventId: string;
+  /**
+   * プレビュー iframe 用の viewer token。 Lambda が旧版だと来ないので optional。
+   * 無いときはプレビューを出さない — livekitToken で代用すると identity が重複して
+   * 親ページが LiveKit に切断される。
+   */
+  previewToken?: string;
 }
 
 export function parseAdminDirectParams(search: string): AdminDirectParams | undefined {
@@ -24,7 +30,13 @@ export function parseAdminDirectParams(search: string): AdminDirectParams | unde
   const url = params.get("url");
   const eventId = params.get("eventId");
   if (token && url && eventId) {
-    return { livekitToken: token, livekitUrl: url, eventId };
+    const previewToken = params.get("previewToken");
+    return {
+      livekitToken: token,
+      livekitUrl: url,
+      eventId,
+      ...(previewToken ? { previewToken } : {}),
+    };
   }
   return undefined;
 }
