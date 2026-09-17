@@ -495,7 +495,7 @@ export function createApp(deps: AppDeps) {
     // `packages/shared/public-routes.json` にも必ず足すこと** (ADR 0001 D-10)。
     // 忘れると API Gateway の JWT authorizer に弾かれ、**Lambda に届く前に 401** になる。
     // ローカルのテストは createApp を直接叩くので API Gateway を通らず、この抜けを検知できない。
-    // 過去 3 回踏んでいる。
+    // 過去 4 回踏んでいる (直近は ADR 0025 の /stage/presentation/layout)。
     //
     // 以降は管理者専用 (Cognito)
     const principal = await requireAdmin(req);
