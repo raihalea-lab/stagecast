@@ -959,7 +959,9 @@ export function App(props: {
         void controller.forceMute(identity);
       }}
       onVisibilityChange={(identity, visibility) => {
-        void controller.setSpeakerVisibility(identity, visibility, token || undefined);
+        // admin の `token` は LiveKit JWT。招待トークン経路に渡すと 401 で
+        // DataChannel の broadcast まで巻き添えになる (ADR 0025 D-3)。
+        void controller.setSpeakerVisibility(identity, visibility, inviteToken || undefined);
       }}
       showVisibilityControl={effectiveRole === "admin" || effectiveRole === "moderator"}
     />
@@ -1156,7 +1158,7 @@ export function App(props: {
             <div className="space-y-4 pr-4">
               <PreviewWindow
                 client={client}
-                inviteToken={token}
+                inviteToken={inviteToken}
                 composerTemplateUrl={props.config?.composerTemplateUrl}
               />
             </div>
@@ -1251,7 +1253,7 @@ export function App(props: {
       {statusBanners}
       <PreviewWindow
         client={client}
-        inviteToken={token}
+        inviteToken={inviteToken}
         composerTemplateUrl={props.config?.composerTemplateUrl}
       />
     </StageShell>
