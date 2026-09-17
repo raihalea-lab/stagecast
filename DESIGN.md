@@ -66,7 +66,7 @@ YouTube Live はリアルタイム字幕として 1 トラックのみを受け�
 
 ### 3.1 制御層（常時稼働・低コスト）
 
-- **S3 + CloudFront**: 管理画面（SPA）の静的ホスティングと CDN 配信。
+- **S3 + CloudFront**: SPA の静的ホスティングと CDN 配信。admin-web (管理画面) / stage-web (登壇者・モデレーター) / composer-web (合成テンプレート、ADR 0012 D-2) / request-web (イベント開催申請) の 4 つを**独立した Distribution** で配る。
 - **API Gateway + Lambda**: イベント設定 API、発表者制御 API、メディア層の起動・停止のオーケストレーション。リクエスト課金のため非配信時はほぼ無料。
 - **DynamoDB**: イベント定義、参加者・ロール、招待トークン、発表状態などのメタデータ。
 - **S3（素材・成果物）**: QR コード画像、スライド資料、配信素材、配信録画、確定字幕ファイル。
@@ -76,10 +76,10 @@ YouTube Live はリアルタイム字幕として 1 トラックのみを受け�
 
 イベント開始時に配信単位で独立したメディア処理スタックを起動し、終了時に破棄する。並列数の現実的な見込みは最大 3 だが、アーキテクチャ上は per-event で独立しているため `MAX_PARALLEL_EVENTS` (soft cap) と AWS quota の範囲で並列実行できる (ADR 0008)。
 
-- **SFU (LiveKit)**: 登壇者・モデレーター・管理者の WebRTC 映像音声を中継。画面共有もここで扱う。 ADR 0009 の NLB + ACM で TLS 終端し、`wss://event-{slug}.media.{domain}` で per-event の signaling URL を払い出す。
+- **SFU (LiveKit)**: 登壇者・モデレーター・管理者の WebRTC 映像音声を中継。画面共有もここで扱う。 シグナリング (7880) の TLS 終端は **SFU Task に同居する Caddy サイドカー**が行い、 Let's Encrypt の DNS-01 チャレンジで証明書を自動取得して S3 に永続化する (ADR 0016 D-1/D-6)。 `wss://event-{slug}.media.{domain}` で per-event の signaling URL を払い出し、 Fargate Public IP への A レコードは reconcile Lambda が UPSERT/DELETE する (ADR 0016 D-3)。 ~~ADR 0009 の NLB + ACM~~ は idle で月 ~$16 かかり N-1 と矛盾するため廃止した。
 - **合成・Egress**: カスタム composer-template (ADR 0012) を Chrome ヘッドレスで描画し、 RTMP で YouTube Live + S3 に録画 mp4 を送出する。 Egress は SFU と同一 ECS Task の sidecar として同居 (ADR 0010) し、 SFU には `ws://localhost:7880` で繋ぐ (Chrome の LNA 制限回避のため `insecure: true` 必須、 ADR 0010 D-7)。
 - **TURN (AWS KVS WebRTC)**: シンメトリック NAT 越え用。 制御層の `KVS Signaling Channel` (常時稼働、 月 $0.03) が短期 credential 付き iceServers を control-api `/join` 経由で配り、 stage-web は `Room.connect` の `rtcConfig.iceServers` に直接渡す (ADR 0011 案 E)。 LiveKit Server の内蔵 TURN や coturn sidecar は採用しない。
-- **ElastiCache for Valkey**: ルーム状態、発表者の切り替え状態、低レイテンシな共有状態。 単一ノード (cluster-mode-disabled) 構成で LiveKit psrpc を維持 (ADR 0010 D-6)。
+- **Valkey (SFU Task の sidecar)**: LiveKit の psrpc レジストリ (SFU ↔ Egress の相互発見) を担う。 ADR 0017 D-1 で **ElastiCache も独立 Fargate Service も廃止**し、同一 Task 内の `localhost:6379` で繋ぐ (CloudMap DNS も不要になった)。 **投影・レイアウト・発表者の状態はここには置かない** (下記 3.4 / 5.3 を参照)。
 
 ### 3.3 翻訳・字幕層（イベント時のみ起動）
 
@@ -89,8 +89,13 @@ YouTube Live はリアルタイム字幕として 1 トラックのみを受け�
 
 ### 3.4 データフロー
 
-1. 登壇者・モデレーター・管理者がブラウザから SFU に接続し、映像音声・画面共有を送る。
-2. 管理者が発表者の出し入れを操作すると、状態が Valkey に反映され、合成処理に伝わる。
+1. 登壇者・モデレーター・管理者が招待 URL から `POST /join` を叩き、LiveKit token と
+   **KVS WebRTC の短期 iceServers** を受け取る。ブラウザは `Room.connect` の
+   `rtcConfig.iceServers` にそれを直接渡して SFU に接続し、映像音声・画面共有を送る (ADR 0011 案 E)。
+2. 管理者・モデレーターが発表者の出し入れやレイアウトを操作すると、制御 API が
+   **DynamoDB の `PresentationState` を更新** し、続けて **LiveKit の room metadata を書き換える**。
+   合成処理 (composer) と stage-web の全ウィンドウは metadata の変更を受け取って即座に追従する
+   (ADR 0022 / ADR 0025 / ADR 0026)。
 3. 合成処理がスライド・登壇者・QR・タイトルを 1 枚の映像に合成し、RTMP で YouTube Live へ送出する。
 4. 登壇者音声は字幕パイプラインにも分岐され、ASR・翻訳を経て字幕イベントになる。
 5. 字幕イベントは字幕バスに集約され、YouTube 字幕トラックへ（1言語）、必要に応じて独自 API へ（多言語）配られる。
@@ -117,15 +122,29 @@ YouTube Live はリアルタイム字幕として 1 トラックのみを受け�
 
 ### 4.2 制御 API のエンドポイント (主要)
 
-| Path                              | 認証         | 用途                                                                                                                   |
-| --------------------------------- | ------------ | ---------------------------------------------------------------------------------------------------------------------- |
-| `POST /join`                      | 招待トークン | stage-web の入室 (LiveKit token 発行)。 KVS WebRTC TURN の iceServers を含めて返す (ADR 0011)                          |
-| `POST /preview-token`             | 招待トークン | stage-web の登壇者ビュー右下小窓プレビュー (viewer role、 ADR 0012 D-6)                                                |
-| `POST /events/{id}/admin-token`   | Cognito      | admin-web の LayoutControl が LiveKit room に admin role で接続し、 data channel で layout を broadcast (ADR 0012 D-4) |
-| `POST /events/{id}/preview-token` | Cognito      | admin-web の LivePreview iframe (viewer role)                                                                          |
-| `POST /events/{id}/egress/start`  | Cognito      | YouTube Live RTMP 送出 + S3 録画開始 (ADR 0006 D-4, P-14)                                                              |
-| `POST /invites/verify`            | 招待トークン | invite token の事前検証 (UX 補助)                                                                                      |
-| その他 `/events/*`                | Cognito      | events CRUD / settings / artifacts 等                                                                                  |
+招待トークンで入るモデレーター・登壇者は Cognito のアカウントを持たないため、該当ルートは
+**API Gateway の JWT authorizer を通さず** control-api 内でトークンを検証する。
+
+| Path                                                  | 認証         | 用途                                                                                                                   |
+| ----------------------------------------------------- | ------------ | ---------------------------------------------------------------------------------------------------------------------- |
+| `POST /join`                                          | 招待トークン | stage-web の入室 (LiveKit token 発行)。 KVS WebRTC TURN の iceServers を含めて返す (ADR 0011)                          |
+| `POST /invites/verify`                                | 招待トークン | invite token の事前検証 (UX 補助)                                                                                      |
+| `POST /preview-token`                                 | 招待トークン | stage-web の登壇者ビュー右下小窓プレビュー (viewer role、 ADR 0012 D-6)                                                |
+| `POST /stage/presentation/{state,slide,layout}`       | 招待トークン | 投影・スライド送り・レイアウトの更新。`PresentationState` を書き、room metadata に反映 (ADR 0022 / 0025)               |
+| `POST /stage/egress/{start,stop}`                     | 招待トークン | モデレーターによる YouTube 送出の開始・停止 (ADR 0026 D-4)。モデレーター以外は 403                                     |
+| `POST /stage/{assets,materials,presets}/*`            | 招待トークン | デッキ・素材の署名付き URL 発行とプリセット操作                                                                        |
+| `POST /event-requests` / `GET /event-requests/public` | なし         | request-web からのイベント開催申請と、公開カレンダー用の一覧                                                           |
+| `GET /events/public`                                  | なし         | 公開イベント一覧                                                                                                       |
+| `POST /events/{id}/admin-token`                       | Cognito      | admin-web の LayoutControl が LiveKit room に admin role で接続し、 data channel で layout を broadcast (ADR 0012 D-4) |
+| `POST /events/{id}/stage-token`                       | Cognito      | 管理者が stage-web に入るための token (ADR 0014 D-4)                                                                   |
+| `POST /events/{id}/preview-token`                     | Cognito      | admin-web の LivePreview iframe (viewer role)                                                                          |
+| `POST /events/{id}/egress/start`                      | Cognito      | 管理側からの YouTube Live RTMP 送出 + S3 録画開始 (ADR 0006 D-4)                                                       |
+| `GET /events/{id}/artifacts`                          | Cognito      | 配信成果物 (録画 / 確定字幕) のダウンロード URL 一覧                                                                   |
+| その他 `/events/*`                                    | Cognito      | events CRUD / status 遷移 / invites / settings 等                                                                      |
+
+> **公開ルートの正は `packages/shared/public-routes.json`**。infra はこれを回して `CfnRoute` を
+> 生成する。ここへの書き忘れは `$default` の JWT authorizer に弾かれ、**Lambda に届く前に 401**
+> になる (実際に 4 回踏んでいる)。ワイルドカードにはしない — 将来の管理者パスまで素通りする。
 
 ---
 
@@ -161,7 +180,17 @@ LiveKit Egress のデフォルトテンプレートではなく、 自前の Rea
 
 ### 5.3 発表者の制御
 
-管理者は管理画面から、各登壇者を「発表中」「待機」に切り替える。状態は Valkey に保持され、合成処理が即座に反映する。
+管理者は管理画面から、各登壇者を「発表中」「待機」に切り替える。
+
+**状態の正は DynamoDB の `PresentationState`** (発表者・スライド・レイアウト・主役)。
+そこから LiveKit の **room metadata** に写して配る (ADR 0022 D-1 / ADR 0025 D-2)。
+composer は Egress が起動する headless Chrome の中にいて token と url しか受け取らないため
+制御 API を叩けないが、metadata なら**接続時に必ず届き**、更新も `RoomMetadataChanged` で拾える。
+これにより composer は「配り直されるのを待つ」側から「状態を読む」側になり、再接続しても
+レイアウトや投影が巻き戻らない。YouTube へ送出中かどうか (`egressActive`) も同じ経路で配る
+(ADR 0026 D-2)。
+
+DataChannel による broadcast は「今いる人」にしか届かないので、**正としては使わない**。
 
 ---
 
@@ -212,22 +241,29 @@ YouTube Live はリアルタイム字幕として 1 トラックのみ受け付�
 
 ### 7.1 ライフサイクル
 
-1. 管理者がイベントを開始すると、制御層（Lambda）がそのイベント専用のメディアスタックと字幕パイプラインを起動する。
-2. 配信中はイベントごとに独立したリソースで処理する。並列数は `MAX_PARALLEL_EVENTS` (デフォルト 10) と AWS quota の範囲。
-3. 管理者がイベントを終了すると、当該スタックを破棄する。
-4. 非配信時に稼働するのは制御層（S3/CloudFront・API Gateway/Lambda・DynamoDB・S3・Cognito）のみ。
+1. イベントが `scheduled` になった時点で、スタックだけを **desiredCount 0 で先に作っておく**
+   (リソースは無料のまま。ADR 0016 D-4)。開始操作ではタスクを 0→1 に引き上げるだけで済む。
+2. 管理者がイベントを開始すると、制御層（Lambda）がそのイベント専用のメディアスタックと字幕パイプラインを起動する。
+3. **「配信できる」の判定は ECS が RUNNING を返したことでは足りない** (ADR 0027)。
+   コンテナ起動の後に LiveKit の初期化・Caddy の証明書ロード・Route53 の DNS 反映が続くため、
+   実際にシグナリングを叩いて応答があることまで確認して `ready` を出す。
+   ここを RUNNING だけで判定していたとき、管理画面が `ready` のままで誰も入室できない事故が起きた。
+4. 配信中はイベントごとに独立したリソースで処理する。並列数は `MAX_PARALLEL_EVENTS` (デフォルト 10) と AWS quota の範囲。
+5. 管理者がイベントを終了すると、当該スタックを破棄する。
+6. 非配信時に稼働するのは制御層（S3/CloudFront・API Gateway/Lambda・DynamoDB・S3・Cognito）と
+   TURN 用の KVS Signaling Channel (月 $0.03) のみ。
 
 ### 7.2 コスト最小化の方針
 
-| コンポーネント                                         | コスト方針                                                                                                                        |
-| ------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------- |
-| S3 + CloudFront (admin-web / stage-web / composer-web) | 静的配信。 アクセス量に応じた低コスト。 ADR 0012 D-2 で composer-template も独立 Distribution に。                                |
-| API Gateway + Lambda                                   | リクエスト課金。 非配信時はほぼ無料。                                                                                             |
-| DynamoDB                                               | オンデマンド課金。 メタデータのみで小規模。                                                                                       |
-| ElastiCache for Valkey                                 | per-event で起動・破棄 (ADR 0010 D-6 で単一ノード非 Serverless に切替)。 イベント時のみ。                                         |
-| SFU / Egress / 字幕                                    | イベント時のみ起動し終了で破棄。 SFU + Egress sidecar は同一 Fargate Task で 2 vCPU / 4 GiB (ADR 0010)。 非配信時はゼロスケール。 |
-| 独自字幕 API                                           | イベント設定で有効化した時のみ起動。 普段は休止。                                                                                 |
-| **KVS Signaling Channel (TURN)**                       | **常時稼働** だが約 **$0.03/月** + 利用量 (TURN streaming) 課金。 stage-web の NAT 越え用 (ADR 0011 案 E)。                       |
+| コンポーネント                   | コスト方針                                                                                                                                                                                                                |
+| -------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| S3 + CloudFront (SPA 4 つ)       | 静的配信。 アクセス量に応じた低コスト。 admin / stage / composer / request をそれぞれ独立 Distribution で配る (ADR 0012 D-2)。                                                                                            |
+| API Gateway + Lambda             | リクエスト課金。 非配信時はほぼ無料。                                                                                                                                                                                     |
+| DynamoDB                         | オンデマンド課金。 メタデータのみで小規模。                                                                                                                                                                               |
+| Valkey (SFU Task の sidecar)     | **専用リソースなし**。 ADR 0017 D-1 で ElastiCache と独立 Fargate Service を廃止し、 SFU Task に同居させた。                                                                                                              |
+| SFU / Egress / Valkey / 字幕     | イベント時のみ起動し終了で破棄。 SFU + Egress + Valkey + Caddy は同一 Fargate Task に同居 (ADR 0010 / 0016 / 0017)。 字幕が不要なイベントでは CaptionWorker を起動しない (ADR 0017 D-2、 -35%)。 非配信時はゼロスケール。 |
+| 独自字幕 API                     | イベント設定で有効化した時のみ起動。 普段は休止。                                                                                                                                                                         |
+| **KVS Signaling Channel (TURN)** | **常時稼働** だが約 **$0.03/月** + 利用量 (TURN streaming) 課金。 stage-web の NAT 越え用 (ADR 0011 案 E)。                                                                                                               |
 
 ### 7.3 並列配信の独立性
 
@@ -257,6 +293,8 @@ YouTube Live はリアルタイム字幕として 1 トラックのみ受け付�
 | TURN 取得失敗         | `/join` レスポンスの `iceServers` 欠落 / `GetIceServerConfig` API エラー | control-api Lambda の CloudWatch Logs                                  |
 | KVS Signaling Channel | ステータスが ACTIVE か / TURN streaming 使用量                           | AWS Console (Kinesis Video Streams) + Budgets アラート                 |
 | ICE pair 失敗         | stage-web 入室直後の WebRTC `state: failed` (15s で SIGNAL_SOURCE_CLOSE) | LiveKit Server (SFU) ログ + Chrome `webrtc-internals`                  |
+| 証明書の更新失敗      | `tls.renew` / `tls.obtain` の失敗が 5 分おきに出ていないか               | EventMediaStack の CloudWatch Logs / Caddy container stream            |
+| 配信開始できない      | `phase` が `ready` にならない / シグナリングが応答しない (ADR 0027)      | 管理画面の「配信インフラ」カード + reconcile Lambda のログ             |
 
 ADR 0011 + ADR 0010 + ADR 0012 の経緯と踏破済の罠は `r12-livekit-fargate-gotchas` memory に集約 (11 件)。
 
@@ -264,15 +302,15 @@ ADR 0011 + ADR 0010 + ADR 0012 の経緯と踏破済の罠は `r12-livekit-farga
 
 ## 9. AWS 構成まとめ
 
-| 層           | 主なサービス                                                                  | 稼働形態                                             |
-| ------------ | ----------------------------------------------------------------------------- | ---------------------------------------------------- |
-| 制御層       | S3, CloudFront (admin/stage/composer), API Gateway, Lambda, DynamoDB, Cognito | 常時稼働・低コスト                                   |
-| TURN         | Kinesis Video Streams Signaling Channel                                       | 常時稼働 (約 $0.03/月、 ADR 0011 案 E)               |
-| 共有状態     | ElastiCache for Valkey (per-event 単一ノード)                                 | イベント時のみ (ADR 0010 D-6)                        |
-| メディア層   | SFU (LiveKit) + Egress sidecar (Fargate 同一 Task)                            | イベント時のみ起動・破棄、並列実行可 (ADR 0008/0010) |
-| 翻訳・字幕層 | 字幕パイプライン, 字幕バス, 各エンジン・出力先                                | イベント時のみ起動                                   |
-| 保存         | S3（録画 mp4 / 確定字幕 / 素材）                                              | 常時                                                 |
-| 配信         | YouTube Live                                                                  | 外部                                                 |
+| 層           | 主なサービス                                                                          | 稼働形態                                                       |
+| ------------ | ------------------------------------------------------------------------------------- | -------------------------------------------------------------- |
+| 制御層       | S3, CloudFront (admin/stage/composer/request), API Gateway, Lambda, DynamoDB, Cognito | 常時稼働・低コスト                                             |
+| TURN         | Kinesis Video Streams Signaling Channel                                               | 常時稼働 (約 $0.03/月、 ADR 0011 案 E)                         |
+| 共有状態     | DynamoDB (`PresentationState` が正) + LiveKit room metadata (配布)                    | 制御層と同じ (ADR 0022 / 0025 / 0026)                          |
+| メディア層   | SFU (LiveKit) + Egress / Valkey / Caddy sidecar (Fargate 同一 Task)                   | イベント時のみ起動・破棄、並列実行可 (ADR 0008/0010/0016/0017) |
+| 翻訳・字幕層 | 字幕パイプライン, 字幕バス, 各エンジン・出力先                                        | イベント時のみ起動                                             |
+| 保存         | S3（録画 mp4 / 確定字幕 / 素材）                                                      | 常時                                                           |
+| 配信         | YouTube Live                                                                          | 外部                                                           |
 
 ### 9.1 実装フェーズでの詳細設計事項
 
