@@ -211,3 +211,35 @@ describe("provision 失敗を管理画面に出す (NEXT_WORK D16)", () => {
     expect(sameProvisioning(failed, ok)).toBe(false);
   });
 });
+
+describe("シグナリングが応答しなければ ready にしない (ADR 0027 D-2)", () => {
+  const up = { stack: { kind: "running" as const }, services: running(1, 1), mediaReady: true };
+
+  it("タスクが RUNNING でもシグナリングが応答しなければ starting", () => {
+    // 2026-09-17 の事故: SFU が再起動した直後、ECS は RUNNING・media も確定済みなので
+    // 画面は ready を出し続けたが、誰も入室できなかった。
+    expect(computePhase(input({ ...up, signalingReady: false }))).toBe("starting");
+  });
+
+  it("応答があれば ready", () => {
+    expect(computePhase(input({ ...up, signalingReady: true }))).toBe("ready");
+  });
+
+  it("probe 未実施 (undefined) は従来どおり ready", () => {
+    expect(computePhase(input(up))).toBe("ready");
+  });
+
+  it("事前プロビジョニング中はシグナリングを問わない (タスクを動かしていない)", () => {
+    expect(computePhase(input({ ...up, wantTasks: false, signalingReady: false }))).toBe("ready");
+  });
+
+  it("応答なしの理由は observedAt の差分と違って書き戻される", () => {
+    const a = computeProvisioning(input({ ...up, signalingReady: true }), 1000);
+    const b = computeProvisioning(
+      input({ ...up, signalingReady: false, signalingError: "timeout after 3000ms" }),
+      2000,
+    );
+    expect(sameProvisioning(a, b)).toBe(false);
+    expect(b.signalingError).toBe("timeout after 3000ms");
+  });
+});

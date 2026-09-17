@@ -19,6 +19,13 @@ export interface ProvisioningInput {
   /** LiveKit URL が確定済みか (events.media が埋まっているか)。 */
   mediaReady: boolean;
   /**
+   * シグナリングが外から応答したか (ADR 0027 D-1)。probe を打たなかった tick は undefined。
+   * `false` のときだけ ready を止める (未実施で starting に落とすと逆に嘘になる)。
+   */
+  signalingReady?: boolean | undefined;
+  /** シグナリングに到達できなかった理由。 */
+  signalingError?: string | undefined;
+  /**
    * タスクが起動しているべきか。live/warmup は true、scheduled の事前プロビジョニング
    * (desiredCount=0, ADR 0016 D-4) は false。false のときはスタック完成をもって ready とする。
    */
@@ -47,8 +54,13 @@ export function computePhase(input: ProvisioningInput): ProvisioningPhase {
   if (kind === "failed") return "failed";
   if (kind === "in_progress") return "creating";
   // kind === "running": スタックは完成。タスク起動待ちかどうかで分かれる。
+  // 事前プロビジョニング (desiredCount=0, ADR 0016 D-4) はタスクを動かさないので、
+  // シグナリングが応答しないのが正常。スタック完成をもって ready とする。
   if (!input.wantTasks) return "ready";
-  return tasksRunning(input.services) && input.mediaReady ? "ready" : "starting";
+  // ADR 0027 D-2: タスクが RUNNING でも配信できるとは限らない。外から実際に
+  // 到達できるまで ready にしない (2026-09-17 に「タスクはあるのに誰も入れない」を踏んだ)。
+  if (!tasksRunning(input.services) || !input.mediaReady) return "starting";
+  return input.signalingReady === false ? "starting" : "ready";
 }
 
 /** 純粋関数: 管理画面に出す観測結果を組み立てる。 */
@@ -61,6 +73,8 @@ export function computeProvisioning(
     ...(input.stack?.status ? { stackStatus: input.stack.status } : {}),
     services: input.services,
     mediaReady: input.mediaReady,
+    ...(input.signalingReady === undefined ? {} : { signalingReady: input.signalingReady }),
+    ...(input.signalingError ? { signalingError: input.signalingError } : {}),
     ...(input.error ? { error: input.error } : {}),
     observedAtMs,
   };
@@ -87,6 +101,9 @@ export function sameProvisioning(
   if (a.phase !== b.phase) return false;
   if (a.stackStatus !== b.stackStatus) return false;
   if (a.mediaReady !== b.mediaReady) return false;
+  // 配信できる/できないが切り替わったら書き戻す。ここを見ないと画面が古い状態を出し続ける。
+  if (a.signalingReady !== b.signalingReady) return false;
+  if (a.signalingError !== b.signalingError) return false;
   // 失敗理由が変わった / 直ったときに書き戻されないと、画面が古い理由を出し続ける。
   if (a.error !== b.error) return false;
   if (a.services.length !== b.services.length) return false;

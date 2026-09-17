@@ -137,6 +137,16 @@ export interface EventProvisioningInfo {
   /** LiveKit URL が確定済みか (= `media` フィールドが埋まっているか)。 */
   mediaReady: boolean;
   /**
+   * シグナリング (Caddy → LiveKit) が外から実際に応答するか (ADR 0027 D-1)。
+   *
+   * ECS の RUNNING は**コンテナが起動したこと**しか意味しない。LiveKit の初期化・
+   * 証明書のロード・DNS 反映はその後に起こるので、これを見ないと
+   * 「タスクはあるのに誰も入室できない」状態を管理画面が ready と表示してしまう。
+   */
+  signalingReady?: boolean;
+  /** シグナリングに到達できなかった理由 (接続拒否 / TLS 失敗 / タイムアウト)。 */
+  signalingError?: string;
+  /**
    * 直近の provision/destroy が失敗した理由 (NEXT_WORK D16)。
    *
    * これが無いと、reconcile が毎分失敗していても管理画面は「未作成」としか出ず、
