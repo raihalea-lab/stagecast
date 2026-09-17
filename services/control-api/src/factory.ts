@@ -200,7 +200,11 @@ export function buildControlApi(config: FactoryConfig = {}) {
   // R16 / ADR 0012 D-4: 管理者用 LiveKit token 発行 (layout 切替 broadcast 用)。
   // livekitMinter が無い (LiveKit 環境変数未設定) 環境ではこのサービスは無効。
   const liveKitMinter = config.livekitMinter ?? livekitFromEnv();
-  const adminToken = liveKitMinter ? createAdminTokenService({ events, liveKitMinter }) : undefined;
+  // stage-web の origin は招待 URL (INVITE_BASE_URL) と同じ配信元。admin-web は別 origin なので
+  // クライアント側の window.location.origin では開けない (Cognito に飛ばされる)。
+  const adminToken = liveKitMinter
+    ? createAdminTokenService({ events, liveKitMinter, stageUrl: new URL(baseUrl).origin })
+    : undefined;
   // R17 / ADR 0012 D-6: プレビュー用 LiveKit token 発行 (viewer role, iframe 埋め込み用)。
   const previewToken = liveKitMinter
     ? createPreviewTokenService({ events, liveKitMinter })

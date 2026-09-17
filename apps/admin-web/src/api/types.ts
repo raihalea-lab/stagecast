@@ -65,6 +65,8 @@ export interface StageTokenResult {
   token: string;
   livekitUrl: string;
   expiresAt: number;
+  /** 開く stage-web の origin。 admin-web とは別ディストリビューションなので必ずサーバが返す。 */
+  stageUrl: string;
 }
 
 export interface ControlApiClient {

@@ -32,11 +32,15 @@ export interface StageTokenResult {
   token: string;
   livekitUrl: string;
   expiresAt: number;
+  /** 開く stage-web の origin。 admin-web とは別ディストリビューションなので必ずサーバが返す。 */
+  stageUrl: string;
 }
 
 export interface AdminTokenServiceConfig {
   events: EventService;
   liveKitMinter: LiveKitTokenMinter;
+  /** stage-web の origin (INVITE_BASE_URL と同じディストリビューション)。 */
+  stageUrl: string;
   /** Admin token の有効期間 (秒)。 layout 切替操作中に切れないよう長めに取る (デフォルト 6 時間)。 */
   ttlSec?: number;
 }
@@ -76,6 +80,7 @@ export function createAdminTokenService(config: AdminTokenServiceConfig) {
         token: livekitToken,
         livekitUrl,
         expiresAt: Date.now() + ttlSec * 1000,
+        stageUrl: config.stageUrl,
       };
     },
   };
