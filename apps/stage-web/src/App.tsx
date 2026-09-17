@@ -453,6 +453,13 @@ export function App(props: {
     void (async () => {
       const state = await client.getPresentationState(inviteToken).catch(() => undefined);
       if (cancelled || !state) return;
+      // ADR 0025 D-1: レイアウトもここで復元する。初回 join では room metadata の
+      // `RoomMetadataChanged` が飛ばない (livekit-client は前回値と違うときだけ emit する)
+      // ので、これが無いと招待リンクで入った人は実際が spotlight でも grid 表示で始まる。
+      if (state.layout) {
+        setLayout(state.layout);
+        setFocusIdentity(state.focusIdentity);
+      }
       if (state.slideSource !== "uploaded" || !state.deck) return;
       deckAssetRef.current = state.deck;
       setDeckTotalPages(state.deck.pageCount);
@@ -942,6 +949,36 @@ export function App(props: {
     </>
   );
 
+  /**
+   * レイアウトと主役を変える (ADR 0025 D-1/D-2)。
+   *
+   * **レイアウトと `focusIdentity` は 1 つの状態**なので必ずここを通す。片方だけ DataChannel で
+   * 流すと、次に誰かが metadata を発行した時点でサーバの古い値に巻き戻る。
+   */
+  const applyLayoutChange = (nextLayout: LayoutKind, focus: string | undefined) => {
+    // grid / screen-share-main は主役を使わない。残すと次に spotlight にしたとき
+    // 古い人が主役になる (サーバ側の setLayout も同じ規則)。
+    const nextFocus = nextLayout === "spotlight" || nextLayout === "pip" ? focus : undefined;
+    setLayout(nextLayout);
+    setFocusIdentity(nextFocus);
+    // D-2: metadata の往復を待たずに反映するための通知。
+    void controller.changeLayout(nextLayout, nextFocus);
+    previewIframeRef.current?.contentWindow?.postMessage(
+      { type: "layout-change", layout: nextLayout, focusIdentity: nextFocus },
+      "*",
+    );
+    // D-1: 正はサーバ。ここを飛ばすと次の metadata 発行で巻き戻る。
+    if (!inviteToken) {
+      setError(
+        "配信操作の資格情報がありません。管理画面から開き直してください (変更は保存されません)。",
+      );
+      return;
+    }
+    void client
+      .setLayoutState(inviteToken, nextLayout, nextFocus)
+      .catch((err: unknown) => setError(err instanceof Error ? err.message : String(err)));
+  };
+
   const layoutPicker = (
     <Card>
       <CardHeader className="pb-3">
@@ -950,24 +987,7 @@ export function App(props: {
       <CardContent>
         <LayoutPicker
           value={layout}
-          onChange={(next) => {
-            setLayout(next);
-            // ADR 0025 D-1: 正はサーバ。書き込みが成功すると room metadata も貼り直され、
-            // 他のウィンドウと composer (再接続後も) が同じレイアウトを見る。
-            if (inviteToken) {
-              void client
-                .setLayoutState(inviteToken, next, focusIdentity)
-                .catch((err: unknown) =>
-                  setError(err instanceof Error ? err.message : String(err)),
-                );
-            }
-            // D-2: metadata の往復を待たずに反映するための通知。
-            void controller.changeLayout(next, focusIdentity);
-            previewIframeRef.current?.contentWindow?.postMessage(
-              { type: "layout-change", layout: next, focusIdentity },
-              "*",
-            );
-          }}
+          onChange={(next) => applyLayoutChange(next, focusIdentity)}
           disabled={busy}
         />
       </CardContent>
@@ -979,9 +999,7 @@ export function App(props: {
       participants={participants.map((p) => toParticipantInfo(p, speakerVisibility))}
       focusIdentity={focusIdentity}
       onFocus={(identity) => {
-        const next = identity === focusIdentity ? undefined : identity;
-        setFocusIdentity(next);
-        void controller.changeLayout(layout, next);
+        applyLayoutChange(layout, identity === focusIdentity ? undefined : identity);
       }}
       onRequestMute={(identity) => {
         void controller.requestMute(identity);
