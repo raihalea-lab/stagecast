@@ -800,7 +800,19 @@ RenderTemplateFunction は Lambda の中で `app.synth()` する (ADR 0023 D-1)�
 やること: `cdk.out/asset.*/index.mjs` を実際に実行して `handler()` を叩くテストを用意する
 (手順は PR #236 の検証で使ったものと同じ)。少なくとも aws-cdk-lib を上げる PR では必ず走らせる。
 
-### D17. pre-push フックが CI と重複し、push に 10 分以上かかる
+### D17. pre-push フックが CI と重複し、push に 10 分以上かかる (認証切れの件は解消済み)
+
+> **2026-09-17: 認証切れで push が止まる問題だけ修正した** (`.git/hooks/pre-push`)。
+> 原因は「認証が取れないとき偽アカウント `111111111111` にフォールバックしていた」こと。
+> 偽アカウントだと `cdk.context.json` のキャッシュキーと一致せず実 AWS を叩きにいく。
+> **実アカウントさえ渡せば、認証が切れていてもキャッシュで synth は通る** (検証済み)。
+> 取れないときは synth をスキップする (CI が同じ検証をするため)。
+>
+> なお `CDK_DEFAULT_*` を単純に外す (CI と同じ修正) のは**ローカルでは不正解**。
+> ローカルには `user-config.ts` があり `HostedZone.fromLookup` が走るので、
+> 環境非依存では synth できない。CI では同ファイルが gitignore で存在しないため成立していた。
+>
+> **残: CI との重複そのもの**。下記の選択肢は未決。
 
 2026-09-17 に CI を再有効化した (PR #246) 結果、`.git/hooks/pre-push` が
 **CI とまったく同じチェック** (lint → build → typecheck → test → cdk synth) を
