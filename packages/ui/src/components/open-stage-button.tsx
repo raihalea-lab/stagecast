@@ -49,7 +49,9 @@ export function OpenStageButton({
         url.searchParams.set("token", result.token);
         url.searchParams.set("url", result.livekitUrl);
         url.searchParams.set("eventId", eventId);
-        url.searchParams.set("previewToken", result.previewToken);
+        // 旧 Lambda は返さない。 set すると文字列 "undefined" が載り、 壊れた token で
+        // iframe が描画される (型は必須でも実 API は追いついていない)。
+        if (result.previewToken) url.searchParams.set("previewToken", result.previewToken);
         window.open(url.toString(), "_blank", "noopener,noreferrer");
       }
     } catch (err) {
