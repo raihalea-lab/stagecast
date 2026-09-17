@@ -5,6 +5,7 @@ import { liveKitEgressConfig } from "../lib/event-media-stack";
 import {
   EventMediaStack,
   caddyStartCommand,
+  isCaddyfileSafeEmail,
   ecrRepositoryArnFromUri,
   eventMediaStackName,
   isEcrImage,
@@ -469,7 +470,7 @@ describe("EventMediaStack with acmeEmail (O0, 2026-09-18)", () => {
 
   it("Caddyfile のグローバルオプションに email を書き出す", () => {
     const json = caddyContainer(template);
-    expect(json).toContain("email %s");
+    expect(json).toContain('email \\"%s\\"');
   });
 
   it("メールアドレスの値は env (ACME_EMAIL) から渡す", () => {
@@ -491,6 +492,12 @@ describe("caddyStartCommand (O0, ADR 0016 D-6)", () => {
     expect(cmd).toContain(
       `' "$ACME_EMAIL" "$AWS_REGION" "$CERT_BUCKET" "$CADDY_DOMAIN" > /tmp/Caddyfile`,
     );
+  });
+
+  it("email の %s はダブルクオートで囲む (空白入りの値で Caddy が落ちないように)", () => {
+    // Caddy は essential: true。Caddyfile のパースに失敗すると SFU Task ごと落ちて
+    // そのイベントは開始できなくなるので、値がトークンとして割れないようにする。
+    expect(caddyStartCommand({ acmeEmail: "ops@example.com" })).toContain('email "%s"');
   });
 
   it("acmeEmail 未指定なら email 行も $ACME_EMAIL も出ない (従来の挙動)", () => {
@@ -542,5 +549,26 @@ describe("liveKitEgressConfig (R12, ADR 0010 D-7, ADR 0012 D-3)", () => {
       "https://d123abc.cloudfront.net",
     );
     expect(yaml).toContain("template_base: https://d123abc.cloudfront.net");
+  });
+});
+
+describe("isCaddyfileSafeEmail (O0)", () => {
+  it("素のメールアドレスは通す", () => {
+    expect(isCaddyfileSafeEmail("ops@example.com")).toBe(true);
+    expect(isCaddyfileSafeEmail("ops+stagecast@sub.example.co.jp")).toBe(true);
+  });
+
+  it("Caddyfile のトークンを割る値を弾く", () => {
+    // 表示名付きは opsEmail からのフォールバックで混ざりうる。
+    expect(isCaddyfileSafeEmail("Ops Team <ops@example.com>")).toBe(false);
+    expect(isCaddyfileSafeEmail('ops"@example.com')).toBe(false);
+    expect(isCaddyfileSafeEmail("ops@example.com\n")).toBe(false);
+  });
+
+  it("メールアドレスの形をしていない値を弾く", () => {
+    // O0 の原因そのもの: storage の一覧から拾った `users` が送られていた。
+    expect(isCaddyfileSafeEmail("users")).toBe(false);
+    expect(isCaddyfileSafeEmail("ops@example")).toBe(false);
+    expect(isCaddyfileSafeEmail("")).toBe(false);
   });
 });

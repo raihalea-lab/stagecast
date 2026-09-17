@@ -38,6 +38,7 @@ import {
 } from "aws-cdk-lib";
 import type { Construct } from "constructs";
 import type { UserConfig } from "./user-config";
+import { isCaddyfileSafeEmail } from "./event-media-stack";
 
 /** 制御層スタックの props。webAssets を渡すと SPA を BucketDeployment で配信する。 */
 export interface ControlPlaneStackProps extends StackProps {
@@ -356,6 +357,17 @@ export class ControlPlaneStack extends Stack {
     // 警告なので気づかないまま進めることもできるが、そのときの帰結は「証明書の更新が
     // 5 分おきに失敗し続け、期限切れで全イベントの wss:// が繋がらなくなる」。
     const acmeEmail = uc.acmeEmail ?? uc.opsEmail;
+    // Caddyfile にそのまま書けない値は deploy 時に止める。ここは人が `cdk deploy` する場所なので
+    // throw してよい (RenderTemplateFunction の中で落とすと配信を開始できなくなる = D15/D16)。
+    // 弾かないと、空白やクオート入りの値が Caddyfile を壊し、essential な Caddy が落ちて
+    // SFU Task ごと起動しなくなる。opsEmail からのフォールバックで表示名付きが混ざりうる。
+    if (tlsConfig && acmeEmail && !isCaddyfileSafeEmail(acmeEmail)) {
+      throw new Error(
+        `user-config.ts の acmeEmail / opsEmail (${acmeEmail}) は ACME 連絡先として使えません。` +
+          "空白・改行・ダブルクオートを含まない素のメールアドレスを acmeEmail に書いてください " +
+          '(表示名付きの "Ops Team <ops@example.com>" は不可)。',
+      );
+    }
     if (tlsConfig && !acmeEmail) {
       Annotations.of(this).addWarning(
         "user-config.ts に acmeEmail (または opsEmail) がありません。" +
