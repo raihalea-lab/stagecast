@@ -282,9 +282,41 @@ R12-followup-1〜22 で **stage-web から SFU への WebRTC 接続** が完了 
 
 ## O: 運用準備 (初回デプロイ前にやること)
 
-### O0. [期限あり] Caddy の証明書更新が失敗し続けている (2026-09-18 発見)
+### O0. [期限あり] Caddy の証明書更新が失敗し続けている (2026-09-18 発見) — コード対応済み、**要デプロイ**
 
-- [ ] **SFU 前段の Caddy が ACME のアカウント登録に失敗し、証明書を更新できていない。**
+> **2026-09-18: Caddyfile に `email` を出すようにした。** ただし**デプロイして初めて効く**。
+> 証明書の残りが短いので、下の手順を先にやること。
+>
+> - `UserConfig.acmeEmail` を追加 (`infra/lib/user-config.ts`)。未設定なら `opsEmail` に
+>   フォールバックする。**どちらも無ければ `email` 行を出さない** = 今までと同じ挙動なので、
+>   `user-config.ts` にアドレスを書かないと直らない
+> - `ControlPlaneStack` → `RenderTemplateFunction` の env (`ACME_EMAIL`) → `render-template.ts`
+>   → `EventMediaStack` → Caddy サイドカーの env、と流す。Caddyfile の生成は
+>   `caddyStartCommand()` に切り出してユニットテストを付けた (書式の `%s` の順と実引数の順が
+>   ズレると、メールアドレスがバケット名の位置に入って**証明書取得だけが壊れる**ため)
+> - 未設定のまま `cdk deploy` すると **`Annotations.addWarning` が出る**。ここで `throw` は
+>   しない。RenderTemplateFunction の synth が落ちると配信を開始できなくなる (D15/D16 と同じ
+>   失敗クラス) ので、警告にとどめている
+>
+> **やること (この順で)**:
+>
+> 1. `infra/user-config.ts` に `acmeEmail: "<運用者アドレス>"` を書く (gitignore されている)
+> 2. `vp run --filter @stagecast/infra cdk deploy StagecastControlPlane`
+>    — 証明書を持つのは EventMediaStack 側なので、**次に作られるイベントから**効く
+> 3. 新規イベントを 1 つ作り、EventMedia のロググループを `tls.obtain` / `tls.renew` で絞って
+>    `invalidContact` が消えていることを確認する
+> 4. S3 の `caddy-certs/` を確認する。**壊れた ACME アカウント (`users` という名前のパス) が
+>    残っている可能性がある**。`email` を明示すると一覧を引かなくなるので実害は消えるはずだが、
+>    ゴミが残っているなら消しておく
+>
+> **根本原因**: `email` が無いと Caddy は storage から既存の ACME アカウントを探しに行き、
+> `acme/<ca>/users/` の一覧から拾った名前をメールアドレスとして使う。certmagic-s3 では
+> `users` 自身が返ってくることがあり、それを Let's Encrypt に送って蹴られていた。
+> 明示すれば一覧ではなくキー直引きになるので、この経路を踏まない。
+
+以下は起票時の記録:
+
+- [x] **SFU 前段の Caddy が ACME のアカウント登録に失敗し、証明書を更新できていない。**
       現在の証明書は有効だが **残り約 6 日**。切れると全イベントで `wss://` が繋がらなくなる。
 
   ```
@@ -706,7 +738,8 @@ dependabot は週 1 (月曜) で動き、cooldown (通常 7 日 / メジャー 1
 > **P1/P2 はマージ済み・オープン PR は 0 件、制御層もメディア層も実配信まで通っている**。
 > R1〜R2・R4〜R6 (ACM 除く)・R8〜R12・R14〜R17 は完了なので、着手順も現在地に合わせる。
 
-1. **O0**: Caddy の ACME メールアドレス。**証明書の残り日数が期限**なので他より先 (上の O0 参照)
+1. **O0**: Caddy の ACME メールアドレス。コードは入ったが **`user-config.ts` への記入と
+   デプロイが残っている**。**証明書の残り日数が期限**なので他より先 (上の O0 参照)
 2. **D8 残 1**: control-api の LiveKit 呼び出しの再試行。ADR 0026 で `egressId` が
    サーバに乗ったので、二重 Egress を避けつつ包める
 3. **R7**: 統合テスト CI workflow。異常系が実機でしか分からない状態が D15/D16/O0/ADR 0027 と

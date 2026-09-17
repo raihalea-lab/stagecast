@@ -76,6 +76,11 @@ export interface EventMediaStackProps extends StackProps {
   /** certmagic-s3 の証明書永続化先バケット名。 */
   certBucketName?: string;
   /**
+   * Caddy の ACME アカウント連絡先 (Caddyfile のグローバルオプション `email`)。
+   * 未指定なら `email` 行を出さない (従来の挙動)。詳細は `UserConfig.acmeEmail` を参照。
+   */
+  acmeEmail?: string;
+  /**
    * ECS サービスの初期 desiredCount (ADR 0016 D-4)。
    * 0 で事前プロビジョニング (スタックのみ作成、タスク未起動)。デフォルト 1。
    */
@@ -487,13 +492,15 @@ export class EventMediaStack extends Stack {
                 essential: true,
                 ports: [{ containerPort: 443, protocol: ecs.Protocol.TCP }],
                 entryPoint: ["sh", "-c"],
-                command: [
-                  `printf '{\\n  storage s3 {\\n    host "s3.%s.amazonaws.com"\\n    bucket "%s"\\n    prefix "caddy-certs/"\\n    use_iam_provider true\\n  }\\n}\\n\\n*.%s {\\n  tls {\\n    dns route53\\n  }\\n  reverse_proxy localhost:7880\\n}\\n' "$AWS_REGION" "$CERT_BUCKET" "$CADDY_DOMAIN" > /tmp/Caddyfile && exec caddy run --config /tmp/Caddyfile --adapter caddyfile`,
-                ],
+                command: [caddyStartCommand({ acmeEmail: props.acmeEmail })],
                 environment: {
                   AWS_REGION: Stack.of(this).region,
                   CADDY_DOMAIN: props.mediaDomainName,
                   CERT_BUCKET: props.certBucketName ?? "",
+                  // ACME アカウントのメールアドレスは値を env に置き、Caddyfile には %s で流す。
+                  // command 文字列に直接埋めると、アドレス変更のたびに TaskDefinition の
+                  // 新リビジョンが要る (env でも同じだが、値と書式が混ざらないほうが読める)。
+                  ...(props.acmeEmail ? { ACME_EMAIL: props.acmeEmail } : {}),
                 },
               },
             ]
@@ -933,4 +940,50 @@ export function liveKitEgressConfig(valkeyEndpoint: string, composerTemplateUrl?
     "  level: info",
     "  json: true",
   ].join("\n");
+}
+
+/**
+ * Caddy サイドカーの起動コマンドを組み立てる (ADR 0016 D-6)。
+ *
+ * Caddyfile をコンテナ内で `printf` で書き出してから `caddy run` する。値 (リージョン /
+ * バケット / ドメイン / メールアドレス) は env 経由で `%s` に流すので、この関数が返すのは
+ * **書式だけ**。
+ *
+ * `email` を明示する理由 (2026-09-18, O0):
+ * これが無いと Caddy は certmagic-s3 の storage から既存の ACME アカウントを探しに行き、
+ * `acme/<ca>/users/` の一覧から拾った名前をメールアドレスとして使う。S3 backend では
+ * `users` 自身が返ってくることがあり、Let's Encrypt に
+ * `invalidContact (unable to parse email address)` で蹴られて**証明書が更新できなくなる**。
+ * 実際に 5 分おきのリトライが全て失敗し続け、証明書の残り 6 日まで無言で進行した。
+ * 明示すると一覧ではなくキー直引きになるので、この経路を踏まない。
+ *
+ * `acmeEmail` 未指定時は `email` 行を出さない (従来の挙動)。**証明書が切れるまで気づけない**
+ * ので、本番運用では `UserConfig.acmeEmail` (または `opsEmail`) を必ず設定すること。
+ */
+export function caddyStartCommand(opts: { acmeEmail?: string } = {}): string {
+  // printf の書式に渡す %s の順番と、下の実引数の順番を必ず合わせること。
+  const globals = [
+    ...(opts.acmeEmail ? ["  email %s"] : []),
+    '  storage s3 {\\n    host "s3.%s.amazonaws.com"\\n    bucket "%s"\\n    prefix "caddy-certs/"\\n    use_iam_provider true\\n  }',
+  ];
+  const format = [
+    "{",
+    ...globals,
+    "}",
+    "",
+    "*.%s {",
+    "  tls {",
+    "    dns route53",
+    "  }",
+    "  reverse_proxy localhost:7880",
+    "}",
+    "",
+  ].join("\\n");
+  const args = [
+    ...(opts.acmeEmail ? ['"$ACME_EMAIL"'] : []),
+    '"$AWS_REGION"',
+    '"$CERT_BUCKET"',
+    '"$CADDY_DOMAIN"',
+  ].join(" ");
+  return `printf '${format}' ${args} > /tmp/Caddyfile && exec caddy run --config /tmp/Caddyfile --adapter caddyfile`;
 }

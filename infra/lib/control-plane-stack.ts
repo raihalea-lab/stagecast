@@ -7,6 +7,7 @@ import {
   Duration,
   CfnOutput,
   CustomResource,
+  Annotations,
   SecretValue,
   custom_resources as cr,
   aws_s3 as s3,
@@ -348,6 +349,21 @@ export class ControlPlaneStack extends Stack {
           return { mediaDomainName, mediaHostedZone };
         })()
       : undefined;
+
+    // O0 (2026-09-18): Caddy の ACME アカウント連絡先。`acmeEmail` 優先、無ければ `opsEmail`。
+    // 未設定でも deploy は通す (ここで throw すると RenderTemplateFunction の synth が落ち、
+    // 配信を開始できなくなる = D15/D16 と同じ失敗クラス)。代わりに deploy 時に警告を出す。
+    // 警告なので気づかないまま進めることもできるが、そのときの帰結は「証明書の更新が
+    // 5 分おきに失敗し続け、期限切れで全イベントの wss:// が繋がらなくなる」。
+    const acmeEmail = uc.acmeEmail ?? uc.opsEmail;
+    if (tlsConfig && !acmeEmail) {
+      Annotations.of(this).addWarning(
+        "user-config.ts に acmeEmail (または opsEmail) がありません。" +
+          "Caddy が ACME アカウントのメールアドレスを storage の一覧から推測し、" +
+          "Let's Encrypt に invalidContact で蹴られて証明書を更新できなくなります " +
+          "(NEXT_WORK.md O0)。",
+      );
+    }
 
     // ADR 0016 D-6: Caddy DNS-01 チャレンジ用 Route53 権限。
     if (tlsConfig) {
@@ -948,6 +964,8 @@ export class ControlPlaneStack extends Stack {
           ? {
               MEDIA_DOMAIN_NAME: tlsConfig.mediaDomainName,
               MEDIA_HOSTED_ZONE_ID: tlsConfig.mediaHostedZone.hostedZoneId,
+              // O0: Caddyfile のグローバルオプション `email` に流す (ADR 0016 D-6)。
+              ...(acmeEmail ? { ACME_EMAIL: acmeEmail } : {}),
             }
           : {}),
         // 共有 VPC を EventMediaStack に渡す (起動時間短縮)。

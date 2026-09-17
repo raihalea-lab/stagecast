@@ -41,11 +41,15 @@ export function renderEventMediaTemplate(spec: RenderEventMediaSpec): string {
   const mediaDomainName = process.env.MEDIA_DOMAIN_NAME;
   const mediaHostedZoneId = process.env.MEDIA_HOSTED_ZONE_ID;
   const certBucketName = process.env.CERT_BUCKET_NAME;
+  // O0 (2026-09-18): ACME アカウントの連絡先。未設定だと Caddy が storage の一覧から
+  // メールアドレスを推測し、Let's Encrypt に invalidContact で蹴られて証明書を更新できない。
+  const acmeEmail = process.env.ACME_EMAIL;
   const caddyProps = {
     ...(caddySidecarImage ? { caddySidecarImage } : {}),
     ...(mediaDomainName ? { mediaDomainName } : {}),
     ...(mediaHostedZoneId ? { mediaHostedZoneId } : {}),
     ...(certBucketName ? { certBucketName } : {}),
+    ...(acmeEmail ? { acmeEmail } : {}),
   };
   // 共有 VPC (ControlPlaneStack の SharedMediaVpc) を ControlPlaneStack から env 経由で受け取る。
   // 揃っていなければ EventMediaStack は per-event VPC を作成 (後方互換)。
