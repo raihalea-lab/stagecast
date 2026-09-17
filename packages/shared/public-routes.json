@@ -23,6 +23,8 @@
     "POST /stage/materials/download-url",
     "POST /stage/presentation/state",
     "POST /stage/presentation/slide",
+    "POST /stage/egress/start",
+    "POST /stage/egress/stop",
     "POST /stage/presets",
     "POST /stage/presets/list",
     "DELETE /stage/presets/{presetId}",

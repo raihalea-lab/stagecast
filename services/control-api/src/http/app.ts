@@ -145,6 +145,13 @@ export function createApp(deps: AppDeps) {
   ): Promise<void> {
     if (!deps.roomMetadata) return;
     try {
+      // ADR 0026 D-2: metadata は全文置換なので、送出中フラグは**発行側がここで埋める**。
+      // 呼び出し側に渡させると、スライドを送った拍子に消える (0025 で focusIdentity を
+      // まさにその形で落とした)。
+      const egressActive = await events
+        .get(state.eventId)
+        .then((e) => Boolean(e.media?.egress))
+        .catch(() => false);
       await deps.roomMetadata.publish(
         state.eventId,
         encodeRoomMetadata({
@@ -155,6 +162,8 @@ export function createApp(deps: AppDeps) {
           // ADR 0025 D-2: 接続時に必ず届くので composer 再接続でも grid に戻らない。
           layout: state.layout,
           focusIdentity: state.focusIdentity,
+          // 送出中のときだけ載せる (false を毎回書くと metadata が無駄に変わる)。
+          egressActive: egressActive || undefined,
         }),
       );
     } catch (err) {
@@ -329,6 +338,29 @@ export function createApp(deps: AppDeps) {
         // 載せ直さないと投影中のスライドが composer から消える。
         await publishRoomMetadata(await withDeckUrl(next, true));
         return json(200, next);
+      }
+    }
+
+    // 公開: stage-web から Egress を開始・停止する (ADR 0026 D-3, moderator のみ)。
+    // admin は ADR 0025 D-3 の moderator 招待トークンで入るので、この 1 経路で両方通る。
+    if (req.method === "POST" && segments[0] === "stage" && segments[1] === "egress") {
+      if (!egress) throw new ServiceUnavailableError("egress not configured");
+      const inviteToken = String(body.inviteToken ?? "");
+      const verified = await invites.verify(inviteToken);
+      if (!verified.valid) return json(401, { ok: false, reason: verified.reason });
+      if (verified.role !== "moderator") {
+        return json(403, { error: "only moderator can control the egress" });
+      }
+      const eventId = verified.eventId;
+      if (segments[2] === "start") {
+        const result = await egress.start(eventId);
+        await publishRoomMetadata(await withDeckUrl(await presentation.getState(eventId), true));
+        return json(202, result);
+      }
+      if (segments[2] === "stop") {
+        const result = await egress.stop(eventId);
+        await publishRoomMetadata(await withDeckUrl(await presentation.getState(eventId), true));
+        return json(200, result);
       }
     }
 

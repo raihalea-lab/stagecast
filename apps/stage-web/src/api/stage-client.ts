@@ -110,6 +110,10 @@ export interface StageClient {
     layout: LayoutKind,
     focusIdentity?: string,
   ): Promise<PresentationSnapshot>;
+  /** YouTube への送出を開始する (ADR 0026 D-3, moderator のみ)。 */
+  startEgress(inviteToken: string): Promise<void>;
+  /** YouTube への送出を停止する (ADR 0026 D-3, moderator のみ)。 */
+  stopEgress(inviteToken: string): Promise<void>;
 }
 
 /** control-api が返す投影状態 (署名付き URL 付き)。 */
@@ -315,6 +319,14 @@ export class HttpStageClient implements StageClient {
       { inviteToken, layout, focusIdentity },
       "setLayoutState",
     );
+  }
+
+  async startEgress(inviteToken: string): Promise<void> {
+    await this.postStage("/stage/egress/start", { inviteToken }, "startEgress");
+  }
+
+  async stopEgress(inviteToken: string): Promise<void> {
+    await this.postStage("/stage/egress/stop", { inviteToken }, "stopEgress");
   }
 
   private async postStage<T>(path: string, body: unknown, label: string): Promise<T> {
