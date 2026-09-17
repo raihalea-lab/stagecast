@@ -41,6 +41,9 @@ export class LiveKitRoomConnector implements RoomConnector {
     this.state = "connected";
     this.refreshParticipants();
   }
+  get localIdentity(): string | undefined {
+    return this.room.localParticipant.identity || undefined;
+  }
   setPreferredDevices(prefs: PreferredDevices): void {
     this.prefs = prefs;
   }

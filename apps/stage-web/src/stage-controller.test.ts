@@ -390,3 +390,17 @@ describe("StageController (DESIGN.md 4.1, F-1, F-3)", () => {
     }
   });
 });
+
+describe("StageController.localIdentity", () => {
+  it("接続後の自分の identity を room から返す", async () => {
+    const room = new FakeRoomConnector();
+    const controller = new StageController(new FakeStageClient(speakerJoin), room);
+    expect(controller.localIdentity).toBeUndefined();
+
+    // admin は identity をサーバが uuid 付きで決めるので、URL からは導出できない。
+    room.localIdentity = "admin-user-1-abcdef";
+    await controller.connectAdmin("wss://x", "lk-token", "evt-1");
+
+    expect(controller.localIdentity).toBe("admin-user-1-abcdef");
+  });
+});
