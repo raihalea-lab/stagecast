@@ -282,7 +282,7 @@ export function App(props: {
       .connectAdmin(adminDirect.livekitUrl, adminDirect.livekitToken, adminDirect.eventId)
       .then(() => {
         setSession(controller.currentSession);
-        setMyIdentity(adminDirect.eventId);
+        setMyIdentity(controller.localIdentity ?? "");
         setRoomState("running");
         elapsedRef.current = setInterval(() => setElapsedSec((s) => s + 1), 1000);
       })
@@ -600,7 +600,7 @@ export function App(props: {
                         )
                         .then(() => {
                           setSession(controller.currentSession);
-                          setMyIdentity(adminDirect.eventId);
+                          setMyIdentity(controller.localIdentity ?? "");
                           setRoomState("running");
                           elapsedRef.current = setInterval(() => setElapsedSec((s) => s + 1), 1000);
                         })

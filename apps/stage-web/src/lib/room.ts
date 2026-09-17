@@ -44,6 +44,8 @@ export interface PublishDataOptions {
 
 export interface RoomConnector {
   readonly state: RoomState;
+  /** 接続後の自分の identity。 未接続なら undefined (D8: チャットの自他判定に使う)。 */
+  readonly localIdentity: string | undefined;
   connect(url: string, token: string, options?: ConnectOptions): Promise<void>;
   setPreferredDevices(prefs: PreferredDevices): void;
   setMicrophoneEnabled(enabled: boolean): Promise<void>;
@@ -68,6 +70,7 @@ export interface RoomConnector {
 /** テスト/ローカル用フェイク。publish 操作を記録する。 */
 export class FakeRoomConnector implements RoomConnector {
   state: RoomState = "idle";
+  localIdentity: string | undefined;
   readonly calls: string[] = [];
   readonly slides: SlideMessage[] = [];
   readonly publishedData: Uint8Array[] = [];

@@ -39,6 +39,10 @@ export class StageController {
   get currentSession(): StageSession | undefined {
     return this.session;
   }
+  /** 接続後の自分の identity。 admin は URL から知りようがないので room に聞く。 */
+  get localIdentity(): string | undefined {
+    return this.room.localIdentity;
+  }
   get slideDeck(): SlideDeckState {
     return this.deck;
   }
