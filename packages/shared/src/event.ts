@@ -13,8 +13,10 @@ import type { LanguageCode } from "./caption.js";
 export type EventStatus = "draft" | "scheduled" | "warmup" | "live" | "ended";
 
 /**
- * イベント保存上限。超過分は **終了済み (`ended`) のイベントだけ** が startsAt の古い順に消される。
- * draft / scheduled / warmup / live は上限を超えても消さない (ADR 0024)。
+ * **終了済み (`ended`) イベント**の保存上限。超過分は startsAt が古い順に自動削除される。
+ *
+ * draft / scheduled / warmup / live は削除されないし、この件数にも数えない (ADR 0024)。
+ * 合計で数えると「下書きを 1 件作るたびに終了済みイベントが 1 件 (録画ごと) 消える」ため。
  *
  * UI にも同じ数字を出すので shared に置く (制御 API と admin-web で二重管理しないため)。
  */

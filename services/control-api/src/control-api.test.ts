@@ -587,12 +587,12 @@ describe("control-api integration (in-memory)", () => {
     expect(res.status).toBe(404);
   });
 
-  // MAX_EVENTS+2 件を順に作るので、並列負荷下では既定 5s に収まらない。
+  // 終了済みを MAX_EVENTS+2 件そろえるため create + 状態遷移を 1000 回超え回す。
+  // 並列負荷下では既定 5s に収まらない。
   it(
     "上限超過時に終了済みイベントだけが startsAt の古い順に削除される",
-    { timeout: 30_000 },
+    { timeout: 60_000 },
     async () => {
-      // MAX_EVENTS=1000 のまま createEventService を直接使う (HTTP 層を挟むと遅すぎる)。
       const { MemoryEventRepository } = await import("./repo/memory.js");
       const { createEventService, MAX_EVENTS } = await import("./usecases/events.js");
       const memRepo = new MemoryEventRepository();
@@ -607,36 +607,34 @@ describe("control-api integration (in-memory)", () => {
         },
       });
 
-      // 終了済み 4 件。startsAt が最も古いので「古い順」なら先頭 2 件が消える。
+      // 終了済みを上限 +2 件。startsAt は 1 分ずつ新しくしていくので先頭 2 件が最古。
       const ended: string[] = [];
-      for (let i = 1; i <= 4; i++) {
+      for (let i = 0; i < MAX_EVENTS + 2; i++) {
         const e = await svc.create({
           title: `Ended-${i}`,
-          startsAt: `2020-01-0${i}T00:00:00Z`,
+          startsAt: new Date(Date.UTC(2020, 0, 1) + i * 60_000).toISOString(),
           caption,
         });
         await svc.setStatus(e.id, "live");
         await svc.setStatus(e.id, "ended");
         ended.push(e.id);
       }
-      // live 1 件。ended より startsAt が古いが、終了していないので消えてはいけない。
-      const live = await svc.create({
-        title: "Live",
-        startsAt: "2019-01-01T00:00:00Z",
+      // 未終了 2 件。ended より startsAt が古いが、終了していないので消してはいけない。
+      const live = await svc.create({ title: "Live", startsAt: "2019-01-01T00:00:00Z", caption });
+      await svc.setStatus(live.id, "live");
+      const draft = await svc.create({
+        title: "Draft",
+        startsAt: "2019-01-02T00:00:00Z",
         caption,
       });
-      await svc.setStatus(live.id, "live");
-      // draft で合計 MAX_EVENTS+2 件まで埋める → 超過 2 件。
-      for (let i = 0; i < MAX_EVENTS - 3; i++) {
-        await svc.create({ title: `Draft-${i}`, startsAt: "2026-06-01T00:00:00Z", caption });
-      }
 
       const all = await svc.list();
-      expect(all.length).toBe(MAX_EVENTS);
-      // 消えたのは ended の古い 2 件だけ。
+      // 消えたのは終了済みの古い 2 件だけ。未終了は件数にも数えないので巻き込まれない。
       expect(deletedIds).toEqual([ended[0], ended[1]]);
+      expect(all.filter((e) => e.status === "ended").length).toBe(MAX_EVENTS);
       expect(all.find((e) => e.id === live.id)).toBeDefined();
-      expect(all.filter((e) => e.status === "draft").length).toBe(MAX_EVENTS - 3);
+      expect(all.find((e) => e.id === draft.id)).toBeDefined();
+      expect(all.length).toBe(MAX_EVENTS + 2);
     },
   );
 

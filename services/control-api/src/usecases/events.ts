@@ -128,13 +128,15 @@ export function createEventService(deps: {
 
   async function trimOldEvents(): Promise<void> {
     const all = await repo.list();
-    if (all.length <= MAX_EVENTS) return;
-    const deletable = all
-      .filter((e) => e.status === "ended")
-      .sort((a, b) => Date.parse(a.startsAt) - Date.parse(b.startsAt));
-    const excess = all.length - MAX_EVENTS;
-    const toDelete = deletable.slice(0, excess);
-    for (const e of toDelete) {
+    // 上限は終了済みイベントだけに掛ける。未終了 (draft/scheduled/warmup/live) は
+    // 削除しないだけでなく、削除**件数**の計算にも入れない (ADR 0024)。
+    // 合計件数で数えると「下書きを 1 件作るたびに録画が 1 本消える」ことになる。
+    const deletable = all.filter((e) => e.status === "ended");
+    const excess = deletable.length - MAX_EVENTS;
+    // 大半の create では超過しない。並べ替えは実際に消すときだけ払う。
+    if (excess <= 0) return;
+    deletable.sort((a, b) => Date.parse(a.startsAt) - Date.parse(b.startsAt));
+    for (const e of deletable.slice(0, excess)) {
       await repo.delete(e.id);
       await deps.cleanupStorage?.(e.id);
     }
