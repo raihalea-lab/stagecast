@@ -34,13 +34,14 @@ describe("OpenStageButton", () => {
           livekitUrl: "wss://x",
           expiresAt: 0,
           stageUrl: "https://stage.example.com",
+          previewToken: "pv-token",
         })}
       />,
     );
     fireEvent.click(getByRole("button"));
     await waitFor(() => expect(open).toHaveBeenCalled());
     expect(open.mock.calls[0]?.[0]).toBe(
-      "https://stage.example.com/?token=lk-token&url=wss%3A%2F%2Fx&eventId=evt-001",
+      "https://stage.example.com/?token=lk-token&url=wss%3A%2F%2Fx&eventId=evt-001&previewToken=pv-token",
     );
     open.mockRestore();
   });

@@ -8,6 +8,8 @@ export interface AdminStageTokenResult {
   expiresAt: number;
   /** 開く stage-web の origin。 サーバが必ず返す (admin-web とは別 origin)。 */
   stageUrl: string;
+  /** プレビュー iframe 用の viewer token。 親ページと identity を分けるため別建てで受け取る。 */
+  previewToken: string;
 }
 
 export interface OpenStageButtonProps extends Omit<ButtonProps, "onClick" | "children"> {
@@ -47,6 +49,7 @@ export function OpenStageButton({
         url.searchParams.set("token", result.token);
         url.searchParams.set("url", result.livekitUrl);
         url.searchParams.set("eventId", eventId);
+        url.searchParams.set("previewToken", result.previewToken);
         window.open(url.toString(), "_blank", "noopener,noreferrer");
       }
     } catch (err) {

@@ -31,7 +31,8 @@ token の `role` claim で 3 つのサブビューに分岐:
 ### D-4: admin は Cognito JWT → stage-token で stage-web に入る
 
 `POST /admin/events/:id/stage-token` (D7-backend) で admin 用 LiveKit token を発行。OpenStageButton が `?token=<lk>&url=<lk-url>&eventId=<id>` で stage-web を新タブで開き、`StageController.connectAdmin()` で /join をバイパスして直接接続。
-レスポンスは `{ token, livekitUrl, expiresAt, stageUrl }`。`stageUrl` (stage-web の origin) はサーバが `INVITE_BASE_URL` から返す — admin-web は別 CloudFront ディストリビューションなので、クライアント側の origin では開けない。
+レスポンスは `{ token, livekitUrl, expiresAt, stageUrl, previewToken }`。`stageUrl` (stage-web の origin) はサーバが `INVITE_BASE_URL` から返す — admin-web は別 CloudFront ディストリビューションなので、クライアント側の origin では開けない。
+`previewToken` は配信プレビュー iframe (composer-template) 用の viewer token。親ページと同じ token を iframe に渡すと identity が重複し、LiveKit が先に繋いだ親ページを切断する。
 
 ### D-5: 既存招待 URL は不変
 

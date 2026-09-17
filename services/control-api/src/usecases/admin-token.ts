@@ -34,6 +34,11 @@ export interface StageTokenResult {
   expiresAt: number;
   /** 開く stage-web の origin。 admin-web とは別ディストリビューションなので必ずサーバが返す。 */
   stageUrl: string;
+  /**
+   * 配信プレビュー iframe (composer-template) 用の viewer token。
+   * 親ページと同じ identity で繋ぐと LiveKit が先に繋いだ方を切断するので、 別 identity で発行する。
+   */
+  previewToken: string;
 }
 
 export interface AdminTokenServiceConfig {
@@ -76,11 +81,22 @@ export function createAdminTokenService(config: AdminTokenServiceConfig) {
     async issueStageToken(eventId: string, userId: string): Promise<StageTokenResult> {
       const identity = `admin-${userId}`;
       const { livekitUrl, livekitToken } = await mintForEvent(eventId, identity);
+      // プレビュー iframe は別 participant として繋ぐ。 identity を分けないと LiveKit が
+      // 重複 identity とみなして親ページを切断する (preview-token.ts と同じ理由)。
+      // ttl は admin token と揃える (1 時間で切れると配信中にプレビューだけ黒くなる)。
+      const previewToken = config.liveKitMinter.mint({
+        identity: `preview-${randomUUID()}`,
+        room: eventId,
+        role: "viewer",
+        ttlSec,
+        name: "Preview",
+      });
       return {
         token: livekitToken,
         livekitUrl,
         expiresAt: Date.now() + ttlSec * 1000,
         stageUrl: config.stageUrl,
+        previewToken,
       };
     },
   };

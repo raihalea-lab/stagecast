@@ -67,6 +67,11 @@ export interface StageTokenResult {
   expiresAt: number;
   /** 開く stage-web の origin。 admin-web とは別ディストリビューションなので必ずサーバが返す。 */
   stageUrl: string;
+  /**
+   * 配信プレビュー iframe (composer-template) 用の viewer token。
+   * 親ページと同じ identity で繋ぐと LiveKit が先に繋いだ方を切断するので、 別 identity で発行する。
+   */
+  previewToken: string;
 }
 
 export interface ControlApiClient {

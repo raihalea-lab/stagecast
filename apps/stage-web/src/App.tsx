@@ -188,12 +188,17 @@ export function App(props: {
   const previewIframeRef = useRef<HTMLIFrameElement>(null);
 
   useEffect(() => {
-    controller.onDisconnected(() => {
+    controller.onDisconnected((reason) => {
       setSession(undefined);
       setReconnecting(false);
       setRoomState("stopped");
       clearInterval(elapsedRef.current);
-      setError("配信サーバから切断されました。もう一度入室してください。");
+      // reason を出さないと「なぜ切れたか」が誰にも分からない (DUPLICATE_IDENTITY の切り分けに要る)。
+      setError(
+        reason
+          ? `配信サーバから切断されました (${reason})。もう一度入室してください。`
+          : "配信サーバから切断されました。もう一度入室してください。",
+      );
     });
     controller.onReconnecting(() => setReconnecting(true));
     controller.onReconnected(() => setReconnecting(false));
@@ -992,12 +997,12 @@ export function App(props: {
                   </div>
                 </CardHeader>
                 <CardContent className="pt-0">
-                  {props.config?.composerTemplateUrl && adminDirect ? (
+                  {props.config?.composerTemplateUrl && adminDirect?.previewToken ? (
                     <div className="overflow-hidden rounded-lg border-2 border-tally-500 shadow-[0_0_12px_rgba(220,38,38,0.25)]">
                       <iframe
                         ref={previewIframeRef}
                         title="配信プレビュー (composer-template)"
-                        src={`${props.config.composerTemplateUrl}?layout=${layout}&token=${encodeURIComponent(adminDirect.livekitToken)}&url=${encodeURIComponent(adminDirect.livekitUrl)}`}
+                        src={`${props.config.composerTemplateUrl}?layout=${layout}&token=${encodeURIComponent(adminDirect.previewToken)}&url=${encodeURIComponent(adminDirect.livekitUrl)}`}
                         className="block w-full bg-black"
                         style={{ aspectRatio: "16/9" }}
                         allow="autoplay"

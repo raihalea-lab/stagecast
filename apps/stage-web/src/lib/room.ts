@@ -58,7 +58,8 @@ export interface RoomConnector {
   onParticipantsChanged(handler: (participants: ParticipantSnapshot[]) => void): void;
   /** DataChannel メッセージ受信ハンドラを登録する (mute-request 受信用, D8)。 */
   onDataReceived(handler: (payload: Uint8Array) => void): void;
-  onDisconnected(handler: () => void): void;
+  /** reason は LiveKit の DisconnectReason 名 (DUPLICATE_IDENTITY 等)。 切断の切り分けに要る。 */
+  onDisconnected(handler: (reason?: string) => void): void;
   onReconnecting(handler: () => void): void;
   onReconnected(handler: () => void): void;
   disconnect(): Promise<void>;
@@ -75,7 +76,7 @@ export class FakeRoomConnector implements RoomConnector {
   camera = false;
   screenShare = false;
   participants: ParticipantSnapshot[] = [];
-  private disconnectHandler?: () => void;
+  private disconnectHandler?: (reason?: string) => void;
   private reconnectingHandler?: () => void;
   private reconnectedHandler?: () => void;
   private participantsHandler?: (participants: ParticipantSnapshot[]) => void;
@@ -89,7 +90,7 @@ export class FakeRoomConnector implements RoomConnector {
     );
     this.state = "connected";
   }
-  onDisconnected(handler: () => void): void {
+  onDisconnected(handler: (reason?: string) => void): void {
     this.disconnectHandler = handler;
   }
   onReconnecting(handler: () => void): void {
