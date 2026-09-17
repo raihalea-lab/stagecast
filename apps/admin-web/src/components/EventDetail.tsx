@@ -656,6 +656,7 @@ export function EventDetail(props: {
           <OpenStageButton
             eventId={event.id}
             fetcher={(eventId) => client.issueStageToken(eventId)}
+            onError={(err) => setError(toErrorMessage(err))}
             className="gap-2"
           />
           <AlertDialog>
