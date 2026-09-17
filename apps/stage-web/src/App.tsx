@@ -193,6 +193,8 @@ export function App(props: {
       setReconnecting(false);
       setRoomState("stopped");
       clearInterval(elapsedRef.current);
+      // 自分で押した退室を「接続に失敗しました」と出さない。
+      if (reason === "CLIENT_INITIATED") return;
       // reason を出さないと「なぜ切れたか」が誰にも分からない (DUPLICATE_IDENTITY の切り分けに要る)。
       setError(
         reason

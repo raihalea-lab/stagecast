@@ -24,6 +24,27 @@ describe("OpenStageButton", () => {
     await waitFor(() => expect(onError).toHaveBeenCalledOnce());
   });
 
+  it('previewToken が無ければ URL に載せない (旧 Lambda で "undefined" を渡さない)', async () => {
+    const open = vi.spyOn(window, "open").mockReturnValue(null);
+    const { getByRole } = render(
+      <OpenStageButton
+        eventId="evt-001"
+        fetcher={async () =>
+          ({
+            token: "lk-token",
+            livekitUrl: "wss://x",
+            expiresAt: 0,
+            stageUrl: "https://stage.example.com",
+          }) as never
+        }
+      />,
+    );
+    fireEvent.click(getByRole("button"));
+    await waitFor(() => expect(open).toHaveBeenCalled());
+    expect(String(open.mock.calls[0]?.[0])).not.toContain("previewToken");
+    open.mockRestore();
+  });
+
   it("fetcher が成功したら stageUrl に token を載せて開く", async () => {
     const open = vi.spyOn(window, "open").mockReturnValue(null);
     const { getByRole } = render(
