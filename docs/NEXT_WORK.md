@@ -471,6 +471,20 @@ refresh token の実装だけで体感が改善するかを見てから判断す
 
 ---
 
+### D12. イベント一覧 API が全件返す (ページングなし)
+
+`GET /events` は `EventRepository.list()` の結果をそのまま返し、admin-web も全件を受け取って
+カレンダーに描く。ADR 0024 で保持ポリシーを「終了済みだけ削る」ソフトキャップにしたため、
+未終了イベントが積み上がれば件数は 1000 件を超えて増え続ける。件数に比例して
+レスポンスサイズと RCU が伸びるので、体感で重くなったら一覧 API のページング
+(または「終了済みは別クエリ」への分割) が必要。
+
+同じページング漏れが `DynamoEventRequestRepository.list()` (`services/control-api/src/repo/dynamo.ts`)
+にも残っている。イベント側は ADR 0024 で `LastEvaluatedKey` ループを入れたが、リクエスト側は
+件数が伸びにくいため未対応のまま。
+
+---
+
 ## N: Nice-to-have (UX / DX 改善・遠い未来)
 
 ### N1. 配信後の成果物 UI ✅ 対応済み

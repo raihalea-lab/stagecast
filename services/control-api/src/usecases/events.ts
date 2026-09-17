@@ -3,6 +3,7 @@
  */
 import {
   isValidCaptionSettings,
+  MAX_EVENTS,
   type CaptionSettings,
   type EventDefinition,
   type EventStatus,
@@ -40,8 +41,9 @@ export type EventService = ReturnType<typeof createEventService>;
 /** タイトル最大長 (DynamoDB 項目肥大と UI 崩れの防止)。 */
 export const MAX_TITLE_LENGTH = 200;
 
-/** イベント保存上限。超過分は startsAt が古い順に自動削除される (live は除外)。 */
-export const MAX_EVENTS = 1000;
+// 保存上限の定義は shared にある (admin-web も同じ数字を表示するため)。
+// 超過分は終了済みイベントだけを startsAt の古い順に消す。未終了は消さない。
+export { MAX_EVENTS } from "@stagecast/shared";
 
 /** 文字列・非空・長さ上限を検証する (不正な型は 500 でなく 400 にする)。 */
 function validateTitle(value: unknown): string {
@@ -128,7 +130,7 @@ export function createEventService(deps: {
     const all = await repo.list();
     if (all.length <= MAX_EVENTS) return;
     const deletable = all
-      .filter((e) => e.status !== "live")
+      .filter((e) => e.status === "ended")
       .sort((a, b) => Date.parse(a.startsAt) - Date.parse(b.startsAt));
     const excess = all.length - MAX_EVENTS;
     const toDelete = deletable.slice(0, excess);
