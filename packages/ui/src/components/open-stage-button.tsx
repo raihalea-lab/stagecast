@@ -14,6 +14,8 @@ export interface OpenStageButtonProps extends Omit<ButtonProps, "onClick" | "chi
   eventId: string;
   /** control-api を叩いて admin token を取得する callback。 */
   fetcher: (eventId: string) => Promise<AdminStageTokenResult>;
+  /** 取得先の取得・URL 組み立てが失敗したときの通知。 未指定だと無言で終わる。 */
+  onError?: (err: unknown) => void;
   /** 取得後に開く URL の組み立て。 デフォルトは stageUrl + ?token=...&url=... */
   open?: (result: AdminStageTokenResult) => void;
   label?: string;
@@ -28,6 +30,7 @@ export function OpenStageButton({
   eventId,
   fetcher,
   open,
+  onError,
   label = "配信画面を開く",
   ...buttonProps
 }: OpenStageButtonProps) {
@@ -46,6 +49,9 @@ export function OpenStageButton({
         url.searchParams.set("eventId", eventId);
         window.open(url.toString(), "_blank", "noopener,noreferrer");
       }
+    } catch (err) {
+      // async な onClick の例外は unhandledrejection に消えるだけで画面に何も出ない。
+      onError?.(err);
     } finally {
       setBusy(false);
     }

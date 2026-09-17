@@ -372,7 +372,7 @@ function PreviewApp() {
                 token: "preview-token",
                 livekitUrl: "wss://preview.local",
                 expiresAt: Date.now() + 3600_000,
-                stageUrl: "/preview-stage",
+                stageUrl: window.location.origin,
               })}
             />
             <ReconnectingBanner kind="reconnecting" className="w-96" />
