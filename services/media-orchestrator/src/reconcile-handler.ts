@@ -45,10 +45,12 @@ import {
 } from "./ecs-services.js";
 import {
   createProvisioningPublisher,
+  tasksRunning,
   type ProvisioningInput,
   type ProvisioningStore,
 } from "./provisioning.js";
 import { createMediaPublisher, type MediaResolver, type MediaStore } from "./media-publisher.js";
+import { probeSignaling, type SignalingProbeResult } from "./signaling-probe.js";
 import type { EventMediaInfo, EventProvisioningInfo } from "@stagecast/shared";
 // 型だけの import なので実行時の読み込みは増えない。
 import type { DynamoDBDocumentClient } from "@aws-sdk/lib-dynamodb";
@@ -68,6 +70,8 @@ interface HandlerDeps {
   mediaPublisher: ReturnType<typeof createMediaPublisher>;
   /** ADR 0023 D-3: 起動進捗を events 行に書き戻す。 */
   provisioningPublisher: ReturnType<typeof createProvisioningPublisher>;
+  /** ADR 0027 D-1: シグナリングに外から到達できるかを確かめる (テストでは fake)。 */
+  probeSignaling: (livekitUrl: string) => Promise<SignalingProbeResult>;
   /** ADR 0016 D-6 / ADR 0023 D-2: ECS サービスの観測とスケールアップ。 */
   ecs: EcsLike;
   maxParallel: number;
@@ -332,6 +336,7 @@ async function deps(): Promise<HandlerDeps> {
     executor: makeExecutor(),
     mediaPublisher,
     provisioningPublisher,
+    probeSignaling: (url) => probeSignaling(url),
     ecs: ecsLike,
     maxParallel,
   };
@@ -854,9 +859,13 @@ export async function handler(
     }
 
     let mediaReady = false;
+    let livekitUrl: string | undefined;
     if (a?.kind === "running") {
       const outcome = await d.mediaPublisher.publish(d2.eventId);
       mediaReady = outcome.status === "updated" || outcome.status === "unchanged";
+      if (outcome.status === "updated" || outcome.status === "unchanged") {
+        livekitUrl = outcome.media.livekitUrl;
+      }
       if (outcome.status === "updated") {
         mediaUpdated++;
         log.info("media publish", { eventId: d2.eventId, status: "updated" });
@@ -867,10 +876,27 @@ export async function handler(
       }
     }
 
+    // ADR 0027 D-1: タスクが RUNNING でも配信できるとは限らない。外から実際に叩いて確かめる。
+    // タスクを動かさない事前プロビジョニング (wantTasks: false) では打たない。
+    // タスクが RUNNING になるまでは打たない。`resolveLivekitUrl` は CFN Output があれば
+    // タスク 0 本でも URL を返すので、条件を URL の有無にすると**正常な起動中**に
+    // 「配信できない」と誤判定し、赤帯と無駄な書き戻しを毎 tick 出すことになる。
+    let signaling: { signalingReady?: boolean; signalingError?: string } = {};
+    if (wantTasks && livekitUrl && tasksRunning(services)) {
+      const probe = await d.probeSignaling(livekitUrl);
+      signaling = probe.ok
+        ? { signalingReady: true }
+        : { signalingReady: false, signalingError: probe.error };
+      if (!probe.ok) {
+        log.warn("signaling probe failed", { eventId: d2.eventId, err: probe.error });
+      }
+    }
+
     const input: ProvisioningInput = {
       ...(a ? { stack: { kind: a.kind, status: a.status } } : {}),
       services,
       mediaReady,
+      ...signaling,
       wantTasks,
       // この tick で失敗していなければ undefined = 直ったら画面からも消える。
       error: stepErrors.get(d2.eventId),
