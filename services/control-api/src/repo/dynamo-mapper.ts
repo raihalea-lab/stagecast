@@ -142,6 +142,9 @@ export function itemToPresentation(item: Item): PresentationState {
     slidePage: item.slidePage as number | undefined,
     deck: item.deck as PresentationState["deck"],
     slideUpdatedAtMs: item.slideUpdatedAtMs as number | undefined,
+    layout: item.layout as PresentationState["layout"],
+    focusIdentity: item.focusIdentity as string | undefined,
+    layoutUpdatedAtMs: item.layoutUpdatedAtMs as number | undefined,
   };
 }
 

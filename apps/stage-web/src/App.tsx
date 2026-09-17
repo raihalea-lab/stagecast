@@ -17,6 +17,7 @@ import { DeviceCheck } from "./components/DeviceCheck.js";
 import { PreviewWindow } from "./components/PreviewWindow.js";
 import type { RuntimeConfig } from "./config.js";
 import {
+  decodeRoomMetadata,
   decodeStageMessage,
   isSameDeck,
   materialKey,
@@ -204,6 +205,14 @@ export function App(props: {
     });
     controller.onReconnecting(() => setReconnecting(true));
     controller.onReconnected(() => setReconnecting(false));
+    // ADR 0025 D-2: 他のウィンドウが変えたレイアウトは metadata で届く。
+    controller.onRoomMetadataChanged((raw) => {
+      const meta = decodeRoomMetadata(raw);
+      if (meta?.layout) {
+        setLayout(meta.layout);
+        setFocusIdentity(meta.focusIdentity);
+      }
+    });
     controller.onParticipantsChanged((next, joined) => {
       setParticipants(next);
       // プレビューの composer は hidden ではないので入室を検知できる。待たずに配り直す
@@ -217,7 +226,12 @@ export function App(props: {
     controller.onDataReceived((payload) => {
       const msg = decodeStageMessage(payload);
       if (!msg) return;
-      if (msg.type === "mute-request") {
+      if (msg.type === "layout-change") {
+        // ADR 0025 D-2: これを聞いていなかったので、管理ウィンドウを 2 枚開くと
+        // 片方の LayoutPicker が古い値のまま残り、そこから古い認識で上書きしていた。
+        setLayout(msg.layout);
+        setFocusIdentity(msg.focusIdentity);
+      } else if (msg.type === "mute-request") {
         setMuteNotice("モデレーターからミュート要請がありました");
         setTimeout(() => setMuteNotice(undefined), 5000);
       } else if (msg.type === "force-mute") {
@@ -283,6 +297,13 @@ export function App(props: {
       .then(() => {
         setSession(controller.currentSession);
         setMyIdentity(controller.localIdentity ?? "");
+        // 接続時点の metadata に現在のレイアウトが入っている (ADR 0025 D-2)。
+        // 後から開いたウィンドウが grid から始まらないために要る。
+        const meta = decodeRoomMetadata(controller.roomMetadata);
+        if (meta?.layout) {
+          setLayout(meta.layout);
+          setFocusIdentity(meta.focusIdentity);
+        }
         setRoomState("running");
         elapsedRef.current = setInterval(() => setElapsedSec((s) => s + 1), 1000);
       })
@@ -931,6 +952,16 @@ export function App(props: {
           value={layout}
           onChange={(next) => {
             setLayout(next);
+            // ADR 0025 D-1: 正はサーバ。書き込みが成功すると room metadata も貼り直され、
+            // 他のウィンドウと composer (再接続後も) が同じレイアウトを見る。
+            if (inviteToken) {
+              void client
+                .setLayoutState(inviteToken, next, focusIdentity)
+                .catch((err: unknown) =>
+                  setError(err instanceof Error ? err.message : String(err)),
+                );
+            }
+            // D-2: metadata の往復を待たずに反映するための通知。
             void controller.changeLayout(next, focusIdentity);
             previewIframeRef.current?.contentWindow?.postMessage(
               { type: "layout-change", layout: next, focusIdentity },

@@ -43,6 +43,13 @@ export class StageController {
   get localIdentity(): string | undefined {
     return this.room.localIdentity;
   }
+  /** 接続時点の room metadata (ADR 0025 D-2)。 */
+  get roomMetadata(): string | undefined {
+    return this.room.roomMetadata;
+  }
+  onRoomMetadataChanged(handler: (metadata: string | undefined) => void): void {
+    this.room.onRoomMetadataChanged(handler);
+  }
   get slideDeck(): SlideDeckState {
     return this.deck;
   }
