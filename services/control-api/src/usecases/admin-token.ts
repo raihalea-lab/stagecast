@@ -79,7 +79,10 @@ export function createAdminTokenService(config: AdminTokenServiceConfig) {
     },
 
     async issueStageToken(eventId: string, userId: string): Promise<StageTokenResult> {
-      const identity = `admin-${userId}`;
+      // タブごとに別 participant にする。 userId 固定だと 2 枚目のタブが 1 枚目を蹴る
+      // (LiveKit は identity 重複で先客を切断する)。 管理者はマルチウィンドウで開くうえ、
+      // カメラ/マイクを publish することもある。 誰が入ったかは userId 部分に残す。
+      const identity = `admin-${userId}-${randomUUID()}`;
       const { livekitUrl, livekitToken } = await mintForEvent(eventId, identity);
       // プレビュー iframe は別 participant として繋ぐ。 identity を分けないと LiveKit が
       // 重複 identity とみなして親ページを切断する (preview-token.ts と同じ理由)。

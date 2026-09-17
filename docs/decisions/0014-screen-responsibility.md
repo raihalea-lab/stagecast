@@ -32,6 +32,7 @@ token の `role` claim で 3 つのサブビューに分岐:
 
 `POST /admin/events/:id/stage-token` (D7-backend) で admin 用 LiveKit token を発行。OpenStageButton が `?token=<lk>&url=<lk-url>&eventId=<id>` で stage-web を新タブで開き、`StageController.connectAdmin()` で /join をバイパスして直接接続。
 レスポンスは `{ token, livekitUrl, expiresAt, stageUrl, previewToken }`。`stageUrl` (stage-web の origin) はサーバが `INVITE_BASE_URL` から返す — admin-web は別 CloudFront ディストリビューションなので、クライアント側の origin では開けない。
+identity は `admin-{userId}-{uuid}`。userId 固定にすると管理者が 2 タブ目を開いた瞬間に 1 タブ目が切断される (LiveKit は identity 重複で先客を切る)。管理者はマルチウィンドウで開き、カメラ/マイクを publish することもある。
 `previewToken` は配信プレビュー iframe (composer-template) 用の viewer token。親ページと同じ token を iframe に渡すと identity が重複し、LiveKit が先に繋いだ親ページを切断する。
 
 ### D-5: 既存招待 URL は不変

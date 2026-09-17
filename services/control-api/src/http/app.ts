@@ -621,7 +621,7 @@ export function createApp(deps: AppDeps) {
         return json(201, await adminToken.issue(eventId));
       } else if (segments[2] === "stage-token" && segments.length === 3 && req.method === "POST") {
         // ADR 0014 D-4: admin が stage-web に入るための LiveKit token 発行。
-        // identity は Cognito userId を使用 (admin-{userId})。
+        // identity は admin-{userId}-{uuid} (タブごとに別 participant にする)。
         if (!adminToken) throw new ServiceUnavailableError("admin token service not configured");
         return json(201, await adminToken.issueStageToken(eventId, principal.userId));
       } else if (
