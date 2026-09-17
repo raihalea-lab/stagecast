@@ -112,7 +112,9 @@ export function createAdminTokenService(config: AdminTokenServiceConfig) {
         expiresAt: Date.now() + ttlSec * 1000,
         stageUrl: config.stageUrl,
         previewToken,
-        inviteToken: await config.issueInviteToken(eventId, ttlSec),
+        // 招待トークンの発行 (DynamoDB 書き込み) が落ちても入室自体は通す。
+        // 失われるのはプリセット・アセットで、 クライアントは欠落を許容する。
+        inviteToken: await config.issueInviteToken(eventId, ttlSec).catch(() => ""),
       };
     },
   };

@@ -87,6 +87,7 @@ describe("AdminTokenService.issue (R16, ADR 0012 D-4)", () => {
       events,
       liveKitMinter: fakeMinter(),
       stageUrl: STAGE_URL,
+      issueInviteToken,
     });
     await expect(svc.issue(created.id)).rejects.toBeInstanceOf(ServiceUnavailableError);
   });
@@ -109,6 +110,7 @@ describe("AdminTokenService.issue (R16, ADR 0012 D-4)", () => {
       events,
       liveKitMinter: fakeMinter(),
       stageUrl: STAGE_URL,
+      issueInviteToken,
     });
     await expect(svc.issue(created.id)).rejects.toBeInstanceOf(ServiceUnavailableError);
   });
@@ -207,6 +209,7 @@ describe("AdminTokenService.issue (R16, ADR 0012 D-4)", () => {
       events,
       liveKitMinter: fakeMinter(),
       stageUrl: STAGE_URL,
+      issueInviteToken,
     });
 
     const r1 = await svc.issue(created.id);
