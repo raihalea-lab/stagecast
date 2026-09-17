@@ -57,6 +57,12 @@ export function createEgressService(config: EgressServiceConfig) {
       if (event.status !== "live") {
         throw new ValidationError("event is not live");
       }
+      // 既に送出中なら LiveKit を呼ばない (ADR 0026 D-1)。 管理ウィンドウが 2 枚あって
+      // 両方から押されると、 2 本目が同じストリームキーに送出を始め、 1 本目の egressId は
+      // 失われて**二度と止められなくなる** (Fargate の課金も残る)。
+      if (event.egress) {
+        return { egressId: event.egress.egressId, rtmpUrl: "" };
+      }
       if (!event.media?.livekitUrl) {
         // EventMediaStack 起動中。reconcile が livekitUrl を書き戻すのを待ってから再試行する。
         throw new ServiceUnavailableError("LiveKit URL not ready", { retryAfterSec: 30 });
@@ -82,24 +88,30 @@ export function createEgressService(config: EgressServiceConfig) {
       // ADR 0026 D-1: ここで保存しないと「配信中かどうか」がどこにも残らず、
       // 他のウィンドウからは永久に分からない (冒頭コメントだけがそう書いてあった)。
       await config.events.update(eventId, {
-        media: { ...event.media, egress: { egressId: result.egressId, startedAtMs: Date.now() } },
+        egress: { egressId: result.egressId, startedAtMs: Date.now() },
       } as never);
       return { egressId: result.egressId, rtmpUrl: streamUrl };
     },
 
     /** 送出を止めて状態を消す (ADR 0026 D-4)。停止済みなら何もしない。 */
-    async stop(eventId: string): Promise<{ stopped: boolean }> {
+    async stop(eventId: string): Promise<{ stopped: boolean; warning?: string }> {
       const event = await config.events.get(eventId);
-      const egress = event.media?.egress;
+      const egress = event.egress;
       if (!event.media?.livekitUrl || !egress) return { stopped: false };
-      await config.starter.stopRtmpEgress({
-        livekitUrl: event.media.livekitUrl,
-        egressId: egress.egressId,
-      });
-      // media から egress だけ落とす (livekitUrl は配信継続中なので残す)。
-      const { egress: _dropped, ...media } = event.media;
-      await config.events.update(eventId, { media } as never);
-      return { stopped: true };
+      let warning: string | undefined;
+      try {
+        await config.starter.stopRtmpEgress({
+          livekitUrl: event.media.livekitUrl,
+          egressId: egress.egressId,
+        });
+      } catch (err) {
+        // LiveKit 側が先に終わっている (YouTube がキーを拒否した等) と stopEgress は失敗する。
+        // ここで投げ返すと状態が残り続け、 全ウィンドウが「送出中」のまま停止も再開始もできず、
+        // DynamoDB を直接いじる以外に復帰手段が無くなる。 状態は消して警告だけ返す。
+        warning = err instanceof Error ? err.message : String(err);
+      }
+      await config.events.update(eventId, { egress: undefined } as never);
+      return warning === undefined ? { stopped: true } : { stopped: true, warning };
     },
   };
 }

@@ -183,17 +183,74 @@ describe("EgressService.stop (ADR 0026 D-4)", () => {
 
     await egress.start(created.id);
     // ADR 0026 D-1: 起動したら状態が残る。これが無いと他のウィンドウから配信中だと分からない。
-    expect((await events.get(created.id)).media?.egress?.egressId).toBe("egress-1");
+    expect((await events.get(created.id)).egress?.egressId).toBe("egress-1");
 
     expect(await egress.stop(created.id)).toEqual({ stopped: true });
     expect(starter.stopped).toEqual(["egress-1"]);
     // 停止したら状態は消えるが livekitUrl は残る (配信自体は続いている)。
     const after = await events.get(created.id);
-    expect(after.media?.egress).toBeUndefined();
+    expect(after.egress).toBeUndefined();
     expect(after.media?.livekitUrl).toBe("wss://x");
 
     // 停止済みをもう一度押しても LiveKit は呼ばない。
     expect(await egress.stop(created.id)).toEqual({ stopped: false });
     expect(starter.stopped).toEqual(["egress-1"]);
+  });
+});
+
+describe("EgressService の二重操作 (ADR 0026 D-1)", () => {
+  async function liveEventWithMedia() {
+    const events = buildEvents();
+    const created = await events.create({
+      title: "test",
+      startsAt: "2026-06-19T00:00:00.000Z",
+      caption: {
+        languages: ["ja"],
+        youtubeLanguage: "ja",
+        engine: "transcribe",
+        customApiEnabled: false,
+      },
+      youtube: { rtmpUrl: "rtmp://a.rtmp.youtube.com/live2", streamKeyRef: "key1" },
+    });
+    await events.setStatus(created.id, "live");
+    await events.update(created.id, { media: { livekitUrl: "wss://x", readyAt: 1 } } as never);
+    return { events, eventId: created.id };
+  }
+
+  it("送出中にもう一度開始しても LiveKit を二度叩かない", async () => {
+    const { events, eventId } = await liveEventWithMedia();
+    const starter = fakeStarter();
+    const egress = createEgressService({
+      events,
+      starter,
+      streamKeyResolver: fakeResolver({ key1: "secret-stream-key" }),
+    });
+
+    const first = await egress.start(eventId);
+    const second = await egress.start(eventId);
+
+    // 2 本目を起動すると同じストリームキーに二重送出され、1 本目は止められなくなる。
+    expect(starter.calls).toHaveLength(1);
+    expect(second.egressId).toBe(first.egressId);
+  });
+
+  it("LiveKit 側が既に終了していても状態は消す (UI から復帰できなくなるため)", async () => {
+    const { events, eventId } = await liveEventWithMedia();
+    const starter = fakeStarter();
+    starter.stopRtmpEgress = async () => {
+      throw new Error("egress not found");
+    };
+    const egress = createEgressService({
+      events,
+      starter,
+      streamKeyResolver: fakeResolver({ key1: "secret-stream-key" }),
+    });
+    await egress.start(eventId);
+
+    const result = await egress.stop(eventId);
+
+    expect(result.stopped).toBe(true);
+    expect(result.warning).toContain("egress not found");
+    expect((await events.get(eventId)).egress).toBeUndefined();
   });
 });
