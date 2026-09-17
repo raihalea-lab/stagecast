@@ -35,6 +35,8 @@ export interface EgressStarter {
     roomName: string;
     streamUrl: string;
   }): Promise<{ egressId: string }>;
+  /** 送出を止める (ADR 0026 D-4)。`livekitUrl` は Egress API の宛先解決に要る。 */
+  stopRtmpEgress(input: { livekitUrl: string; egressId: string }): Promise<void>;
 }
 
 export interface EgressServiceConfig {
@@ -77,7 +79,27 @@ export function createEgressService(config: EgressServiceConfig) {
         roomName: eventId,
         streamUrl,
       });
+      // ADR 0026 D-1: ここで保存しないと「配信中かどうか」がどこにも残らず、
+      // 他のウィンドウからは永久に分からない (冒頭コメントだけがそう書いてあった)。
+      await config.events.update(eventId, {
+        media: { ...event.media, egress: { egressId: result.egressId, startedAtMs: Date.now() } },
+      } as never);
       return { egressId: result.egressId, rtmpUrl: streamUrl };
+    },
+
+    /** 送出を止めて状態を消す (ADR 0026 D-4)。停止済みなら何もしない。 */
+    async stop(eventId: string): Promise<{ stopped: boolean }> {
+      const event = await config.events.get(eventId);
+      const egress = event.media?.egress;
+      if (!event.media?.livekitUrl || !egress) return { stopped: false };
+      await config.starter.stopRtmpEgress({
+        livekitUrl: event.media.livekitUrl,
+        egressId: egress.egressId,
+      });
+      // media から egress だけ落とす (livekitUrl は配信継続中なので残す)。
+      const { egress: _dropped, ...media } = event.media;
+      await config.events.update(eventId, { media } as never);
+      return { stopped: true };
     },
   };
 }

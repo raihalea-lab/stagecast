@@ -36,6 +36,13 @@ export interface RoomPresentationMetadata {
   layout?: LayoutKind;
   /** `spotlight` / `pip` で主役にする participant の identity。 */
   focusIdentity?: string;
+  /**
+   * YouTube へ送出中か (ADR 0026 D-2)。
+   *
+   * 全ウィンドウ・全ロールが同じ値を見るための唯一の経路。metadata は全文置換なので、
+   * **発行側が毎回埋める** (呼び出し側任せにすると別の操作のたびに消える)。
+   */
+  egressActive?: boolean;
 }
 
 export function encodeRoomMetadata(meta: Omit<RoomPresentationMetadata, "v">): string {

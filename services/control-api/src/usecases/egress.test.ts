@@ -22,13 +22,19 @@ function buildEvents() {
 
 function fakeStarter(): EgressStarter & {
   calls: { livekitUrl: string; roomName: string; streamUrl: string }[];
+  stopped: string[];
 } {
   const calls: { livekitUrl: string; roomName: string; streamUrl: string }[] = [];
+  const stopped: string[] = [];
   return {
     calls,
+    stopped,
     async startRtmpEgress(input) {
       calls.push(input);
       return { egressId: `egress-${calls.length}` };
+    },
+    async stopRtmpEgress({ egressId }) {
+      stopped.push(egressId);
     },
   };
 }
@@ -149,5 +155,45 @@ describe("joinRtmpUrl", () => {
 
   it("末尾スラッシュ付きの URL でも二重 / にならない", () => {
     expect(joinRtmpUrl("rtmp://x/live2/", "k1")).toBe("rtmp://x/live2/k1");
+  });
+});
+
+describe("EgressService.stop (ADR 0026 D-4)", () => {
+  it("送出中なら止めて状態を消す。二重に押しても壊れない", async () => {
+    const events = buildEvents();
+    const created = await events.create({
+      title: "test",
+      startsAt: "2026-06-19T00:00:00.000Z",
+      caption: {
+        languages: ["ja"],
+        youtubeLanguage: "ja",
+        engine: "transcribe",
+        customApiEnabled: false,
+      },
+      youtube: { rtmpUrl: "rtmp://a.rtmp.youtube.com/live2", streamKeyRef: "key1" },
+    });
+    await events.setStatus(created.id, "live");
+    await events.update(created.id, { media: { livekitUrl: "wss://x", readyAt: 1 } } as never);
+    const starter = fakeStarter();
+    const egress = createEgressService({
+      events,
+      starter,
+      streamKeyResolver: fakeResolver({ key1: "secret-stream-key" }),
+    });
+
+    await egress.start(created.id);
+    // ADR 0026 D-1: 起動したら状態が残る。これが無いと他のウィンドウから配信中だと分からない。
+    expect((await events.get(created.id)).media?.egress?.egressId).toBe("egress-1");
+
+    expect(await egress.stop(created.id)).toEqual({ stopped: true });
+    expect(starter.stopped).toEqual(["egress-1"]);
+    // 停止したら状態は消えるが livekitUrl は残る (配信自体は続いている)。
+    const after = await events.get(created.id);
+    expect(after.media?.egress).toBeUndefined();
+    expect(after.media?.livekitUrl).toBe("wss://x");
+
+    // 停止済みをもう一度押しても LiveKit は呼ばない。
+    expect(await egress.stop(created.id)).toEqual({ stopped: false });
+    expect(starter.stopped).toEqual(["egress-1"]);
   });
 });

@@ -347,6 +347,21 @@ function resolveEgressStarter(
         throw err;
       }
     },
+
+    /** 送出を止める (ADR 0026 D-4)。起動と同じ EgressClient を使う。 */
+    async stopRtmpEgress({ livekitUrl, egressId }) {
+      const data = await secrets.getSecretJson(livekitSecretArn);
+      const apiKey = data.apiKey;
+      const apiSecret = data.apiSecret;
+      if (!apiKey || !apiSecret) {
+        throw new Error("LiveKit Secret に apiKey / apiSecret がない");
+      }
+      const httpUrl = livekitUrl.replace(/^wss:\/\//i, "https://").replace(/^ws:\/\//i, "http://");
+      const sdk = await import("livekit-server-sdk");
+      const client = new sdk.EgressClient(httpUrl, apiKey, apiSecret);
+      await client.stopEgress(egressId);
+      console.log(JSON.stringify({ msg: "egress.stopped", egressId }));
+    },
   };
 }
 

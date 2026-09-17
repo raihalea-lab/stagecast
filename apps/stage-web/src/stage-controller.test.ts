@@ -60,6 +60,13 @@ class FakeStageClient implements StageClient {
     this.presentation = { ...this.presentation, layout, focusIdentity };
     return this.presentation;
   }
+  readonly egressCalls: string[] = [];
+  async startEgress(): Promise<void> {
+    this.egressCalls.push("start");
+  }
+  async stopEgress(): Promise<void> {
+    this.egressCalls.push("stop");
+  }
   async listAssets() {
     return [];
   }

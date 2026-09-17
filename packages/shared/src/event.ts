@@ -78,6 +78,11 @@ export interface EventMediaInfo {
   livekitUrl: string;
   /** URL が確定し DynamoDB に書き戻されたエポックミリ秒。診断用。 */
   readyAt: number;
+  /**
+   * 送出中の Egress (ADR 0026 D-1)。**存在すれば送出中**、無ければ停止中。
+   * ここに書かないと「配信中かどうか」がどこにも残らず、ウィンドウ間で共有できない。
+   */
+  egress?: { egressId: string; startedAtMs: number };
 }
 
 /**
