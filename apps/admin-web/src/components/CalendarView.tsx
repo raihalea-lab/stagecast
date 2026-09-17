@@ -83,6 +83,9 @@ export function CalendarView(props: {
 }) {
   const [popover, setPopover] = useState<EventPopover | null>(null);
 
+  // 上限は終了済みだけに掛かるので、上限と並べて出す数字も終了済みの件数にする (ADR 0024)。
+  const endedCount = props.events.filter((e) => e.status === "ended").length;
+
   const calendarEvents = useMemo(() => {
     const eventItems = props.events.map((e) => ({
       id: e.id,
@@ -132,9 +135,9 @@ export function CalendarView(props: {
         ))}
         <span
           className="ml-auto rounded bg-surface-2 px-1.5 py-0.5 text-[10px] font-medium text-text-tertiary"
-          title={`終了済みイベントは合計 ${MAX_EVENTS} 件まで保持し、超えた分は開始日時の古い順に削除されます (録画・字幕・資料も一緒に消えます)。下書き・予定・配信中のイベントは削除対象になりません。`}
+          title={`終了済みイベントは ${MAX_EVENTS} 件まで保持し、超えた分は開始日時の古い順に削除されます (録画・字幕・資料も一緒に消えます)。下書き・予定・配信中のイベントは削除されず、この件数にも入りません。`}
         >
-          保存 {props.events.length}/{MAX_EVENTS} 件
+          終了 {endedCount}/{MAX_EVENTS} 件
         </span>
         <span className="rounded bg-surface-2 px-1.5 py-0.5 text-[10px] font-medium text-text-tertiary">
           JST (UTC+9)
