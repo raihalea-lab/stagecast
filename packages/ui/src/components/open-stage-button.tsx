@@ -6,7 +6,8 @@ export interface AdminStageTokenResult {
   token: string;
   livekitUrl: string;
   expiresAt: number;
-  stageUrl?: string;
+  /** 開く stage-web の origin。 サーバが必ず返す (admin-web とは別 origin)。 */
+  stageUrl: string;
 }
 
 export interface OpenStageButtonProps extends Omit<ButtonProps, "onClick" | "children"> {
@@ -39,7 +40,7 @@ export function OpenStageButton({
       if (open) {
         open(result);
       } else {
-        const url = new URL(result.stageUrl ?? window.location.origin);
+        const url = new URL(result.stageUrl);
         url.searchParams.set("token", result.token);
         url.searchParams.set("url", result.livekitUrl);
         url.searchParams.set("eventId", eventId);

@@ -5,6 +5,8 @@ import { MemoryEventRepository } from "../repo/memory.js";
 import { ServiceUnavailableError } from "./join.js";
 import type { LiveKitTokenMinter } from "../auth/livekit-minter.js";
 
+const STAGE_URL = "https://stage.example.com";
+
 function buildEvents() {
   const repo = new MemoryEventRepository();
   let counter = 0;
@@ -48,7 +50,7 @@ describe("AdminTokenService.issue (R16, ADR 0012 D-4)", () => {
       media: { livekitUrl: "wss://event-X.example.com" },
     } as never);
     const minter = fakeMinter();
-    const svc = createAdminTokenService({ events, liveKitMinter: minter });
+    const svc = createAdminTokenService({ events, liveKitMinter: minter, stageUrl: STAGE_URL });
 
     const result = await svc.issue(created.id);
 
@@ -73,7 +75,11 @@ describe("AdminTokenService.issue (R16, ADR 0012 D-4)", () => {
       },
     });
     // status は draft のまま
-    const svc = createAdminTokenService({ events, liveKitMinter: fakeMinter() });
+    const svc = createAdminTokenService({
+      events,
+      liveKitMinter: fakeMinter(),
+      stageUrl: STAGE_URL,
+    });
     await expect(svc.issue(created.id)).rejects.toBeInstanceOf(ServiceUnavailableError);
   });
 
@@ -91,11 +97,15 @@ describe("AdminTokenService.issue (R16, ADR 0012 D-4)", () => {
     });
     await events.setStatus(created.id, "live");
     // media は設定しない
-    const svc = createAdminTokenService({ events, liveKitMinter: fakeMinter() });
+    const svc = createAdminTokenService({
+      events,
+      liveKitMinter: fakeMinter(),
+      stageUrl: STAGE_URL,
+    });
     await expect(svc.issue(created.id)).rejects.toBeInstanceOf(ServiceUnavailableError);
   });
 
-  it("issueStageToken は Cognito userId を identity に使い { token, livekitUrl, expiresAt } を返す", async () => {
+  it("issueStageToken は Cognito userId を identity に使い { token, livekitUrl, expiresAt, stageUrl } を返す", async () => {
     const events = buildEvents();
     const created = await events.create({
       title: "test",
@@ -112,13 +122,14 @@ describe("AdminTokenService.issue (R16, ADR 0012 D-4)", () => {
       media: { livekitUrl: "wss://event-X.example.com" },
     } as never);
     const minter = fakeMinter();
-    const svc = createAdminTokenService({ events, liveKitMinter: minter });
+    const svc = createAdminTokenService({ events, liveKitMinter: minter, stageUrl: STAGE_URL });
 
     const result = await svc.issueStageToken(created.id, "cognito-user-abc");
 
     expect(result.token).toBe("fake-token-admin-cognito-user-abc");
     expect(result.livekitUrl).toBe("wss://event-X.example.com");
     expect(result.expiresAt).toBeGreaterThan(Date.now());
+    expect(result.stageUrl).toBe(STAGE_URL);
     expect(minter.calls[0]?.identity).toBe("admin-cognito-user-abc");
   });
 
@@ -140,7 +151,11 @@ describe("AdminTokenService.issue (R16, ADR 0012 D-4)", () => {
     await events.update(created.id, {
       media: { livekitUrl: "wss://event-X.example.com" },
     } as never);
-    const svc = createAdminTokenService({ events, liveKitMinter: fakeMinter() });
+    const svc = createAdminTokenService({
+      events,
+      liveKitMinter: fakeMinter(),
+      stageUrl: STAGE_URL,
+    });
 
     const r1 = await svc.issue(created.id);
     const r2 = await svc.issue(created.id);
