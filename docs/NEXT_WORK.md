@@ -244,6 +244,27 @@ R12-followup-1〜22 で **stage-web から SFU への WebRTC 接続** が完了 
 
 ## O: 運用準備 (初回デプロイ前にやること)
 
+### O0. [期限あり] Caddy の証明書更新が失敗し続けている (2026-09-18 発見)
+
+- [ ] **SFU 前段の Caddy が ACME のアカウント登録に失敗し、証明書を更新できていない。**
+      現在の証明書は有効だが **残り約 6 日**。切れると全イベントで `wss://` が繋がらなくなる。
+
+  ```
+  "email":"users"
+  "error":"HTTP 400 urn:ietf:params:acme:error:invalidContact
+           - Error validating contact(s) :: unable to parse email address"
+  ```
+
+  Let's Encrypt が `users` をメールアドレスとして拒否している。5 分おきにリトライして毎回失敗。
+  `infra/lib/event-media-stack.ts` の Caddyfile 生成には `email` の指定が無いので、
+  certmagic-s3 のストレージ (`caddy-certs/` 配下) にある `users` というパスを
+  ACME アカウントとして拾っている可能性が高い。
+
+  対応案: Caddyfile のグローバルオプションに `email <運用者アドレス>` を明示する
+  (CDK context か SSM から渡す)。あわせて S3 の `caddy-certs/` の中身を確認する。
+
+  確認方法: EventMedia のロググループを `tls.renew` で絞ると、失敗が 5 分おきに出ている。
+
 ### O1. AWS アカウント側の事前準備
 
 - [ ] AWS アカウント (dev / staging / prod) の用意。最低でも dev は確保する
