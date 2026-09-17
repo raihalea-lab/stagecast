@@ -12,6 +12,7 @@ import type {
   AssetMetadata,
   DeckRef,
   InvitedRole,
+  LayoutKind,
   PresentationState,
   Preset,
   SlideSource,
@@ -103,6 +104,12 @@ export interface StageClient {
   getPresentationState(inviteToken: string): Promise<PresentationSnapshot>;
   /** 投影状態を書く (ADR 0022 D-1)。`slideSource` を省略すると投影解除。 */
   setSlideState(inviteToken: string, update: SlideStateUpdate): Promise<PresentationSnapshot>;
+  /** レイアウトを書く (ADR 0025 D-1)。 サーバが room metadata も貼り直す。 */
+  setLayoutState(
+    inviteToken: string,
+    layout: LayoutKind,
+    focusIdentity?: string,
+  ): Promise<PresentationSnapshot>;
 }
 
 /** control-api が返す投影状態 (署名付き URL 付き)。 */
@@ -296,6 +303,18 @@ export class HttpStageClient implements StageClient {
     update: SlideStateUpdate,
   ): Promise<PresentationSnapshot> {
     return this.postStage("/stage/presentation/slide", { inviteToken, ...update }, "setSlideState");
+  }
+
+  async setLayoutState(
+    inviteToken: string,
+    layout: LayoutKind,
+    focusIdentity?: string,
+  ): Promise<PresentationSnapshot> {
+    return this.postStage(
+      "/stage/presentation/layout",
+      { inviteToken, layout, focusIdentity },
+      "setLayoutState",
+    );
   }
 
   private async postStage<T>(path: string, body: unknown, label: string): Promise<T> {

@@ -4,7 +4,9 @@
  * 管理者が各登壇者を「発表中」「待機」に切り替える。本型はその共有状態のスキーマ。
  * 永続化は制御層の DynamoDB (`DynamoPresentationRepository`)。
  * 投影状態 (どのデッキの何ページ目か) の**正もここに置く** (ADR 0022 D-1)。
+ * レイアウトの正も同じ理由でここに置く (ADR 0025 D-1)。
  */
+import type { LayoutKind } from "./layout-protocol.js";
 
 /** 登壇者の表示状態。`live` = 発表中 (画面に出す) / `standby` = 待機。 */
 export type SpeakerVisibility = "live" | "standby";
@@ -51,6 +53,12 @@ export interface PresentationState {
   deck?: DeckRef;
   /** 投影状態の最終更新時刻 (UNIX ミリ秒)。競合時は新しい方を採る (ADR 0022 D-2)。 */
   slideUpdatedAtMs?: number;
+  /** 現在のレイアウト (ADR 0025 D-1)。未設定なら composer の既定 (grid)。 */
+  layout?: LayoutKind;
+  /** `spotlight` / `pip` で主役にする participant の identity。 */
+  focusIdentity?: string;
+  /** レイアウトの最終更新時刻 (UNIX ミリ秒)。競合時は新しい方を採る。 */
+  layoutUpdatedAtMs?: number;
 }
 
 /** 発表中 (live) の登壇者だけを抽出する。 */

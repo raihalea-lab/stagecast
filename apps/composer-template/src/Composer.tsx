@@ -95,6 +95,12 @@ export function Composer(props: Props) {
     (raw: string | undefined) => {
       const meta = decodeRoomMetadata(raw);
       if (!meta) return;
+      // ADR 0025 D-2: レイアウトも metadata から復元する。DataChannel の layout-change は
+      // 「今いる人」にしか届かないので、再接続すると grid に戻っていた。
+      if (meta.layout) {
+        setLayout(meta.layout);
+        setFocusIdentity(meta.focusIdentity);
+      }
       if (meta.slideSource !== "uploaded" || !meta.deck || !meta.deckUrl) {
         clearSlideDeck();
         deckAssetIdRef.current = undefined;

@@ -7,6 +7,7 @@
  *
  * これにより composer は「配り直されるのを待つ」side から「状態を読む」side になる。
  */
+import type { LayoutKind } from "./layout-protocol.js";
 import type { DeckRef, SlideSource } from "./presentation.js";
 
 /** metadata のスキーマ版。読めない版は無視する (composer を壊さない)。 */
@@ -26,6 +27,15 @@ export interface RoomPresentationMetadata {
    * (URL 文字列で比べると再発行のたびに配信画面がちらつく)。
    */
   deckUrl?: string;
+  /**
+   * 現在のレイアウト (ADR 0025 D-2)。
+   *
+   * DataChannel の `layout-change` は「今いる人」にしか届かない。接続時に必ず届く metadata に
+   * 載せることで、composer が再接続してもレイアウトが `grid` に戻らなくなる。
+   */
+  layout?: LayoutKind;
+  /** `spotlight` / `pip` で主役にする participant の identity。 */
+  focusIdentity?: string;
 }
 
 export function encodeRoomMetadata(meta: Omit<RoomPresentationMetadata, "v">): string {

@@ -44,6 +44,12 @@ export class LiveKitRoomConnector implements RoomConnector {
   get localIdentity(): string | undefined {
     return this.room.localParticipant.identity || undefined;
   }
+  get roomMetadata(): string | undefined {
+    return this.room.metadata;
+  }
+  onRoomMetadataChanged(handler: (metadata: string | undefined) => void): void {
+    this.room.on(RoomEvent.RoomMetadataChanged, (metadata) => handler(metadata));
+  }
   setPreferredDevices(prefs: PreferredDevices): void {
     this.prefs = prefs;
   }

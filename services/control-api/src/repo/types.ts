@@ -76,6 +76,28 @@ export function applySlide(state: PresentationState, slide: SlideUpdate): boolea
   return true;
 }
 
+/** レイアウトの更新分 (ADR 0025 D-1)。 */
+export type LayoutUpdate = Pick<
+  PresentationState,
+  "layout" | "focusIdentity" | "layoutUpdatedAtMs"
+>;
+
+/**
+ * レイアウトを状態オブジェクトに反映する (ADR 0025 D-1)。
+ *
+ * `applySlide` と同じく、古い更新は捨てる。管理ウィンドウが複数あると書き込みが前後しうる。
+ * 戻り値は反映したかどうか。
+ */
+export function applyLayout(state: PresentationState, update: LayoutUpdate): boolean {
+  const prev = state.layoutUpdatedAtMs;
+  const next = update.layoutUpdatedAtMs;
+  if (prev !== undefined && next !== undefined && next < prev) return false;
+  state.layout = update.layout;
+  state.focusIdentity = update.focusIdentity;
+  state.layoutUpdatedAtMs = next;
+  return true;
+}
+
 export interface PresentationRepository {
   get(eventId: string): Promise<PresentationState | undefined>;
   setSpeakerVisibility(
@@ -85,6 +107,7 @@ export interface PresentationRepository {
     nowMs: number,
   ): Promise<PresentationState>;
   setSlide(eventId: string, slide: SlideUpdate): Promise<PresentationState>;
+  setLayout(eventId: string, update: LayoutUpdate): Promise<PresentationState>;
 }
 
 export interface AssetMetadataRepository {

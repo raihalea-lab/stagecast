@@ -152,6 +152,9 @@ export function createApp(deps: AppDeps) {
           slidePage: state.slidePage,
           deck: state.deck,
           deckUrl: state.deckUrl,
+          // ADR 0025 D-2: 接続時に必ず届くので composer 再接続でも grid に戻らない。
+          layout: state.layout,
+          focusIdentity: state.focusIdentity,
         }),
       );
     } catch (err) {
@@ -315,6 +318,17 @@ export function createApp(deps: AppDeps) {
         const withUrl = await withDeckUrl(next, true);
         await publishRoomMetadata(withUrl);
         return json(200, isModerator ? withUrl : next);
+      }
+      // レイアウト変更は moderator だけ (ADR 0025 D-1)。admin は moderator 招待で入る (D-3)。
+      if (req.method === "POST" && segments[2] === "layout") {
+        if (!isModerator) {
+          return json(403, { error: "only moderator can change the layout" });
+        }
+        const next = await presentation.setLayout(eventId, body.layout, body.focusIdentity);
+        // deckUrl も一緒に貼り直す。metadata は全文置換なので、デッキの署名 URL を
+        // 載せ直さないと投影中のスライドが composer から消える。
+        await publishRoomMetadata(await withDeckUrl(next, true));
+        return json(200, next);
       }
     }
 

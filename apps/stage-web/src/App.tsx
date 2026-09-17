@@ -17,6 +17,7 @@ import { DeviceCheck } from "./components/DeviceCheck.js";
 import { PreviewWindow } from "./components/PreviewWindow.js";
 import type { RuntimeConfig } from "./config.js";
 import {
+  decodeRoomMetadata,
   decodeStageMessage,
   isSameDeck,
   materialKey,
@@ -204,6 +205,14 @@ export function App(props: {
     });
     controller.onReconnecting(() => setReconnecting(true));
     controller.onReconnected(() => setReconnecting(false));
+    // ADR 0025 D-2: 他のウィンドウが変えたレイアウトは metadata で届く。
+    controller.onRoomMetadataChanged((raw) => {
+      const meta = decodeRoomMetadata(raw);
+      if (meta?.layout) {
+        setLayout(meta.layout);
+        setFocusIdentity(meta.focusIdentity);
+      }
+    });
     controller.onParticipantsChanged((next, joined) => {
       setParticipants(next);
       // プレビューの composer は hidden ではないので入室を検知できる。待たずに配り直す
@@ -217,7 +226,12 @@ export function App(props: {
     controller.onDataReceived((payload) => {
       const msg = decodeStageMessage(payload);
       if (!msg) return;
-      if (msg.type === "mute-request") {
+      if (msg.type === "layout-change") {
+        // ADR 0025 D-2: これを聞いていなかったので、管理ウィンドウを 2 枚開くと
+        // 片方の LayoutPicker が古い値のまま残り、そこから古い認識で上書きしていた。
+        setLayout(msg.layout);
+        setFocusIdentity(msg.focusIdentity);
+      } else if (msg.type === "mute-request") {
         setMuteNotice("モデレーターからミュート要請がありました");
         setTimeout(() => setMuteNotice(undefined), 5000);
       } else if (msg.type === "force-mute") {
@@ -283,6 +297,13 @@ export function App(props: {
       .then(() => {
         setSession(controller.currentSession);
         setMyIdentity(controller.localIdentity ?? "");
+        // 接続時点の metadata に現在のレイアウトが入っている (ADR 0025 D-2)。
+        // 後から開いたウィンドウが grid から始まらないために要る。
+        const meta = decodeRoomMetadata(controller.roomMetadata);
+        if (meta?.layout) {
+          setLayout(meta.layout);
+          setFocusIdentity(meta.focusIdentity);
+        }
         setRoomState("running");
         elapsedRef.current = setInterval(() => setElapsedSec((s) => s + 1), 1000);
       })
@@ -432,6 +453,13 @@ export function App(props: {
     void (async () => {
       const state = await client.getPresentationState(inviteToken).catch(() => undefined);
       if (cancelled || !state) return;
+      // ADR 0025 D-1: レイアウトもここで復元する。初回 join では room metadata の
+      // `RoomMetadataChanged` が飛ばない (livekit-client は前回値と違うときだけ emit する)
+      // ので、これが無いと招待リンクで入った人は実際が spotlight でも grid 表示で始まる。
+      if (state.layout) {
+        setLayout(state.layout);
+        setFocusIdentity(state.focusIdentity);
+      }
       if (state.slideSource !== "uploaded" || !state.deck) return;
       deckAssetRef.current = state.deck;
       setDeckTotalPages(state.deck.pageCount);
@@ -921,6 +949,36 @@ export function App(props: {
     </>
   );
 
+  /**
+   * レイアウトと主役を変える (ADR 0025 D-1/D-2)。
+   *
+   * **レイアウトと `focusIdentity` は 1 つの状態**なので必ずここを通す。片方だけ DataChannel で
+   * 流すと、次に誰かが metadata を発行した時点でサーバの古い値に巻き戻る。
+   */
+  const applyLayoutChange = (nextLayout: LayoutKind, focus: string | undefined) => {
+    // grid / screen-share-main は主役を使わない。残すと次に spotlight にしたとき
+    // 古い人が主役になる (サーバ側の setLayout も同じ規則)。
+    const nextFocus = nextLayout === "spotlight" || nextLayout === "pip" ? focus : undefined;
+    setLayout(nextLayout);
+    setFocusIdentity(nextFocus);
+    // D-2: metadata の往復を待たずに反映するための通知。
+    void controller.changeLayout(nextLayout, nextFocus);
+    previewIframeRef.current?.contentWindow?.postMessage(
+      { type: "layout-change", layout: nextLayout, focusIdentity: nextFocus },
+      "*",
+    );
+    // D-1: 正はサーバ。ここを飛ばすと次の metadata 発行で巻き戻る。
+    if (!inviteToken) {
+      setError(
+        "配信操作の資格情報がありません。管理画面から開き直してください (変更は保存されません)。",
+      );
+      return;
+    }
+    void client
+      .setLayoutState(inviteToken, nextLayout, nextFocus)
+      .catch((err: unknown) => setError(err instanceof Error ? err.message : String(err)));
+  };
+
   const layoutPicker = (
     <Card>
       <CardHeader className="pb-3">
@@ -929,14 +987,7 @@ export function App(props: {
       <CardContent>
         <LayoutPicker
           value={layout}
-          onChange={(next) => {
-            setLayout(next);
-            void controller.changeLayout(next, focusIdentity);
-            previewIframeRef.current?.contentWindow?.postMessage(
-              { type: "layout-change", layout: next, focusIdentity },
-              "*",
-            );
-          }}
+          onChange={(next) => applyLayoutChange(next, focusIdentity)}
           disabled={busy}
         />
       </CardContent>
@@ -948,9 +999,7 @@ export function App(props: {
       participants={participants.map((p) => toParticipantInfo(p, speakerVisibility))}
       focusIdentity={focusIdentity}
       onFocus={(identity) => {
-        const next = identity === focusIdentity ? undefined : identity;
-        setFocusIdentity(next);
-        void controller.changeLayout(layout, next);
+        applyLayoutChange(layout, identity === focusIdentity ? undefined : identity);
       }}
       onRequestMute={(identity) => {
         void controller.requestMute(identity);
