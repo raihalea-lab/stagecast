@@ -142,8 +142,8 @@ export function App(props: {
   const [name, setName] = useState("");
   const [session, setSession] = useState<StageSession | undefined>();
   // admin 直接接続 (ADR 0014 D-4) では ?token= が LiveKit JWT なので招待トークンとして使わない。
-  // ponytail: admin はプリセット/アセットがローカル限定。管理者資格情報で stage ルートを叩けるようにするのが本来の解。
-  const inviteToken = session?.role === "admin" ? "" : token;
+  // ADR 0025 D-3: 代わりにサーバが同梱した招待トークン (moderator) で `/stage/*` を叩く。
+  const inviteToken = session?.role === "admin" ? (adminDirect?.inviteToken ?? "") : token;
   const [myIdentity, setMyIdentity] = useState<string>("");
   const [viewAsRole, setViewAsRole] = useState<StageRole>("admin");
   const [error, setError] = useState<string>();
@@ -959,7 +959,9 @@ export function App(props: {
         void controller.forceMute(identity);
       }}
       onVisibilityChange={(identity, visibility) => {
-        void controller.setSpeakerVisibility(identity, visibility, token || undefined);
+        // admin の `token` は LiveKit JWT。招待トークン経路に渡すと 401 で
+        // DataChannel の broadcast まで巻き添えになる (ADR 0025 D-3)。
+        void controller.setSpeakerVisibility(identity, visibility, inviteToken || undefined);
       }}
       showVisibilityControl={effectiveRole === "admin" || effectiveRole === "moderator"}
     />
@@ -1156,7 +1158,7 @@ export function App(props: {
             <div className="space-y-4 pr-4">
               <PreviewWindow
                 client={client}
-                inviteToken={token}
+                inviteToken={inviteToken}
                 composerTemplateUrl={props.config?.composerTemplateUrl}
               />
             </div>
@@ -1251,7 +1253,7 @@ export function App(props: {
       {statusBanners}
       <PreviewWindow
         client={client}
-        inviteToken={token}
+        inviteToken={inviteToken}
         composerTemplateUrl={props.config?.composerTemplateUrl}
       />
     </StageShell>

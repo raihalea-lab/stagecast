@@ -374,6 +374,7 @@ function PreviewApp() {
                 expiresAt: Date.now() + 3600_000,
                 stageUrl: window.location.origin,
                 previewToken: "preview-token",
+                inviteToken: "invite-token",
               })}
             />
             <ReconnectingBanner kind="reconnecting" className="w-96" />

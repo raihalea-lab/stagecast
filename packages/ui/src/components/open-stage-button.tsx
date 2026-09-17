@@ -10,6 +10,8 @@ export interface AdminStageTokenResult {
   stageUrl: string;
   /** プレビュー iframe 用の viewer token。 親ページと identity を分けるため別建てで受け取る。 */
   previewToken: string;
+  /** stage-web が `/stage/*` を叩くための招待トークン (ADR 0025 D-3)。 */
+  inviteToken: string;
 }
 
 export interface OpenStageButtonProps extends Omit<ButtonProps, "onClick" | "children"> {
@@ -52,6 +54,7 @@ export function OpenStageButton({
         // 旧 Lambda は返さない。 set すると文字列 "undefined" が載り、 壊れた token で
         // iframe が描画される (型は必須でも実 API は追いついていない)。
         if (result.previewToken) url.searchParams.set("previewToken", result.previewToken);
+        if (result.inviteToken) url.searchParams.set("inviteToken", result.inviteToken);
         window.open(url.toString(), "_blank", "noopener,noreferrer");
       }
     } catch (err) {

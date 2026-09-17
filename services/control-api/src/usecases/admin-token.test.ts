@@ -7,6 +7,9 @@ import type { LiveKitTokenMinter } from "../auth/livekit-minter.js";
 
 const STAGE_URL = "https://stage.example.com";
 
+// ADR 0025 D-3: admin が /stage/* を叩くための招待トークン。
+const issueInviteToken = async (eventId: string, ttlSec: number) => `invite-${eventId}-${ttlSec}`;
+
 function buildEvents() {
   const repo = new MemoryEventRepository();
   let counter = 0;
@@ -50,7 +53,12 @@ describe("AdminTokenService.issue (R16, ADR 0012 D-4)", () => {
       media: { livekitUrl: "wss://event-X.example.com" },
     } as never);
     const minter = fakeMinter();
-    const svc = createAdminTokenService({ events, liveKitMinter: minter, stageUrl: STAGE_URL });
+    const svc = createAdminTokenService({
+      events,
+      liveKitMinter: minter,
+      stageUrl: STAGE_URL,
+      issueInviteToken,
+    });
 
     const result = await svc.issue(created.id);
 
@@ -79,6 +87,7 @@ describe("AdminTokenService.issue (R16, ADR 0012 D-4)", () => {
       events,
       liveKitMinter: fakeMinter(),
       stageUrl: STAGE_URL,
+      issueInviteToken,
     });
     await expect(svc.issue(created.id)).rejects.toBeInstanceOf(ServiceUnavailableError);
   });
@@ -101,6 +110,7 @@ describe("AdminTokenService.issue (R16, ADR 0012 D-4)", () => {
       events,
       liveKitMinter: fakeMinter(),
       stageUrl: STAGE_URL,
+      issueInviteToken,
     });
     await expect(svc.issue(created.id)).rejects.toBeInstanceOf(ServiceUnavailableError);
   });
@@ -122,7 +132,12 @@ describe("AdminTokenService.issue (R16, ADR 0012 D-4)", () => {
       media: { livekitUrl: "wss://event-X.example.com" },
     } as never);
     const minter = fakeMinter();
-    const svc = createAdminTokenService({ events, liveKitMinter: minter, stageUrl: STAGE_URL });
+    const svc = createAdminTokenService({
+      events,
+      liveKitMinter: minter,
+      stageUrl: STAGE_URL,
+      issueInviteToken,
+    });
 
     const result = await svc.issueStageToken(created.id, "cognito-user-abc");
 
@@ -137,6 +152,8 @@ describe("AdminTokenService.issue (R16, ADR 0012 D-4)", () => {
     expect(minter.calls[1]?.role).toBe("viewer");
     // userId 固定だと 2 タブ目が 1 タブ目を蹴るので、 タブごとにユニークにする。
     expect(minter.calls[0]?.identity).toMatch(/^admin-cognito-user-abc-/);
+    // ADR 0025 D-3: これが無いと admin は /stage/* を一切叩けない。
+    expect(result.inviteToken).toBe(`invite-${created.id}-21600`);
   });
 
   it("同じ admin が 2 タブ開いても identity が衝突しない", async () => {
@@ -156,7 +173,12 @@ describe("AdminTokenService.issue (R16, ADR 0012 D-4)", () => {
       media: { livekitUrl: "wss://event-X.example.com" },
     } as never);
     const minter = fakeMinter();
-    const svc = createAdminTokenService({ events, liveKitMinter: minter, stageUrl: STAGE_URL });
+    const svc = createAdminTokenService({
+      events,
+      liveKitMinter: minter,
+      stageUrl: STAGE_URL,
+      issueInviteToken,
+    });
 
     await svc.issueStageToken(created.id, "same-user");
     await svc.issueStageToken(created.id, "same-user");
@@ -187,6 +209,7 @@ describe("AdminTokenService.issue (R16, ADR 0012 D-4)", () => {
       events,
       liveKitMinter: fakeMinter(),
       stageUrl: STAGE_URL,
+      issueInviteToken,
     });
 
     const r1 = await svc.issue(created.id);

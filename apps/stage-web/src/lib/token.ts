@@ -22,6 +22,11 @@ export interface AdminDirectParams {
    * 親ページが LiveKit に切断される。
    */
   previewToken?: string;
+  /**
+   * `/stage/*` を叩くための招待トークン (ADR 0025 D-3)。 旧 Lambda では来ないので optional。
+   * 無いときは admin はプリセット・アセットをローカル限定で扱う (従来の挙動)。
+   */
+  inviteToken?: string;
 }
 
 export function parseAdminDirectParams(search: string): AdminDirectParams | undefined {
@@ -31,11 +36,13 @@ export function parseAdminDirectParams(search: string): AdminDirectParams | unde
   const eventId = params.get("eventId");
   if (token && url && eventId) {
     const previewToken = params.get("previewToken");
+    const inviteToken = params.get("inviteToken");
     return {
       livekitToken: token,
       livekitUrl: url,
       eventId,
       ...(previewToken ? { previewToken } : {}),
+      ...(inviteToken ? { inviteToken } : {}),
     };
   }
   return undefined;

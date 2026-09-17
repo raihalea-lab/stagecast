@@ -72,6 +72,12 @@ export interface StageTokenResult {
    * 親ページと同じ identity で繋ぐと LiveKit が先に繋いだ方を切断するので、 別 identity で発行する。
    */
   previewToken: string;
+  /**
+   * stage-web が `/stage/*` を叩くための招待トークン (ADR 0025 D-3, role: moderator)。
+   * admin は Cognito JWT も招待トークンも持たずに入ってくるので、 これが無いと
+   * プリセット・アセット・投影状態のどれも読めない。
+   */
+  inviteToken: string;
 }
 
 export interface ControlApiClient {
