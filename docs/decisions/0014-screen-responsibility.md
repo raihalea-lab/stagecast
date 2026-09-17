@@ -31,7 +31,9 @@ token の `role` claim で 3 つのサブビューに分岐:
 ### D-4: admin は Cognito JWT → stage-token で stage-web に入る
 
 `POST /admin/events/:id/stage-token` (D7-backend) で admin 用 LiveKit token を発行。OpenStageButton が `?token=<lk>&url=<lk-url>&eventId=<id>` で stage-web を新タブで開き、`StageController.connectAdmin()` で /join をバイパスして直接接続。
-レスポンスは `{ token, livekitUrl, expiresAt, stageUrl }`。`stageUrl` (stage-web の origin) はサーバが `INVITE_BASE_URL` から返す — admin-web は別 CloudFront ディストリビューションなので、クライアント側の origin では開けない。
+レスポンスは `{ token, livekitUrl, expiresAt, stageUrl, previewToken }`。`stageUrl` (stage-web の origin) はサーバが `INVITE_BASE_URL` から返す — admin-web は別 CloudFront ディストリビューションなので、クライアント側の origin では開けない。
+identity は `admin-{userId}-{uuid}`。userId 固定にすると、管理者がボタンから 2 枚目のタブを開いた瞬間に 1 枚目が切断される (LiveKit は identity 重複で先客を切る)。管理者はマルチウィンドウで開き、カメラ/マイクを publish することもある。ただし identity は URL に焼き込まれるので、**同じ URL をコピー/タブ複製/セッション復元で開いた場合は従来どおり衝突する**。ウィンドウを増やすときはボタンから開き直す。
+`previewToken` は配信プレビュー iframe (composer-template) 用の viewer token。親ページと同じ token を iframe に渡すと identity が重複し、LiveKit が先に繋いだ親ページを切断する。
 
 ### D-5: 既存招待 URL は不変
 

@@ -105,7 +105,7 @@ describe("AdminTokenService.issue (R16, ADR 0012 D-4)", () => {
     await expect(svc.issue(created.id)).rejects.toBeInstanceOf(ServiceUnavailableError);
   });
 
-  it("issueStageToken は Cognito userId を identity に使い { token, livekitUrl, expiresAt, stageUrl } を返す", async () => {
+  it("issueStageToken は admin-{userId}-{uuid} を identity に使い { token, livekitUrl, expiresAt, stageUrl } を返す", async () => {
     const events = buildEvents();
     const created = await events.create({
       title: "test",
@@ -126,11 +126,43 @@ describe("AdminTokenService.issue (R16, ADR 0012 D-4)", () => {
 
     const result = await svc.issueStageToken(created.id, "cognito-user-abc");
 
-    expect(result.token).toBe("fake-token-admin-cognito-user-abc");
+    expect(result.token).toBe(`fake-token-${minter.calls[0]?.identity ?? ""}`);
     expect(result.livekitUrl).toBe("wss://event-X.example.com");
     expect(result.expiresAt).toBeGreaterThan(Date.now());
     expect(result.stageUrl).toBe(STAGE_URL);
-    expect(minter.calls[0]?.identity).toBe("admin-cognito-user-abc");
+    // プレビュー iframe が親と同じ identity で繋ぐと LiveKit が親を切断する。
+    expect(result.previewToken).toBeTruthy();
+    expect(minter.calls[1]?.identity).toMatch(/^preview-/);
+    expect(minter.calls[1]?.identity).not.toBe(minter.calls[0]?.identity);
+    expect(minter.calls[1]?.role).toBe("viewer");
+    // userId 固定だと 2 タブ目が 1 タブ目を蹴るので、 タブごとにユニークにする。
+    expect(minter.calls[0]?.identity).toMatch(/^admin-cognito-user-abc-/);
+  });
+
+  it("同じ admin が 2 タブ開いても identity が衝突しない", async () => {
+    const events = buildEvents();
+    const created = await events.create({
+      title: "test",
+      startsAt: "2026-06-19T00:00:00.000Z",
+      caption: {
+        languages: ["ja"],
+        youtubeLanguage: "ja",
+        engine: "transcribe",
+        customApiEnabled: false,
+      },
+    });
+    await events.setStatus(created.id, "live");
+    await events.update(created.id, {
+      media: { livekitUrl: "wss://event-X.example.com" },
+    } as never);
+    const minter = fakeMinter();
+    const svc = createAdminTokenService({ events, liveKitMinter: minter, stageUrl: STAGE_URL });
+
+    await svc.issueStageToken(created.id, "same-user");
+    await svc.issueStageToken(created.id, "same-user");
+
+    // calls[0] と calls[2] が admin token (calls[1] / calls[3] は preview)。
+    expect(minter.calls[0]?.identity).not.toBe(minter.calls[2]?.identity);
   });
 
   it("複数回 issue すると毎回新しい identity が払い出される (複数 admin 同時接続対応)", async () => {
