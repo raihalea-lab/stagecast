@@ -1,6 +1,6 @@
 # 0025. レイアウトの正を PresentationState に置く
 
-- ステータス: 採用
+- ステータス: 採用 (D-3 実装済み。D-1 / D-2 は後続)
 - 日付: 2026-09-17
 - 関連: ADR 0022 (投影状態の正を PresentationState に置く) / ADR 0014 (画面責務) / ADR 0020 (stage 制御プロトコル) / DESIGN.md 5.1, 5.2
 - 影響を受ける実装: PR #260 (admin の identity ユニーク化)

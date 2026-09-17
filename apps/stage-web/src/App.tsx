@@ -142,8 +142,8 @@ export function App(props: {
   const [name, setName] = useState("");
   const [session, setSession] = useState<StageSession | undefined>();
   // admin 直接接続 (ADR 0014 D-4) では ?token= が LiveKit JWT なので招待トークンとして使わない。
-  // ponytail: admin はプリセット/アセットがローカル限定。管理者資格情報で stage ルートを叩けるようにするのが本来の解。
-  const inviteToken = session?.role === "admin" ? "" : token;
+  // ADR 0025 D-3: 代わりにサーバが同梱した招待トークン (moderator) で `/stage/*` を叩く。
+  const inviteToken = session?.role === "admin" ? (adminDirect?.inviteToken ?? "") : token;
   const [myIdentity, setMyIdentity] = useState<string>("");
   const [viewAsRole, setViewAsRole] = useState<StageRole>("admin");
   const [error, setError] = useState<string>();
