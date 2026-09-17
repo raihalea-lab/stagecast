@@ -89,7 +89,13 @@ R12-followup-1〜22 で **stage-web から SFU への WebRTC 接続** が完了 
    - **R17 ✅** (PR #130/#134/#135, 2026-06-21〜2026-06-24): admin-web LivePreview + stage-web PreviewWindow → 要件 1 達成
    - R18 (将来): 365 日 24h 配信 (DESIGN.md N-1 と矛盾するため別 ADR で議論)
 
-4. **DESIGN.md 更新: KVS WebRTC TURN 運用の追記 ✅ 完了済み (2026-09-18 に確認)**
+4. **DESIGN.md 更新: KVS WebRTC TURN 運用の追記 ✅ 完了 (2026-09-18)**
+   - `NEXT_SESSION.md` §2-2 (P-02) の 6 項目版もすべて反映済み (制御 API の表・stage-web の
+     iceServers の流れ・composer-template・ComposerWebDistribution)
+   - 反映のついでに **DESIGN.md 側の実装とのズレも直した**: NLB + ACM → Caddy サイドカー
+     (ADR 0016)、ElastiCache → SFU Task の Valkey sidecar (ADR 0017)、発表者・投影・レイアウト
+     状態の正は Valkey ではなく **DynamoDB の `PresentationState` + room metadata** (ADR 0022/0025/0026)
+   - 以下は起票時の記録:
    - 4 項目すべて反映済み。`DESIGN.md:81` (メディア層の TURN レイヤー) /
      `:230`・`:270` (常時稼働に「KVS Signaling Channel、約 $0.03/月」) /
      `:257-258` (監視ポイント: `/join` の iceServers 欠落・Signaling Channel の ACTIVE 判定) /
