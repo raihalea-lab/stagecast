@@ -49,13 +49,18 @@ export const AppShell = React.forwardRef<HTMLDivElement, AppShellProps>(
     // ponytail: AppShell は常に全画面 (h-dvh) 前提なので clientX をそのまま幅にする。
     // 埋め込みレイアウトで使うようになったら shell の左端オフセットを引くこと。
     const onPointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
+      // preventDefault は互換 mousedown を止めるので、既定のフォーカス付与も消える
+      // ブラウザがある。掴んだ直後に矢印キーで微調整できるよう自分でフォーカスする。
       e.preventDefault();
+      e.currentTarget.focus();
       e.currentTarget.setPointerCapture(e.pointerId);
     };
     const onPointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
       if (!e.currentTarget.hasPointerCapture(e.pointerId)) return;
       setWidth(clampWidth(e.clientX));
     };
+    // pointerup と pointercancel の両方で使う。タッチのキャンセルや OS ジェスチャでは
+    // pointerup が来ず、保存されないまま次回リロードで幅が巻き戻るため。
     const onPointerUp = (e: React.PointerEvent<HTMLDivElement>) => {
       if (!e.currentTarget.hasPointerCapture(e.pointerId)) return;
       e.currentTarget.releasePointerCapture(e.pointerId);
@@ -102,6 +107,7 @@ export const AppShell = React.forwardRef<HTMLDivElement, AppShellProps>(
             onPointerDown={onPointerDown}
             onPointerMove={onPointerMove}
             onPointerUp={onPointerUp}
+            onPointerCancel={onPointerUp}
             onKeyDown={onKeyDown}
             onDoubleClick={() => {
               setWidth(sidebarWidth);
