@@ -149,7 +149,11 @@ export interface EventMediaStackProps extends StackProps {
  *
  * 含むもの:
  *  - SFU (LiveKit) / Egress / 字幕ワーカー の ECS/Fargate サービス
- *  - ElastiCache for Valkey (Serverless): ルーム状態・発表者切替の低レイテンシ共有
+ *  - Valkey (SFU Task の sidecar): LiveKit psrpc のレジストリ。ADR 0017 D-1 で
+ *    ElastiCache と独立 Fargate Service を廃止し、`localhost:6379` で繋ぐ。
+ *    **投影・レイアウト・発表者の状態はここには置かない** (正は DynamoDB の
+ *    `PresentationState`、配布は room metadata。DESIGN.md 3.4 / 5.3, ADR 0022/0025/0026)
+ *  - Caddy (SFU Task の sidecar): シグナリングの TLS 終端 (ADR 0016 D-1/D-6)
  *  - 専用 VPC・ロググループ (破棄時に消える)
  */
 export class EventMediaStack extends Stack {
@@ -534,10 +538,12 @@ export class EventMediaStack extends Stack {
     // --- 外部到達性: Fargate task の Public IP 直接公開 (ADR 0008 D-4) ---
     // task の ENI に Public IP を付与し、SG で 7880/7881/7882 を開放する。
     // ADR 0009 D-2: メディア (7881/7882) は引き続き Public IP 直接。
-    // ADR 0009 D-1: シグナリング (7880) は NLB 経由が推奨。後方互換のため 0.0.0.0/0 → 7880 も維持する。
+    // ADR 0016 D-1: シグナリングの正規経路は Caddy サイドカー (443 → localhost:7880)。
+    // 7880 の直開放は TLS 無しで繋ぐ開発・切り分け用のフォールバックとして残している
+    // (~~ADR 0009 D-1 の NLB 経由~~ は廃止済み)。
     sfu.connections.allowFromAnyIpv4(
       ec2.Port.tcp(LIVEKIT_PORTS.signaling),
-      "LiveKit signaling (public, fallback - ADR 0009 D-1)",
+      "LiveKit signaling (public, fallback - ADR 0016 D-1)",
     );
     sfu.connections.allowFromAnyIpv4(
       ec2.Port.tcp(LIVEKIT_PORTS.rtcTcp),
@@ -836,8 +842,8 @@ export function serverlessCacheName(eventId: string): string {
 /**
  * LiveKit Server の config.yaml 本文を生成する (R1, ADR 0006 D-3)。
  *
- * Valkey を redis アダプタとして接続し、複数ノード/Egress と状態を共有する。ポートは
- * NLB リスナ (LIVEKIT_PORTS) と一致させる。api key/secret は config に直書きせず
+ * Valkey を redis アダプタとして接続し、Egress と psrpc で状態を共有する。ポートは
+ * SG 開放と Caddy の reverse_proxy 先 (LIVEKIT_PORTS) に一致させる。api key/secret は直書きせず
  * LIVEKIT_API_KEY/SECRET (Secrets Manager 由来) を image entrypoint 経由で与える。
  *
  * R12-followup-22: `vpcCidr` 引数を廃止 (R12-followup-9 で追加したが訂正)。
@@ -847,15 +853,17 @@ export function serverlessCacheName(eventId: string): string {
 export function liveKitServerConfig(valkeyEndpoint: string): string {
   return [
     `port: ${LIVEKIT_PORTS.signaling}`,
-    // ADR 0009 D-1: TLS 終端は NLB が行う (LiveKit 自身は plain HTTP/WS のまま)。
-    // クライアントは wss://event-XXXXXXXX.{mediaDomainName} で接続する。
+    // ADR 0016 D-1: TLS 終端は同一 Task の Caddy サイドカーが行う (LiveKit 自身は
+    // plain HTTP/WS のまま)。クライアントは wss://event-XXXXXXXX.{mediaDomainName} で接続する。
+    // ~~ADR 0009 の NLB~~ は idle で月 ~$16 かかるため廃止済み (N-1)。
     "rtc:",
     `  tcp_port: ${LIVEKIT_PORTS.rtcTcp}`,
     // R12-followup-7: `udp_port` 単独で UDP mux mode を有効化する。
     // LiveKit は `port_range_start/end` と `udp_port` を同時指定すると挙動が混在し
     // (ログ上は `rtc.portUDP: {Start: 7882, End: 0}` のまま ICE pair が失敗した)、
     // 公式には mux mode 単独 か port_range のどちらか択一が推奨されている。
-    // Fargate は NLB UDP リスナを単一ポートに絞っているので mux mode (1 ポートで多重化) を採用。
+    // メディアは Public IP へ直接 (ADR 0009 D-2) で単一ポートに絞れるので、
+    // mux mode (1 ポートで多重化) を採用する。
     `  udp_port: ${LIVEKIT_PORTS.rtcUdp}`,
     // R12-followup-5: Fargate には EC2 instance metadata service が無いので、
     // `use_external_ip: true` を有効にすると livekit/mediatransportutil の
@@ -865,7 +873,7 @@ export function liveKitServerConfig(valkeyEndpoint: string): string {
     //
     // R12-followup-8: 以下 2 行は ICE 確立の信頼性を上げる調整 (LiveKit Issue #4049/#3508 参考)。
     //   - skip_external_ip_validation: 起動時の self-ping による external_ip 検証をスキップ。
-    //     Fargate + NLB は NAT 越しで loopback できない (NLB は同 Task からの戻り通信を許さない) ため、
+    //     Fargate は NAT 越しで自分の Public IP に loopback できない (hairpin NAT 不可) ため、
     //     STUN 検証がタイムアウトして `--node-ip` のフォールバックも遅延 → ICE 失敗の遠因になりうる。
     //     v1.13 で公式 config-sample に「NAT 環境で必要」と明記された設定。
     //   - ips.excludes: Fargate awsvpc コンテナには eth0 (Task Metadata 用 veth, 169.254.0.0/16) と
