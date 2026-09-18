@@ -48,6 +48,15 @@ LiveKit 公式デプロイリポジトリ (`livekit/deploy`) は Caddy リバー
 - `caddy-dns/route53` + `certmagic-s3` プラグインを含むカスタム Caddy イメージを ECR で管理
 - Caddy が ACME (Let's Encrypt) DNS-01 チャレンジで `*.media.{domain}` のワイルドカード証明書を自動取得
 - 証明書は S3 (`assetsBucket` の `caddy-certs/` prefix) に永続化 — 全イベントで共有
+- **ACME アカウントの連絡先は Caddyfile のグローバルオプション `email` で明示する**
+  (2026-09-18 追記、NEXT_WORK.md O0)。省略すると Caddy は storage から既存アカウントを
+  探しに行き、`acme/<ca>/users/` の一覧から拾った名前をメールアドレスとして使う。
+  certmagic-s3 では `users` 自身が返ってくることがあり、Let's Encrypt に
+  `invalidContact (unable to parse email address)` で蹴られて**証明書を更新できなくなる**。
+  実際に 5 分おきのリトライが全て失敗し、証明書の残り 6 日まで無言で進行した。
+  値は `UserConfig.acmeEmail` (無ければ `opsEmail`) → `ACME_EMAIL` env → Caddy サイドカー、
+  の順で流す。未設定でも deploy は通す (synth で落とすと配信が始められなくなる) が、
+  `cdk deploy` 時に警告を出す
 - SFU TaskRole に Route53 DNS-01 用 + S3 読み書き権限を追加
 - 将来 CDK S3 Files L2 が GA になれば、storage backend を S3 API → NFS マウントに切替可能
 

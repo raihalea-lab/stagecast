@@ -6,6 +6,21 @@
 > O4 の Custom Resource、P1/P2 は 3 ヶ月前にマージ済み)。
 > 実装したら**その場でここを直す**か、直せないなら「未確認」と書くこと。
 > 古い「未対応」は、やらなくていい作業をやらせるか、あるべき機能を無いものと誤認させる。
+>
+> **2026-09-18 に再精査**。腐りは冒頭の優先順位リストのほうに残っていた:
+> DESIGN.md の KVS TURN 追記 (🔥 4) と R12 の debug ログ戻し (🔥 1) は完了済み、
+> 「D8 残: エンジン側の再試行」(📅 7) は D8 本文が ✅ と書いているのに残件欄に居座っていた、
+> 「推奨着手順」は Dependabot と初回 deploy を勧める 2026-06 のままだった。いずれも下で直した。
+>
+> **逆に、本ファイルが取りこぼしている実装がある**。ADR 0025 (レイアウトの正) /
+> [0026](./decisions/0026-egress-state.md) (Egress 状態) / [0027](./decisions/0027-signaling-readiness.md)
+> (シグナリング応答で ready 判定) はここに 1 行も無い。とくに 0026 は
+> **「配信開始ボタンがどの画面でも動いていなかった」**という欠落で、
+> この種の「書いてあるが実装されていない」は本ファイルからは見つけられない。コードを見ること。
+>
+> 姉妹ファイルの [`NEXT_SESSION.md`](./NEXT_SESSION.md) (2026-06-24) と
+> [`NEXT_SESSION_PROMPTS.md`](./NEXT_SESSION_PROMPTS.md) は **より古い**。
+> P-01 / P-02 / P-05 の Dependabot など、済んだ作業を「次にやること」として案内してくる。
 
 > 2026-06-15 起票。`docs/REMAINING_WORK.md` (T1〜T10) の **次** に来る作業を、
 > 本ファイルでまとめて管理する。意思決定は [ADR 0005](./decisions/0005-media-layer-rollout.md) を参照。
@@ -53,7 +68,9 @@ R12-followup-1〜22 で **stage-web から SFU への WebRTC 接続** が完了 
 1. **R12 完了 ✅ (2026-06-21 R12-followup-23 で映像受信成功)**
    - R12-followup-23 (PR #119) で Egress config に `insecure: true` を追加 → Chrome 147+ の LNA WebSocket 制限を回避 → YouTube Live で映像受信成功 ✅
    - 残: **S3 録画ファイル出力**は control-api `startRoomCompositeEgress` が現状 `streamOutputs` のみで `fileOutputs` 未指定のため別タスク (R14 として識別、 下記参照)
-   - cleanup PR: 検証用 `debug.enable_chrome_logging: true` + `logging.level: debug` を info に戻す + 本 NEXT_WORK.md / ADR 0010 D-7 / memory `r12-livekit-fargate-gotchas` を更新
+   - cleanup ✅ 完了 (2026-09-18 に確認)。`event-media-stack.ts` の `logging.level` は SFU / Egress とも
+     `info` に戻っており、`debug.enable_chrome_logging` はコード上に存在しない
+     (ADR 0010 D-7 に「調査時に併用した」記録として残っているだけ)
 
 2. **R14: Egress の fileOutputs (S3 録画) 追加 ✅ 実装済み (2026-09-17 に確認)**
    - `services/control-api/src/lambda.ts` の `startRoomCompositeEgress` は既に `stream` と `file` を併用している
@@ -72,11 +89,17 @@ R12-followup-1〜22 で **stage-web から SFU への WebRTC 接続** が完了 
    - **R17 ✅** (PR #130/#134/#135, 2026-06-21〜2026-06-24): admin-web LivePreview + stage-web PreviewWindow → 要件 1 達成
    - R18 (将来): 365 日 24h 配信 (DESIGN.md N-1 と矛盾するため別 ADR で議論)
 
-4. **DESIGN.md 更新: KVS WebRTC TURN 運用の追記**
-   - 3.2 章 (メディア層構成) に TURN レイヤーの記述追加
-   - 7.2 章 (常時稼働リソース) に「KVS Signaling Channel (1 個, $0.03/月)」を追記
-   - 8 章 (運用) に AWS KVS WebRTC 関連の監視ポイント追記
-   - ADR 0011 への参照を本文化
+4. **DESIGN.md 更新: KVS WebRTC TURN 運用の追記 ✅ 完了 (2026-09-18)**
+   - `NEXT_SESSION.md` §2-2 (P-02) の 6 項目版もすべて反映済み (制御 API の表・stage-web の
+     iceServers の流れ・composer-template・ComposerWebDistribution)
+   - 反映のついでに **DESIGN.md 側の実装とのズレも直した**: NLB + ACM → Caddy サイドカー
+     (ADR 0016)、ElastiCache → SFU Task の Valkey sidecar (ADR 0017)、発表者・投影・レイアウト
+     状態の正は Valkey ではなく **DynamoDB の `PresentationState` + room metadata** (ADR 0022/0025/0026)
+   - 以下は起票時の記録:
+   - 4 項目すべて反映済み。`DESIGN.md:81` (メディア層の TURN レイヤー) /
+     `:230`・`:270` (常時稼働に「KVS Signaling Channel、約 $0.03/月」) /
+     `:257-258` (監視ポイント: `/join` の iceServers 欠落・Signaling Channel の ACTIVE 判定) /
+     `:122` (`POST /join` が iceServers を返す)。ADR 0011 案 E への参照も本文に入っている
 
 5. **R12-followup-NN 系の cleanup**
    - 念のため本番リハーサル (新規イベント作成 → stage-web 入室 → カメラ・マイク publish → 30 分維持) で安定性確認
@@ -100,8 +123,11 @@ R12-followup-1〜22 で **stage-web から SFU への WebRTC 接続** が完了 
 
 ### 📅 余裕があれば (1 ヶ月以内)
 
-7. **D8 残: エンジン側 (Transcribe/Translate/Bedrock) の一過性エラー再試行**
-   - 二重字幕回避を考慮しつつ withRetry を字幕パイプラインの engine 呼び出しにも展開
+7. ~~**D8 残: エンジン側 (Transcribe/Translate/Bedrock) の一過性エラー再試行**~~ ✅ 完了済み
+   - `engines/transcribe-engine.ts:76` / `engines/llm-engine.ts:94` がどちらも `withRetry` 経由。
+     D8 本文は 2026-09-17 の時点で ✅ にしてあったのに、この優先順位リストだけ残件のままだった
+   - **本当に残っているのは D8 の「残 1」(control-api の LiveKit 呼び出しに再試行が無い) と
+     「残 2」(ASR ストリームの再接続)**。前者は ADR 0026 で前提が変わったので D8 の項を見ること
 
 8. **N3 残: SNS Slack subscribe** (アラート通知の届け先設定)
 
@@ -206,6 +232,24 @@ R12-followup-1〜22 で **stage-web から SFU への WebRTC 接続** が完了 
 
 ---
 
+## X: 本ファイルに未反映だった実装 (2026-09-17〜18)
+
+> 2026-09-18 の精査で判明。**R / D / N のどの行にも出てこない実装が 3 件あった。**
+> いずれも「ADR に書いたが NEXT_WORK.md には起票しなかった」もので、
+> このファイルだけ見ていると **無い機能を作ろうとするか、直った障害をまだ追うことになる**。
+
+| ADR                                                      | 内容                                                                                                           | なぜ重要か                                                                                                                   |
+| -------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
+| [0025](./decisions/0025-layout-as-presentation-state.md) | レイアウトの正を `PresentationState` に置き、room metadata で配る                                              | ADR 0022 (投影状態) と同じ形にそろえた。レイアウトと主役の選択がウィンドウ間で巻き戻らなくなった                             |
+| [0026](./decisions/0026-egress-state.md)                 | Egress の状態を `EventDefinition.egress` に持ち、`egressActive` を room metadata で配る。`stop()` を新設       | **配信開始ボタンがどの画面でも実際には動いていなかった**。`start()` が `egressId` をどこにも保存せず `stop()` 自体が無かった |
+| [0027](./decisions/0027-signaling-readiness.md)          | `phase: "ready"` の判定に **実際に `wss://` を叩いた結果**を含める (ECS RUNNING + livekitUrl だけでは足りない) | SFU タスク再起動後、管理画面が `ready` のまま誰も入室できない状態が起きた。O0 (証明書切れ) と同じ「配信できない」クラス      |
+
+**教訓**: 「`egress.ts` の冒頭コメントには書いてあるが実装されていない」類の欠落は、
+本ファイルには構造上あらわれない (未実装だと気づいていないから起票されない)。
+**機能の有無はコメントや ADR ではなく実装で確かめること。**
+
+---
+
 ## V: 実機検証で判明した修正 (2026-06-17〜18 のデプロイ検証)
 
 > EventMediaStack の初回起動で発見・修正した問題。将来同種の問題を防ぐための記録。
@@ -244,9 +288,52 @@ R12-followup-1〜22 で **stage-web から SFU への WebRTC 接続** が完了 
 
 ## O: 運用準備 (初回デプロイ前にやること)
 
-### O0. [期限あり] Caddy の証明書更新が失敗し続けている (2026-09-18 発見)
+### O0. [期限あり] Caddy の証明書更新が失敗し続けている (2026-09-18 発見) — コード対応済み、**要デプロイ**
 
-- [ ] **SFU 前段の Caddy が ACME のアカウント登録に失敗し、証明書を更新できていない。**
+> **2026-09-18: Caddyfile に `email` を出すようにした。** ただし**デプロイして初めて効く**。
+> 証明書の残りが短いので、下の手順を先にやること。
+>
+> - `UserConfig.acmeEmail` を追加 (`infra/lib/user-config.ts`)。未設定なら `opsEmail` に
+>   フォールバックする。**どちらも無ければ `email` 行を出さない** = 今までと同じ挙動なので、
+>   `user-config.ts` にアドレスを書かないと直らない
+> - `ControlPlaneStack` → `RenderTemplateFunction` の env (`ACME_EMAIL`) → `render-template.ts`
+>   → `EventMediaStack` → Caddy サイドカーの env、と流す。Caddyfile の生成は
+>   `caddyStartCommand()` に切り出してユニットテストを付けた (書式の `%s` の順と実引数の順が
+>   ズレると、メールアドレスがバケット名の位置に入って**証明書取得だけが壊れる**ため)
+> - 未設定のまま `cdk deploy` すると **`Annotations.addWarning` が出る**。ここで `throw` は
+>   しない。RenderTemplateFunction の synth が落ちると配信を開始できなくなる (D15/D16 と同じ
+>   失敗クラス) ので、警告にとどめている
+> - ただし **値が入っていて Caddyfile を壊す形のとき (空白・クオート・非メール形式) は
+>   `cdk deploy` で throw する**。ControlPlaneStack は人が deploy する場所なので止めてよい。
+>   Caddy は `essential: true` なので、パースに失敗すると SFU Task ごと落ちてイベントを開始できない
+>
+> **やること (この順で)**:
+>
+> 1. `infra/user-config.ts` に `acmeEmail: "<運用者アドレス>"` を書く (gitignore されている。
+>    雛形は `infra/user-config.ts.example`)。表示名付き (`Ops Team <ops@example.com>`) は不可で、
+>    そのまま書くと `cdk deploy` が止まる
+> 2. `vp run --filter @stagecast/infra cdk deploy StagecastControlPlane`
+>    — 証明書を持つのは EventMediaStack 側なので、**次に作られるイベントから**効く
+> 3. **`scheduled` で事前作成済みのイベントスタックを消す。** ADR 0016 D-4 で `scheduled` の
+>    時点で desiredCount 0 のスタックを作ってあるが、`CloudFormationMediaStackProvisioner` は
+>    **CreateStack しか呼ばない** (`cfn-provisioner.ts`) ので、既存スタックは古い (email 無しの)
+>    Caddy 起動コマンドを持ったまま残る。放っておくと開催時に立ち上がって
+>    **`caddy-certs/` に壊れた ACME アカウントを作り直す**。該当イベントのスタックを削除すれば、
+>    次の tick で新しいテンプレートから作り直される
+> 4. 新規イベントを 1 つ作り、EventMedia のロググループを `tls.obtain` / `tls.renew` で絞って
+>    `invalidContact` が消えていることを確認する
+> 5. S3 の `caddy-certs/` を確認する。**壊れた ACME アカウント (`users` という名前のパス) が
+>    残っている可能性がある**。`email` を明示すると一覧を引かなくなるので実害は消えるはずだが、
+>    ゴミが残っているなら消しておく (3 を先にやらないと作り直される)
+>
+> **根本原因**: `email` が無いと Caddy は storage から既存の ACME アカウントを探しに行き、
+> `acme/<ca>/users/` の一覧から拾った名前をメールアドレスとして使う。certmagic-s3 では
+> `users` 自身が返ってくることがあり、それを Let's Encrypt に送って蹴られていた。
+> 明示すれば一覧ではなくキー直引きになるので、この経路を踏まない。
+
+以下は起票時の記録:
+
+- [x] **SFU 前段の Caddy が ACME のアカウント登録に失敗し、証明書を更新できていない。**
       現在の証明書は有効だが **残り約 6 日**。切れると全イベントで `wss://` が繋がらなくなる。
 
   ```
@@ -266,6 +353,13 @@ R12-followup-1〜22 で **stage-web から SFU への WebRTC 接続** が完了 
   確認方法: EventMedia のロググループを `tls.renew` で絞ると、失敗が 5 分おきに出ている。
 
 ### O1. AWS アカウント側の事前準備
+
+> ⚠️ **2026-09-18: 下の未チェックは腐っている可能性が高い。**
+> 制御層もメディア層も実配信まで通っている以上、**dev アカウントと
+> ap-northeast-1 の `cdk bootstrap` は済んでいるはず**。
+> Bedrock のモデルアクセスも、字幕付きイベントが実配信で動いた時点で通っている。
+> AWS 側の状態なのでコードからは判定できない。**実際に確認してからチェックを入れること**
+> (残っているのは実質 staging / prod アカウントと us-east-1 の bootstrap のはず)。
 
 - [ ] AWS アカウント (dev / staging / prod) の用意。最低でも dev は確保する
 - [ ] 各アカウント × 主要リージョン (ap-northeast-1, us-east-1) で `cdk bootstrap`
@@ -392,9 +486,13 @@ reconcile Lambda 自身は `cloudformation:*` (スタック操作) + `iam:PassRo
   (`engines/transcribe-engine.ts` / `engines/llm-engine.ts`、恒久エラー判定は `aws/aws-errors.ts`)
 - ✅ YouTube ingest も済 (`sinks/youtube-publisher.ts` が 5xx/408/429 を retryable にマークし、
   `pipeline.ts` の `withRetry` + `withTimeout` 配下で送出)
-- 残 1: **control-api の LiveKit API 呼び出し** (`RoomServiceClient` / `EgressClient`) に再試行が無い。
-  ただし `startEgress` は非冪等 (二重に張ると RTMP が 2 本出る) ので、再試行前に
-  「すでに動いている Egress が無いか」を確認する必要がある
+- 残 1: **control-api の LiveKit API 呼び出し** (`RoomServiceClient` / `EgressClient`) に再試行が無い
+  (`services/control-api/src/lambda.ts`。`withRetry` の import すら無い)。
+  **2026-09-18 追記: 前提が変わった。** 「再試行前にすでに動いている Egress が無いか確認する必要がある」
+  と書いていたが、[ADR 0026](./decisions/0026-egress-state.md) D-1 で `EventDefinition.egress` に
+  `egressId` を保存するようになったので、**その確認手段は今ある**。着手できる状態
+- 以下は起票時の記録: ~~`startEgress` は非冪等 (二重に張ると RTMP が 2 本出る) ので、再試行前に
+  「すでに動いている Egress が無いか」を確認する必要がある~~
 - 残 2: **ストリーミング音声認識の再接続**。`StartStreamTranscription` は長時間ストリームなので
   `withRetry` で包めない。切れたら再接続する設計 (音声の欠落と字幕の重複をどう扱うか) が要る
 
@@ -415,11 +513,14 @@ reconcile Lambda 自身は `cloudformation:*` (スタック操作) + `iam:PassRo
 `exposedHeaders: ETag / Content-Range / Accept-Ranges`。各 SPA は別 Distribution で、
 AssetsBucket はどの Distribution の origin でもないため循環参照にならない。
 
-**残: デプロイと実機確認**。ユニット/統合テストはフェイク経由で、CORS が実際にブラウザで
+~~**残: デプロイと実機確認**~~ → **2026-09-16 の実配信で (1) と (2) は通過済み**
+(stage-web からデッキ PDF をアップロード → composer が描画。ブラウザから署名付き URL へ
+直接 PUT できている = CORS が効いている)。**(3) admin-web の素材アップロードだけ未確認**だが、
+同じ AssetsBucket・同じ CORS ルールなので通るはず。
+
+以下は起票時の記録: ユニット/統合テストはフェイク経由で、CORS が実際にブラウザで
 効くかは実機でしか確認できない (infra テストは synth 結果の CorsConfiguration に許可メソッド・
 許可ヘッダ・オリジン条件が揃っているかまでは見るが、それは静的検査どまり)。
-完了基準: 実機で (1) stage-web からデッキ PDF をアップロードできる、(2) composer-template が
-そのデッキを描画できる、(3) admin-web の素材アップロードが通る。
 
 ### D10. 公開ルート一覧が control-api と CDK で二重管理になっている ✅ 対応済み (2026-09-17)
 
@@ -649,16 +750,22 @@ dependabot は週 1 (月曜) で動き、cooldown (通常 7 日 / メジャー 1
 
 ## 推奨着手順
 
-1. **P1, P2**: Dependabot を片付ける (10 分)
-2. **O1 + O2**: AWS 認証・GitHub Environment を整える (1〜2 時間)
-3. **S1 + S2** (= 制御層 deploy): `cdk deploy StagecastControlPlane` → admin-web 配信 → 統合テスト疎通
-   この段階で **「動く / 動かない」がはっきり見えるので一番学びが大きい**
-4. **R1 → R2 → R3** (S3): LiveKit 実体化。難所はここ
-5. **R4** (S4): 字幕 Docker 化。R3 が終わってから
-6. **R5 + R6 + R7** (S5): 本番運用化
-7. **N (Nice-to-have)** は配信が安定してから順次
+> **2026-09-18 に書き直した。** ここには 2026-06 の初回デプロイ前の手順
+> (「1. Dependabot を片付ける」「3. 制御層 deploy で動く/動かないを見る」) が残っていたが、
+> **P1/P2 はマージ済み・オープン PR は 0 件、制御層もメディア層も実配信まで通っている**。
+> R1〜R2・R4〜R6 (ACM 除く)・R8〜R12・R14〜R17 は完了なので、着手順も現在地に合わせる。
 
-D / L / N は R を進めながら **思い出した時に PR を切る** のが現実的。
+1. **O0**: Caddy の ACME メールアドレス。コードは入ったが **`user-config.ts` への記入と
+   デプロイが残っている**。**証明書の残り日数が期限**なので他より先 (上の O0 参照)
+2. **D8 残 1**: control-api の LiveKit 呼び出しの再試行。ADR 0026 で `egressId` が
+   サーバに乗ったので、二重 Egress を避けつつ包める
+3. **R7**: 統合テスト CI workflow。異常系が実機でしか分からない状態が D15/D16/O0/ADR 0027 と
+   全部同じ失敗クラスなので、ここが一番効く
+4. **O1 / O2 / O5**: AWS 認証・GitHub Environment・Secrets の実値。手元運用から
+   「他人が deploy できる」状態にするときに必要
+5. **L1**: 利用規約 / プライバシーポリシー。公開配信の前に必ず
+6. **N3 残 2**: メディア層のアラームが誰にも届かない件。イベントごとに SNS Topic を作る設計のまま
+7. **D / N の残り**は R を進めながら **思い出した時に PR を切る** のが現実的
 
 ---
 

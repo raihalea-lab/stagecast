@@ -17,6 +17,12 @@ const config: UserConfig = {
   // 運用アラームの通知先メールアドレス (スタックが立たない等)。
   // **未設定だとアラームは誰にも届かない** (SNS に publish されて消えるだけ)。
   // opsEmail: "ops@example.com",
+
+  // Caddy が Let's Encrypt に登録する ACME アカウントの連絡先 (mediaHostedZoneName 使用時)。
+  // **未設定だと証明書の更新に失敗し続け、期限切れで全イベントの wss:// が繋がらなくなる。**
+  // 未設定なら opsEmail にフォールバックするので、どちらか一方は必ず書くこと。
+  // 表示名付き ("Ops Team <ops@example.com>") は不可。素のアドレスだけを書く。
+  // acmeEmail: "ops@example.com",
 };
 
 export default config;

@@ -76,6 +76,11 @@ export interface EventMediaStackProps extends StackProps {
   /** certmagic-s3 の証明書永続化先バケット名。 */
   certBucketName?: string;
   /**
+   * Caddy の ACME アカウント連絡先 (Caddyfile のグローバルオプション `email`)。
+   * 未指定なら `email` 行を出さない (従来の挙動)。詳細は `UserConfig.acmeEmail` を参照。
+   */
+  acmeEmail?: string;
+  /**
    * ECS サービスの初期 desiredCount (ADR 0016 D-4)。
    * 0 で事前プロビジョニング (スタックのみ作成、タスク未起動)。デフォルト 1。
    */
@@ -144,7 +149,11 @@ export interface EventMediaStackProps extends StackProps {
  *
  * 含むもの:
  *  - SFU (LiveKit) / Egress / 字幕ワーカー の ECS/Fargate サービス
- *  - ElastiCache for Valkey (Serverless): ルーム状態・発表者切替の低レイテンシ共有
+ *  - Valkey (SFU Task の sidecar): LiveKit psrpc のレジストリ。ADR 0017 D-1 で
+ *    ElastiCache と独立 Fargate Service を廃止し、`localhost:6379` で繋ぐ。
+ *    **投影・レイアウト・発表者の状態はここには置かない** (正は DynamoDB の
+ *    `PresentationState`、配布は room metadata。DESIGN.md 3.4 / 5.3, ADR 0022/0025/0026)
+ *  - Caddy (SFU Task の sidecar): シグナリングの TLS 終端 (ADR 0016 D-1/D-6)
  *  - 専用 VPC・ロググループ (破棄時に消える)
  */
 export class EventMediaStack extends Stack {
@@ -487,13 +496,15 @@ export class EventMediaStack extends Stack {
                 essential: true,
                 ports: [{ containerPort: 443, protocol: ecs.Protocol.TCP }],
                 entryPoint: ["sh", "-c"],
-                command: [
-                  `printf '{\\n  storage s3 {\\n    host "s3.%s.amazonaws.com"\\n    bucket "%s"\\n    prefix "caddy-certs/"\\n    use_iam_provider true\\n  }\\n}\\n\\n*.%s {\\n  tls {\\n    dns route53\\n  }\\n  reverse_proxy localhost:7880\\n}\\n' "$AWS_REGION" "$CERT_BUCKET" "$CADDY_DOMAIN" > /tmp/Caddyfile && exec caddy run --config /tmp/Caddyfile --adapter caddyfile`,
-                ],
+                command: [caddyStartCommand({ acmeEmail: props.acmeEmail })],
                 environment: {
                   AWS_REGION: Stack.of(this).region,
                   CADDY_DOMAIN: props.mediaDomainName,
                   CERT_BUCKET: props.certBucketName ?? "",
+                  // ACME アカウントのメールアドレスは値を env に置き、Caddyfile には %s で流す。
+                  // command 文字列に直接埋めると、アドレス変更のたびに TaskDefinition の
+                  // 新リビジョンが要る (env でも同じだが、値と書式が混ざらないほうが読める)。
+                  ...(props.acmeEmail ? { ACME_EMAIL: props.acmeEmail } : {}),
                 },
               },
             ]
@@ -527,10 +538,12 @@ export class EventMediaStack extends Stack {
     // --- 外部到達性: Fargate task の Public IP 直接公開 (ADR 0008 D-4) ---
     // task の ENI に Public IP を付与し、SG で 7880/7881/7882 を開放する。
     // ADR 0009 D-2: メディア (7881/7882) は引き続き Public IP 直接。
-    // ADR 0009 D-1: シグナリング (7880) は NLB 経由が推奨。後方互換のため 0.0.0.0/0 → 7880 も維持する。
+    // ADR 0016 D-1: シグナリングの正規経路は Caddy サイドカー (443 → localhost:7880)。
+    // 7880 の直開放は TLS 無しで繋ぐ開発・切り分け用のフォールバックとして残している
+    // (~~ADR 0009 D-1 の NLB 経由~~ は廃止済み)。
     sfu.connections.allowFromAnyIpv4(
       ec2.Port.tcp(LIVEKIT_PORTS.signaling),
-      "LiveKit signaling (public, fallback - ADR 0009 D-1)",
+      "LiveKit signaling (public, fallback - ADR 0016 D-1)",
     );
     sfu.connections.allowFromAnyIpv4(
       ec2.Port.tcp(LIVEKIT_PORTS.rtcTcp),
@@ -829,8 +842,8 @@ export function serverlessCacheName(eventId: string): string {
 /**
  * LiveKit Server の config.yaml 本文を生成する (R1, ADR 0006 D-3)。
  *
- * Valkey を redis アダプタとして接続し、複数ノード/Egress と状態を共有する。ポートは
- * NLB リスナ (LIVEKIT_PORTS) と一致させる。api key/secret は config に直書きせず
+ * Valkey を redis アダプタとして接続し、Egress と psrpc で状態を共有する。ポートは
+ * SG 開放と Caddy の reverse_proxy 先 (LIVEKIT_PORTS) に一致させる。api key/secret は直書きせず
  * LIVEKIT_API_KEY/SECRET (Secrets Manager 由来) を image entrypoint 経由で与える。
  *
  * R12-followup-22: `vpcCidr` 引数を廃止 (R12-followup-9 で追加したが訂正)。
@@ -840,15 +853,17 @@ export function serverlessCacheName(eventId: string): string {
 export function liveKitServerConfig(valkeyEndpoint: string): string {
   return [
     `port: ${LIVEKIT_PORTS.signaling}`,
-    // ADR 0009 D-1: TLS 終端は NLB が行う (LiveKit 自身は plain HTTP/WS のまま)。
-    // クライアントは wss://event-XXXXXXXX.{mediaDomainName} で接続する。
+    // ADR 0016 D-1: TLS 終端は同一 Task の Caddy サイドカーが行う (LiveKit 自身は
+    // plain HTTP/WS のまま)。クライアントは wss://event-XXXXXXXX.{mediaDomainName} で接続する。
+    // ~~ADR 0009 の NLB~~ は idle で月 ~$16 かかるため廃止済み (N-1)。
     "rtc:",
     `  tcp_port: ${LIVEKIT_PORTS.rtcTcp}`,
     // R12-followup-7: `udp_port` 単独で UDP mux mode を有効化する。
     // LiveKit は `port_range_start/end` と `udp_port` を同時指定すると挙動が混在し
     // (ログ上は `rtc.portUDP: {Start: 7882, End: 0}` のまま ICE pair が失敗した)、
     // 公式には mux mode 単独 か port_range のどちらか択一が推奨されている。
-    // Fargate は NLB UDP リスナを単一ポートに絞っているので mux mode (1 ポートで多重化) を採用。
+    // メディアは Public IP へ直接 (ADR 0009 D-2) で単一ポートに絞れるので、
+    // mux mode (1 ポートで多重化) を採用する。
     `  udp_port: ${LIVEKIT_PORTS.rtcUdp}`,
     // R12-followup-5: Fargate には EC2 instance metadata service が無いので、
     // `use_external_ip: true` を有効にすると livekit/mediatransportutil の
@@ -858,7 +873,7 @@ export function liveKitServerConfig(valkeyEndpoint: string): string {
     //
     // R12-followup-8: 以下 2 行は ICE 確立の信頼性を上げる調整 (LiveKit Issue #4049/#3508 参考)。
     //   - skip_external_ip_validation: 起動時の self-ping による external_ip 検証をスキップ。
-    //     Fargate + NLB は NAT 越しで loopback できない (NLB は同 Task からの戻り通信を許さない) ため、
+    //     Fargate は NAT 越しで自分の Public IP に loopback できない (hairpin NAT 不可) ため、
     //     STUN 検証がタイムアウトして `--node-ip` のフォールバックも遅延 → ICE 失敗の遠因になりうる。
     //     v1.13 で公式 config-sample に「NAT 環境で必要」と明記された設定。
     //   - ips.excludes: Fargate awsvpc コンテナには eth0 (Task Metadata 用 veth, 169.254.0.0/16) と
@@ -933,4 +948,70 @@ export function liveKitEgressConfig(valkeyEndpoint: string, composerTemplateUrl?
     "  level: info",
     "  json: true",
   ].join("\n");
+}
+
+/**
+ * Caddy サイドカーの起動コマンドを組み立てる (ADR 0016 D-6)。
+ *
+ * Caddyfile をコンテナ内で `printf` で書き出してから `caddy run` する。値 (リージョン /
+ * バケット / ドメイン / メールアドレス) は env 経由で `%s` に流すので、この関数が返すのは
+ * **書式だけ**。
+ *
+ * `email` を明示する理由 (2026-09-18, O0):
+ * これが無いと Caddy は certmagic-s3 の storage から既存の ACME アカウントを探しに行き、
+ * `acme/<ca>/users/` の一覧から拾った名前をメールアドレスとして使う。S3 backend では
+ * `users` 自身が返ってくることがあり、Let's Encrypt に
+ * `invalidContact (unable to parse email address)` で蹴られて**証明書が更新できなくなる**。
+ * 実際に 5 分おきのリトライが全て失敗し続け、証明書の残り 6 日まで無言で進行した。
+ * 明示すると一覧ではなくキー直引きになるので、この経路を踏まない。
+ *
+ * `acmeEmail` 未指定時は `email` 行を出さない (従来の挙動)。**証明書が切れるまで気づけない**
+ * ので、本番運用では `UserConfig.acmeEmail` (または `opsEmail`) を必ず設定すること。
+ */
+export function caddyStartCommand(opts: { acmeEmail?: string } = {}): string {
+  // printf の書式に渡す %s の順番と、下の実引数の順番を必ず合わせること。
+  const globals = [
+    // %s をダブルクオートで囲む。囲まないと、空白を含む値 (例: 表示名付きアドレス) が
+    // Caddyfile のトークンとして割れてパースに失敗し、**essential な Caddy が落ちて
+    // SFU Task ごと死ぬ** (= そのイベントは開始できない)。値の妥当性そのものは
+    // isCaddyfileSafeEmail で ControlPlaneStack の deploy 時に弾く。
+    ...(opts.acmeEmail ? ['  email "%s"'] : []),
+    '  storage s3 {\\n    host "s3.%s.amazonaws.com"\\n    bucket "%s"\\n    prefix "caddy-certs/"\\n    use_iam_provider true\\n  }',
+  ];
+  const format = [
+    "{",
+    ...globals,
+    "}",
+    "",
+    "*.%s {",
+    "  tls {",
+    "    dns route53",
+    "  }",
+    "  reverse_proxy localhost:7880",
+    "}",
+    "",
+  ].join("\\n");
+  const args = [
+    ...(opts.acmeEmail ? ['"$ACME_EMAIL"'] : []),
+    '"$AWS_REGION"',
+    '"$CERT_BUCKET"',
+    '"$CADDY_DOMAIN"',
+  ].join(" ");
+  return `printf '${format}' ${args} > /tmp/Caddyfile && exec caddy run --config /tmp/Caddyfile --adapter caddyfile`;
+}
+
+/**
+ * ACME 連絡先として Caddyfile にそのまま書ける値か (O0)。
+ *
+ * Caddyfile の `email` はダブルクオートで囲んで出すので、**値にダブルクオートが混ざると
+ * トークンが割れる**。Caddy は `essential: true` なので、パースに失敗するとコンテナが落ち、
+ * SFU Task ごと再起動ループに入って**そのイベントは開始できない**。
+ * 空白・改行・クオートを弾き、最低限メールアドレスの形 (`@` を挟む) であることまで見る。
+ *
+ * 呼ぶのは ControlPlaneStack (= 人が `cdk deploy` する場所) だけにすること。
+ * RenderTemplateFunction の中で throw すると、配信を開始できない形で壊れる (D15/D16)。
+ */
+export function isCaddyfileSafeEmail(value: string): boolean {
+  if (/["\s]/.test(value)) return false;
+  return /^[^@]+@[^@]+\.[^@]+$/.test(value);
 }
