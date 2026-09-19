@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   computeDefaultEndsAt,
   defaultFormValues,
+  shiftEndsAt,
   toCreateEventInput,
   toFormValues,
   validateForm,
@@ -168,5 +169,51 @@ describe("toFormValues (イベントの複製)", () => {
   it("YouTube 設定があれば引き継ぐ", () => {
     const v = toFormValues({ ...base, youtube: { rtmpUrl: "rtmp://x", streamKeyRef: "key-a" } });
     expect(toCreateEventInput(v).youtube).toEqual({ rtmpUrl: "rtmp://x", streamKeyRef: "key-a" });
+  });
+});
+
+describe("shiftEndsAt (開始日時を直したときの終了日時)", () => {
+  it("所要時間を保って平行移動する (複製したイベントの長さを失わない)", () => {
+    const prev = {
+      ...defaultFormValues(),
+      startsAt: "2026-07-01T19:00",
+      endsAt: "2026-07-01T22:00",
+    };
+    expect(shiftEndsAt(prev, "2026-08-01T19:00")).toBe("2026-08-01T22:00");
+  });
+
+  it("元の長さが読めないときは開始 +2 時間 (新規フォーム)", () => {
+    expect(shiftEndsAt(defaultFormValues(), "2026-07-01T09:00")).toBe("2026-07-01T11:00");
+  });
+});
+
+describe("タイトルの長さ (サーバの 400 を先に出す)", () => {
+  const values = (title: string) => ({
+    ...defaultFormValues(),
+    title,
+    startsAt: "2026-07-01T09:00",
+  });
+
+  it("200 文字までは通る", () => {
+    expect(validateForm(values("あ".repeat(200))).ok).toBe(true);
+  });
+
+  it("コピーの印で上限を超えたら弾く", () => {
+    const long = toFormValues({
+      id: "e",
+      title: "あ".repeat(198),
+      startsAt: "2026-07-01T00:00:00.000Z",
+      status: "draft",
+      caption: {
+        languages: ["ja"],
+        youtubeLanguage: "ja",
+        engine: "transcribe",
+        customApiEnabled: false,
+      },
+      createdAtMs: 1,
+      updatedAtMs: 1,
+    });
+    expect(long.title.length).toBeGreaterThan(200);
+    expect(validateForm(long).ok).toBe(false);
   });
 });

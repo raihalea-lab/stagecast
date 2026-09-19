@@ -1,7 +1,7 @@
 import { useState } from "react";
 import type { LanguageCode } from "@stagecast/shared";
 import {
-  computeDefaultEndsAt,
+  shiftEndsAt,
   defaultFormValues,
   ENGINE_OPTIONS,
   LANGUAGE_OPTIONS,
@@ -31,7 +31,7 @@ export function EventForm(props: {
   const setStartsAt = (v: string) => {
     setValues((prev) => {
       const next = { ...prev, startsAt: v };
-      if (!endsAtManual) next.endsAt = computeDefaultEndsAt(v);
+      if (!endsAtManual) next.endsAt = shiftEndsAt(prev, v);
       return next;
     });
   };
