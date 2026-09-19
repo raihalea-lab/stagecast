@@ -18,8 +18,9 @@ const INVITE_GRACE_SEC = 60 * 60;
 /**
  * 署名に焼き込む exp の上限。 本当の期限はイベント終了 (verify 時に今の endsAt で判定) なので、
  * これは「イベントが消えても永遠には残らない」ための天井。 endsAt を編集しても URL が変わらない。
+ * 発行時刻基準なので、これより先のイベントは当日に expired になる。 3 年先の配信予定は現実的に無い。
  */
-const INVITE_TOKEN_CEILING_SEC = 365 * 24 * 60 * 60;
+const INVITE_TOKEN_CEILING_SEC = 3 * 365 * 24 * 60 * 60;
 
 /**
  * 招待 URL の期限 (UNIX 秒) をイベントの開催時間から決める (ADR 0029)。
@@ -139,22 +140,28 @@ export function createInviteService(deps: {
    */
   async function listForEvent(eventId: string): Promise<IssuedInvite[]> {
     const exp = await expiresAtFor(eventId);
+    const nowSec = Math.floor(now() / 1000);
     const result: IssuedInvite[] = [];
     for (const role of INVITE_ROLES) {
       const jti = inviteJti(eventId, role);
-      let record = (await repo.get(jti)) as StableInviteRecord | undefined;
+      let record = await repo.get(jti);
       if (!record) {
-        record = {
+        // 条件付き put: 同時に 2 回来ても後の put が先の (再発行済みかもしれない) レコードを上書きしない。
+        record = await repo.putIfAbsent({
           jti,
           eventId,
           role,
           currentVersion: 1,
           revoked: false,
-          issuedAtSec: Math.floor(now() / 1000),
-        };
+          issuedAtSec: nowSec,
+        });
+      }
+      if (record.issuedAtSec === undefined) {
+        // 決定的 jti に issuedAtSec の無いレコードが居る (手動修正など)。 iat 無しで署名すると壊れた URL になるので作り直す。
+        record = { ...record, issuedAtSec: nowSec };
         await repo.put(record);
       }
-      result.push(toIssued(record, exp));
+      result.push(toIssued(record as StableInviteRecord, exp));
     }
     return result;
   }
@@ -223,7 +230,12 @@ export function createInviteService(deps: {
     // ロールごと 1 本の招待 (issuedAtSec あり) は、本当の期限をイベント終了 (今の endsAt) で判定する。
     // イベントが消えていれば入れない。 TTL 指定で発行した旧方式のトークンは署名内の exp だけで判定する。
     if (record.issuedAtSec !== undefined) {
-      const eventExp = await expiresAtFor(res.payload.eventId).catch(() => undefined);
+      // NotFound (イベント削除済み) だけ「失効」に倒す。 DDB の一時障害まで 401 にすると
+      // 登壇者に「招待が無効」と見えて再試行されないので、それ以外はそのまま投げて 5xx にする。
+      const eventExp = await expiresAtFor(res.payload.eventId).catch((err: unknown) => {
+        if (err instanceof NotFoundError) return undefined;
+        throw err;
+      });
       if (eventExp === undefined) return { valid: false, reason: "revoked" };
       if (nowSec > eventExp) return { valid: false, reason: "expired" };
     }

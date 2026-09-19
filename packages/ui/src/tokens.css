@@ -42,7 +42,7 @@
   --preview-500: #16a34a;
   --preview-glow: 0 0 0 1px rgba(22, 163, 74, 0.45), 0 0 10px 0 rgba(22, 163, 74, 0.3);
 
-  /* brand — 主要アクション (Button default / focus ring / 選択状態)。 両テーマ共通 */
+  /* brand — 主要アクション (Button default / focus ring / 選択状態)。 300〜700 は両テーマ共通、 text / tint はライトで上書き */
   --brand-300: #99cade;
   --brand-500: #509ab7;
   /* 白文字を載せる塗りは常に 600 (白との対比 5.2:1)。 500 は 3.2:1 で本文サイズに足りない */

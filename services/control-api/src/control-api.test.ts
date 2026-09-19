@@ -215,9 +215,12 @@ describe("control-api integration (in-memory)", () => {
     const expectedExp = Date.parse("2026-07-01T12:00:00Z") / 1000;
     for (const inv of invites) expect(inv.expiresAtSec).toBe(expectedExp);
 
-    // 2 回目も新規発行にならず、同じ URL 文字列が返る。
+    // 2 回目も新規発行にならず、同じ URL 文字列が返る。 同時に叩いても同じ (条件付き put)。
     const second = await list();
     expect((second.body as { invites: IssuedInvite[] }).invites).toEqual(invites);
+    const [a, b] = await Promise.all([list(), list()]);
+    expect(a.body).toEqual(b.body);
+    expect((a.body as { invites: IssuedInvite[] }).invites).toEqual(invites);
 
     // GET で返したトークンで入室検証が通る。
     const speaker = invites.find((i) => i.role === "speaker")!;

@@ -45,6 +45,12 @@ export class MemoryInviteTokenRepository implements InviteTokenRepository {
   async put(record: InviteTokenRecord): Promise<void> {
     this.store.set(record.jti, { ...record });
   }
+  async putIfAbsent(record: InviteTokenRecord): Promise<InviteTokenRecord> {
+    const existing = this.store.get(record.jti);
+    if (existing) return { ...existing };
+    this.store.set(record.jti, { ...record });
+    return { ...record };
+  }
   async get(jti: string): Promise<InviteTokenRecord | undefined> {
     const r = this.store.get(jti);
     return r ? { ...r } : undefined;

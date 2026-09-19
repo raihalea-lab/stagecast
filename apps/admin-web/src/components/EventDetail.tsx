@@ -678,13 +678,15 @@ export function EventDetail(props: {
 
   // 招待 URL はロールごとに 1 本で、サーバーが持つ (ADR 0029)。開いた時点で取りにいく。
   // 終了したイベントの URL は期限切れなので取らない (死んだリンクを生きているように見せない)。
-  // endsAt を編集すると期限表示が変わるので、event ごと依存に入れる (URL 自体は変わらない)。
+  // endsAt を編集すると期限表示が変わるので日時と status を依存に入れる。 event オブジェクトごと
+  // 入れると refresh のたびに再取得してしまう (URL 自体は変わらない)。
+  const { id: eventId, status: eventStatus, startsAt, endsAt } = event;
   const loadInvites = useCallback(() => {
-    if (event.status === "ended") return;
+    if (eventStatus === "ended") return;
     let cancelled = false;
     setInviteError(undefined);
     client
-      .listInvites(event.id)
+      .listInvites(eventId)
       .then((list) => {
         if (!cancelled) setInvites(list);
       })
@@ -694,7 +696,7 @@ export function EventDetail(props: {
     return () => {
       cancelled = true;
     };
-  }, [client, event]);
+  }, [client, eventId, eventStatus, startsAt, endsAt]);
 
   useEffect(loadInvites, [loadInvites]);
 

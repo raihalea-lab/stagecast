@@ -40,6 +40,11 @@ export interface InviteTokenRecord {
 
 export interface InviteTokenRepository {
   put(record: InviteTokenRecord): Promise<void>;
+  /**
+   * 同じ jti が無ければ保存し、あれば既存を返す (条件付き put)。
+   * get-or-create を同時に 2 回走らせても片方の put が他方の再発行を巻き戻さないための口。
+   */
+  putIfAbsent(record: InviteTokenRecord): Promise<InviteTokenRecord>;
   get(jti: string): Promise<InviteTokenRecord | undefined>;
   listByEvent(eventId: string): Promise<InviteTokenRecord[]>;
 }
