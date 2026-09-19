@@ -382,6 +382,18 @@ ADR 0016 D-4 により `scheduled` の時点で desiredCount 0 のスタック�
 壊れている間ずっと毎分 provision を叩き続ける。D16 の 1-2 (失敗理由を管理画面に出す) は
 対応済みだが、この 3 番目だけ残っている。優先度は低い (料金もレート制限も実害が出ていない)。
 
+### D20. 招待トークンの verify がイベントを二重読みする (PR #275 の宿題)
+
+ADR 0029 D-2 で `invites.verify` が「今の `endsAt`」で期限を判定するようになり、内部で
+`events.get` を呼ぶ。ところが呼び出し側 (`usecases/join.ts` の join、`/stage/*` の
+presentation / materials など招待認証つきの約 10 経路) も直後に `events.get` するので、
+登壇者の入室 1 回につき EVENT の GetItem が 2 回走る。配信中の再接続・リロードのたびに発生する。
+
+直し方: `verify` の戻り値に `event` (最低でも `endsAt`) を載せて呼び出し側に渡すか、
+呼び出し側がイベントを先に読んで `verify(token, event)` に渡す形にする。どちらも呼び出し側
+~10 箇所を触るので、PR #275 のレビューでは見送った。RCU とレイテンシの話で機能は壊れていない。
+優先度は低い。
+
 ### D8. 配信経路のレジリエンス (一過性エラー耐性)
 
 - ✅ 共通 `withRetry` (指数バックオフ, `@stagecast/shared`) を追加。字幕 Sink 配信を
