@@ -363,6 +363,9 @@ R12-followup-1〜22 で **stage-web から SFU への WebRTC 接続** が完了 
 
 - [ ] AWS アカウント (dev / staging / prod) の用意。最低でも dev は確保する
 - [ ] 各アカウント × 主要リージョン (ap-northeast-1, us-east-1) で `cdk bootstrap`
+      **ADR 0028 以降 us-east-1 の bootstrap は必須**。Web の ACM 証明書スタック
+      (`StagecastWebCertificate`) が us-east-1 に置かれるため、未 bootstrap だと
+      `cdk deploy StagecastControlPlane` が `/cdk-bootstrap/hnb659fds/version` 不在で失敗する。
   ```bash
   vp run --filter @stagecast/infra cdk bootstrap aws://<account>/ap-northeast-1
   vp run --filter @stagecast/infra cdk bootstrap aws://<account>/us-east-1   # Bedrock 用

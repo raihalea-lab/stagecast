@@ -56,11 +56,19 @@ jobs:
       - name: Build
         run: vp run -r build
 
+      # ADR 0028: user-config.ts は gitignore されていて CI には無い。ゾーン名を渡さないと
+      # CloudFront の Aliases と Route53 が消え、管理画面にログインできなくなる。
       - name: CDK diff (制御層 + SPA 配信)
+        env:
+          STAGECAST_MEDIA_HOSTED_ZONE_NAME: ${{ vars.STAGECAST_MEDIA_HOSTED_ZONE_NAME }}
+          STAGECAST_ACME_EMAIL: ${{ vars.STAGECAST_ACME_EMAIL }}
         run: vp run --filter @stagecast/infra cdk diff StagecastControlPlane
 
       - name: CDK deploy (制御層 + SPA 配信)
         if: ${{ env.DRY_RUN == 'false' }}
+        env:
+          STAGECAST_MEDIA_HOSTED_ZONE_NAME: ${{ vars.STAGECAST_MEDIA_HOSTED_ZONE_NAME }}
+          STAGECAST_ACME_EMAIL: ${{ vars.STAGECAST_ACME_EMAIL }}
         run: |
           vp run --filter @stagecast/infra cdk deploy StagecastControlPlane \
             --require-approval never \
