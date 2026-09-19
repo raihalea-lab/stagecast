@@ -71,7 +71,7 @@ export interface ControlPlaneStackProps extends StackProps {
  * 含むもの:
  *  - S3 + CloudFront : 管理 SPA / 登壇者 SPA の静的ホスティングと CDN 配信
  *  - DynamoDB        : イベント/参加者/招待トークン/発表状態のメタデータ (オンデマンド課金)
- *  - Cognito         : 管理者認証 (Hosted UI / OAuth2 Authorization Code + PKCE)
+ *  - Cognito         : 管理者認証 (Managed login / OAuth2 Authorization Code + PKCE)
  *  - API Gateway + Lambda : 制御 API (リクエスト課金)
  *  - S3 (assets)     : QR・スライド・配信録画・確定字幕など成果物
  *  - Secrets Manager : 招待トークン署名鍵 / LiveKit / YouTube (ADR D-10, T7)
@@ -553,14 +553,18 @@ export class ControlPlaneStack extends Stack {
       mfa: cognito.Mfa.OPTIONAL,
       mfaSecondFactor: { sms: false, otp: true },
       accountRecovery: cognito.AccountRecovery.EMAIL_ONLY,
+      // Managed login (ブランディング) は Essentials 以上でしか使えない。管理者プールは
+      // 招待制で MAU が一桁なので、無料枠 10,000 MAU/月 に収まり実質無課金。
+      featurePlan: cognito.FeaturePlan.ESSENTIALS,
       // 開発環境では stack 削除で UserPool も消す (initialAdmins は再 deploy で復元される)。
       removalPolicy: RemovalPolicy.DESTROY,
     });
 
-    // Hosted UI 用ドメイン (Cognito ドメイン)。
+    // Managed login 用ドメイン (Cognito ドメイン)。
     // domainPrefix はリージョン内で一意に。account を含めて衝突を回避。
     const adminAuthDomain = adminUserPool.addDomain("AdminAuthDomain", {
       cognitoDomain: { domainPrefix: `stagecast-admin-${this.account}` },
+      managedLoginVersion: cognito.ManagedLoginVersion.NEWER_MANAGED_LOGIN,
     });
 
     const adminCallbackUrls = [
@@ -586,6 +590,22 @@ export class ControlPlaneStack extends Stack {
       generateSecret: false,
       preventUserExistenceErrors: true,
     });
+
+    // Managed login のブランディングスタイル。app client にスタイルが未割当だと
+    // ログインページが nonfunctional になる (AWS: DeleteManagedLoginBranding API リファレンス)
+    // ので、ドメインを managed login に切り替えるなら必ず 1 つ要る。
+    // 見た目を変えるときは useCognitoProvidedValues を消して settings に差分を書く
+    // (併用不可)。スキーマは CreateManagedLoginBranding API リファレンスのリクエスト例が
+    // 唯一の網羅リスト。ロゴ等の assets は aws-cdk#34082 (InternalFailure) が未解決なので
+    // 当面コンソール/CLI 側で当てる。
+    const adminLoginBranding = new cognito.CfnManagedLoginBranding(this, "AdminLoginBranding", {
+      userPoolId: adminUserPool.userPoolId,
+      clientId: adminUserPoolClient.userPoolClientId,
+      useCognitoProvidedValues: true,
+    });
+    // ドメインを先に v2 へ切り替えてブランディング作成が失敗すると、ログイン不能のまま
+    // 取り残される。トークン参照が無いので明示的に順序を固定する。
+    adminLoginBranding.node.addDependency(adminAuthDomain);
 
     // --- 初期管理者の自動投入 Custom Resource (R6, ADR 0005 D-4 案 A) ---
     // `-c initialAdmins=a@x.com,b@y.com` を渡したときだけ作成する。未指定なら従来どおり
