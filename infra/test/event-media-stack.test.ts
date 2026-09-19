@@ -507,14 +507,50 @@ describe("caddyStartCommand (O0, ADR 0016 D-6)", () => {
     expect(cmd).toContain('"$AWS_REGION" "$CERT_BUCKET" "$CADDY_DOMAIN"');
   });
 
-  it("acmeEmail 未指定時の出力は切り出し前の文字列と 1 バイト違わない", () => {
+  it("acmeEmail 未指定時の出力が 1 バイトも変わっていない", () => {
     // ここがズレると、メールアドレスを設定していない環境でも TaskDefinition が
     // 新リビジョンになり、全イベントの SFU タスクが無意味に作り直される。
     // String.raw なので `\n` は「バックスラッシュ + n」の 2 文字 (printf が改行に変える)。
     const before =
-      String.raw`printf '{\n  storage s3 {\n    host "s3.%s.amazonaws.com"\n    bucket "%s"\n    prefix "caddy-certs/"\n    use_iam_provider true\n  }\n}\n\n*.%s {\n  tls {\n    dns route53\n  }\n  reverse_proxy localhost:7880\n}\n' ` +
+      String.raw`printf '{\n  storage s3 {\n    host "s3.%s.amazonaws.com"\n    bucket "%s"\n    prefix "caddy-certs/"\n    use_iam_provider true\n  }\n}\n\n*.%s {\n  tls {\n    dns route53 {\n      wait_for_route53_sync true\n      route53_max_wait 2m\n    }\n  }\n  reverse_proxy localhost:7880\n}\n' ` +
       String.raw`"$AWS_REGION" "$CERT_BUCKET" "$CADDY_DOMAIN" > /tmp/Caddyfile && exec caddy run --config /tmp/Caddyfile --adapter caddyfile`;
     expect(caddyStartCommand()).toBe(before);
+  });
+
+  it("Route53 の反映を待ってから検証させる (ADR 0016 D-6)", () => {
+    // **`wait_for_route53_sync` の既定は false。** 立てないと Caddy は TXT を書いた直後に
+    // Let's Encrypt へ検証を依頼し、反映が間に合わず NXDOMAIN で落ちる (2026-09-19 に発生)。
+    // 6 月に通っていたのは反映がたまたま間に合っただけのレースだった。
+    expect(caddyStartCommand()).toContain("wait_for_route53_sync true");
+  });
+
+  it("ゾーン ID を渡すと探索せず直指定する", () => {
+    const cmd = caddyStartCommand({ mediaHostedZoneId: "ZTEST" });
+    expect(cmd).toContain('hosted_zone_id "%s"');
+    expect(cmd).toContain('"$MEDIA_HOSTED_ZONE_ID"');
+  });
+
+  it("ゾーン ID 未指定なら hosted_zone_id 行は出ない (自動探索のまま)", () => {
+    const cmd = caddyStartCommand();
+    expect(cmd).not.toContain("hosted_zone_id");
+    expect(cmd).not.toContain("MEDIA_HOSTED_ZONE_ID");
+  });
+
+  it("本番構成 (email + ゾーン ID) で %s と実引数の順番が合う", () => {
+    // ここがズレると printf が書式を反復して Caddyfile が壊れ、essential な Caddy が
+    // 起動に失敗して SFU Task ごと落ちる (= そのイベントは開始できない)。
+    const cmd = caddyStartCommand({ acmeEmail: "ops@example.com", mediaHostedZoneId: "ZTEST" });
+    const placeholders = cmd.slice(0, cmd.indexOf("' ")).split("%s").length - 1;
+    expect(placeholders).toBe(5);
+    expect(cmd).toContain(
+      '"$ACME_EMAIL" "$AWS_REGION" "$CERT_BUCKET" "$CADDY_DOMAIN" "$MEDIA_HOSTED_ZONE_ID"',
+    );
+  });
+
+  it("Route53 の待ち上限を既定の 1 分から伸ばす", () => {
+    // 既定 1 分は AWS の「通常 60 秒以内に反映」と同じ境界。超えると UPSERT 成功後に
+    // waiter がエラーを返し、certmagic が TXT を消してオーダーごとやり直す。
+    expect(caddyStartCommand()).toContain("route53_max_wait 2m");
   });
 
   it("reverse_proxy と dns route53 は email の有無にかかわらず出る", () => {
