@@ -5,13 +5,31 @@
  * 検証は「署名・有効期限」(token.ts) に加えて「失効していないか・version 一致」(repo) を確認する。
  */
 import type { InvitedRole } from "@stagecast/shared";
-import type { InviteTokenRepository } from "../repo/types.js";
+import type { InviteTokenRecord, InviteTokenRepository } from "../repo/types.js";
 import { signInviteToken, verifyInviteToken } from "../invite/token.js";
 import { NotFoundError, ValidationError } from "./events.js";
 
 /** 招待 TTL の許容範囲 (1 分〜7 日)。短すぎ/長すぎる招待 URL を防ぐ。 */
 export const MIN_TTL_SEC = 60;
 export const MAX_TTL_SEC = 7 * 24 * 60 * 60;
+
+/** endsAt 未設定のイベントの既定所要時間 (admin-web の EventForm と同じ 2h)。 */
+const DEFAULT_DURATION_SEC = 2 * 60 * 60;
+/** 終了時刻を過ぎても片付け中に入室できるよう、期限にはこれだけ余裕を足す。 */
+const INVITE_GRACE_SEC = 60 * 60;
+
+/**
+ * 招待 URL の期限 (UNIX 秒) をイベントの開催時間から決める (ADR 0029)。
+ * 「発行から 12h」だと前日に発行した URL が本番で切れる。
+ */
+export function inviteExpiryFor(event: { startsAt: string; endsAt?: string }): number {
+  const endMs = event.endsAt
+    ? Date.parse(event.endsAt)
+    : Date.parse(event.startsAt) + DEFAULT_DURATION_SEC * 1000;
+  return Math.floor(endMs / 1000) + INVITE_GRACE_SEC;
+}
+
+const INVITE_ROLES: readonly InvitedRole[] = ["moderator", "speaker"];
 
 function validateRole(role: unknown): InvitedRole {
   if (role !== "moderator" && role !== "speaker") {
@@ -67,8 +85,62 @@ export function createInviteService(deps: {
   now: () => number;
   /** 招待 URL のベース (例: https://app.example.com/join)。 */
   baseUrl: string;
+  /** イベント ID → 招待期限 (UNIX 秒)。 イベントが無ければ NotFoundError を投げる。 */
+  expiresAtFor: (eventId: string) => Promise<number>;
 }) {
-  const { repo, secret, newJti, now, baseUrl } = deps;
+  const { repo, secret, newJti, now, baseUrl, expiresAtFor } = deps;
+
+  function toIssued(record: InviteTokenRecord, issuedAtSec: number, exp: number): IssuedInvite {
+    const token = signInviteToken(
+      {
+        eventId: record.eventId,
+        role: record.role,
+        jti: record.jti,
+        issuedAtSec,
+        ttlSec: exp - issuedAtSec,
+        version: record.currentVersion,
+      },
+      secret,
+    );
+    return {
+      jti: record.jti,
+      token,
+      url: `${baseUrl}?token=${encodeURIComponent(token)}`,
+      role: record.role,
+      eventId: record.eventId,
+      expiresAtSec: exp,
+      version: record.currentVersion,
+    };
+  }
+
+  /**
+   * ロールごとに 1 本の招待を返す。 無ければ作る (get-or-create)。
+   * 署名の入力 (jti / issuedAtSec / version / 期限) がすべてレコードとイベントから決まるので、
+   * 何度呼んでも同じ URL 文字列になる。 issuedAtSec を持たない旧レコードは対象外にして作り直す。
+   */
+  async function listForEvent(eventId: string): Promise<IssuedInvite[]> {
+    const exp = await expiresAtFor(eventId);
+    const existing = (await repo.listByEvent(eventId))
+      .filter((r) => !r.revoked && r.issuedAtSec !== undefined)
+      .sort((a, b) => a.jti.localeCompare(b.jti));
+    const result: IssuedInvite[] = [];
+    for (const role of INVITE_ROLES) {
+      let record = existing.find((r) => r.role === role);
+      if (!record) {
+        record = {
+          jti: newJti(),
+          eventId,
+          role,
+          currentVersion: 1,
+          revoked: false,
+          issuedAtSec: Math.floor(now() / 1000),
+        };
+        await repo.put(record);
+      }
+      result.push(toIssued(record, record.issuedAtSec!, exp));
+    }
+    return result;
+  }
 
   async function issue(input: {
     eventId: string;
@@ -94,29 +166,25 @@ export function createInviteService(deps: {
     };
   }
 
-  /** 既存トークンを失効させ、version を繰り上げて新トークンを再発行する。 */
-  async function reissue(jti: string, ttlSecInput: number): Promise<IssuedInvite> {
-    const ttlSec = validateTtlSec(ttlSecInput);
+  /**
+   * 既存トークンを失効させ、version を繰り上げて新トークンを再発行する。
+   * 期限は listForEvent と同じくイベント終了に揃える (ここだけ 12h に戻ると穴が復活する)。
+   */
+  async function reissue(jti: string): Promise<IssuedInvite> {
     const record = await repo.get(jti);
     // 存在しない jti の再発行は 404 にする (内部エラー 500 にしない, #35 と統一)。
     if (!record) throw new NotFoundError(`invite ${jti} not found`);
-    const version = record.currentVersion + 1;
-    const issuedAtSec = Math.floor(now() / 1000);
+    const exp = await expiresAtFor(record.eventId);
     // 再発行は同じ jti を使い version だけ繰り上げる。古い version のトークンは stale-version で弾く。
-    await repo.put({ ...record, currentVersion: version, revoked: false });
-    const token = signInviteToken(
-      { eventId: record.eventId, role: record.role, jti, issuedAtSec, ttlSec, version },
-      secret,
-    );
-    return {
-      jti,
-      token,
-      url: `${baseUrl}?token=${encodeURIComponent(token)}`,
-      role: record.role,
-      eventId: record.eventId,
-      expiresAtSec: issuedAtSec + ttlSec,
-      version,
+    // issuedAtSec も更新して、以後の listForEvent がこの再発行結果と同じ URL を返すようにする。
+    const next: InviteTokenRecord = {
+      ...record,
+      currentVersion: record.currentVersion + 1,
+      revoked: false,
+      issuedAtSec: Math.floor(now() / 1000),
     };
+    await repo.put(next);
+    return toIssued(next, next.issuedAtSec!, exp);
   }
 
   async function revoke(jti: string): Promise<void> {
@@ -142,5 +210,5 @@ export function createInviteService(deps: {
     };
   }
 
-  return { issue, reissue, revoke, verify };
+  return { issue, listForEvent, reissue, revoke, verify };
 }

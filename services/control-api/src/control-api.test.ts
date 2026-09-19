@@ -4,6 +4,7 @@ import type { CaptionSettings } from "@stagecast/shared";
 import { buildControlApi } from "./factory.js";
 import type { App, HttpRequest } from "./http/app.js";
 import { createSettingsService } from "./usecases/settings.js";
+import type { IssuedInvite } from "./usecases/invites.js";
 
 const caption: CaptionSettings = {
   languages: ["ja", "en"],
@@ -197,6 +198,55 @@ describe("control-api integration (in-memory)", () => {
       }),
     );
     expect(badSource.status).toBe(400);
+  });
+
+  it("招待 URL はロールごとに 1 本で、取得のたびに同じ URL が返り、期限はイベント終了に追従する (ADR 0029)", async () => {
+    const eventId = await createEvent(app);
+    const list = () =>
+      app.handle(req({ method: "GET", path: `/events/${eventId}/invites`, headers: adminAuth }));
+
+    const first = await list();
+    expect(first.status).toBe(200);
+    const invites = (first.body as { invites: IssuedInvite[] }).invites;
+    expect(invites.map((i) => i.role).sort()).toEqual(["moderator", "speaker"]);
+
+    // endsAt 未設定 → 開始 + 2h、その 1h 後まで有効 (発行時刻に依存しない)。
+    const expectedExp = Date.parse("2026-07-01T12:00:00Z") / 1000;
+    for (const inv of invites) expect(inv.expiresAtSec).toBe(expectedExp);
+
+    // 2 回目も新規発行にならず、同じ URL 文字列が返る。
+    const second = await list();
+    expect((second.body as { invites: IssuedInvite[] }).invites).toEqual(invites);
+
+    // GET で返したトークンで入室検証が通る。
+    const speaker = invites.find((i) => i.role === "speaker")!;
+    const ok = await app.handle(
+      req({ method: "POST", path: "/invites/verify", body: { token: speaker.token } }),
+    );
+    expect((ok.body as { valid: boolean }).valid).toBe(true);
+
+    // 再発行すると URL が変わり、古いトークンは弾かれる。期限は変わらずイベント終了に揃う。
+    const reissued = await app.handle(
+      req({ method: "POST", path: `/invites/${speaker.jti}/reissue`, headers: adminAuth }),
+    );
+    expect(reissued.status).toBe(201);
+    const next = reissued.body as IssuedInvite;
+    expect(next.url).not.toBe(speaker.url);
+    expect(next.expiresAtSec).toBe(expectedExp);
+    const stale = await app.handle(
+      req({ method: "POST", path: "/invites/verify", body: { token: speaker.token } }),
+    );
+    expect((stale.body as { valid: boolean; reason?: string }).reason).toBe("stale-version");
+
+    // 再発行後の GET も再発行結果と同じ URL を返す (再発行のたびに増えない)。
+    const third = (await list()).body as { invites: IssuedInvite[] };
+    expect(third.invites).toHaveLength(2);
+    expect(third.invites.find((i) => i.role === "speaker")?.url).toBe(next.url);
+
+    const missing = await app.handle(
+      req({ method: "GET", path: "/events/nope/invites", headers: adminAuth }),
+    );
+    expect(missing.status).toBe(404);
   });
 
   it("投影状態の正をサーバーに置く: デッキとページを保存して読み戻せる (ADR 0022 D-1)", async () => {

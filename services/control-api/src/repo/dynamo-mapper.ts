@@ -91,6 +91,7 @@ export function itemToInvite(item: Item): InviteTokenRecord {
     role: item.role as InviteTokenRecord["role"],
     currentVersion: item.currentVersion as number,
     revoked: item.revoked as boolean,
+    ...(typeof item.issuedAtSec === "number" ? { issuedAtSec: item.issuedAtSec } : {}),
   };
 }
 

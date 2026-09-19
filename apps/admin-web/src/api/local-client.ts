@@ -11,7 +11,6 @@ import type {
   EventDefinition,
   EventRequest,
   EventStatus,
-  InvitedRole,
   LiveKitCredentials,
   LiveKitSettingsStatus,
   PresentationState,
@@ -70,8 +69,12 @@ export class LocalControlApiClient implements ControlApiClient {
   deleteEvent(id: string): Promise<void> {
     return this.call("DELETE", `/events/${id}`);
   }
-  issueInvite(eventId: string, role: InvitedRole, ttlSec: number): Promise<IssuedInvite> {
-    return this.call("POST", `/events/${eventId}/invites`, { role, ttlSec });
+  async listInvites(eventId: string): Promise<IssuedInvite[]> {
+    const res = await this.call<{ invites: IssuedInvite[] }>("GET", `/events/${eventId}/invites`);
+    return res.invites;
+  }
+  reissueInvite(jti: string): Promise<IssuedInvite> {
+    return this.call("POST", `/invites/${jti}/reissue`);
   }
   startEgress(eventId: string): Promise<EgressStartResult> {
     return this.call("POST", `/events/${eventId}/egress/start`);

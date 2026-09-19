@@ -88,7 +88,10 @@ export interface ControlApiClient {
   setStatus(id: string, status: EventStatus): Promise<EventDefinition>;
   deleteEvent(id: string): Promise<void>;
 
-  issueInvite(eventId: string, role: InvitedRole, ttlSec: number): Promise<IssuedInvite>;
+  /** ロールごとに 1 本の招待 URL。 無ければサーバーが作る (ADR 0029)。 */
+  listInvites(eventId: string): Promise<IssuedInvite[]>;
+  /** 旧 URL を無効にして新しい URL に差し替える。 */
+  reissueInvite(jti: string): Promise<IssuedInvite>;
 
   /** Egress (RTMP 送出) を起動する (R12, ADR 0006 D-4)。 */
   startEgress(eventId: string): Promise<EgressStartResult>;

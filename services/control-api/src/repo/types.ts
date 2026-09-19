@@ -31,6 +31,11 @@ export interface InviteTokenRecord {
   currentVersion: number;
   /** 失効済みフラグ。 */
   revoked: boolean;
+  /**
+   * 発行時刻 (UNIX 秒)。 署名の入力を固定して、取得のたびに同じ URL を返すために持つ (ADR 0029)。
+   * 旧レコードには無い。 無いものは「1 本に絞る」対象から外し、新しく作り直す。
+   */
+  issuedAtSec?: number;
 }
 
 export interface InviteTokenRepository {

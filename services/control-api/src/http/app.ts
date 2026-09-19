@@ -649,6 +649,9 @@ export function createApp(deps: AppDeps) {
           await publishRoomMetadata(withUrl);
           return json(200, withUrl);
         }
+      } else if (segments[2] === "invites" && segments.length === 3 && req.method === "GET") {
+        // ロールごとに 1 本。 無ければ作る (ADR 0029)。 イベントが無ければ 404。
+        return json(200, { invites: await invites.listForEvent(eventId) });
       } else if (segments[2] === "invites" && req.method === "POST") {
         // 存在しないイベントへの招待発行を防ぐ (無ければ NotFound → 404)。
         await events.get(eventId);
@@ -741,7 +744,7 @@ export function createApp(deps: AppDeps) {
     if (segments[0] === "invites" && segments[1] && req.method === "POST") {
       const jti = segments[1];
       if (segments[2] === "reissue") {
-        return json(201, await invites.reissue(jti, Number(body.ttlSec ?? 60 * 60 * 12)));
+        return json(201, await invites.reissue(jti));
       }
       if (segments[2] === "revoke") {
         await invites.revoke(jti);

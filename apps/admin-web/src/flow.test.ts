@@ -36,9 +36,11 @@ describe("admin console end-to-end flow (DESIGN.md 8 章, 7.1)", () => {
     const withQr = await client.updateEvent(created.id, { qrAsset: ref });
     expect(withQr.qrAsset?.key).toBe(ref.key);
 
-    // 4) 招待 URL 発行 (登壇者)
-    const invite = await client.issueInvite(created.id, "speaker", 3600);
-    expect(invite.url).toContain("token=");
+    // 4) 招待 URL はロールごとに 1 本、開くたびに同じもの (ADR 0029)
+    const invites = await client.listInvites(created.id);
+    expect(invites.map((i) => i.role).sort()).toEqual(["moderator", "speaker"]);
+    expect(invites[0]?.url).toContain("token=");
+    expect(await client.listInvites(created.id)).toEqual(invites);
 
     // 5) 配信開始 → live に反映
     const live = await client.setStatus(created.id, "live");
