@@ -98,12 +98,30 @@ describe("ControlPlaneStack", () => {
     });
   });
 
-  it("Cognito Hosted UI ドメインと OAuth クライアントが設定されている (T6, F-12)", () => {
+  it("Cognito Managed login ドメインと OAuth クライアントが設定されている (T6, F-12)", () => {
     template.resourceCountIs("AWS::Cognito::UserPoolDomain", 1);
+    template.hasResourceProperties("AWS::Cognito::UserPoolDomain", {
+      ManagedLoginVersion: 2,
+    });
     template.hasResourceProperties("AWS::Cognito::UserPoolClient", {
       AllowedOAuthFlows: Match.arrayWith(["code"]),
       AllowedOAuthScopes: Match.arrayWith(["openid", "email", "profile"]),
       AllowedOAuthFlowsUserPoolClient: true,
+    });
+  });
+
+  // Managed login はスタイル未割当だとログイン不能になるので、この 3 つは 1 セット。
+  it("Managed login に必要な feature plan とブランディングがある", () => {
+    template.hasResourceProperties("AWS::Cognito::UserPool", {
+      UserPoolTier: "ESSENTIALS",
+    });
+    template.resourceCountIs("AWS::Cognito::ManagedLoginBranding", 1);
+    template.hasResourceProperties("AWS::Cognito::ManagedLoginBranding", {
+      UseCognitoProvidedValues: true,
+    });
+    // ドメインの v2 切り替えより先にスタイルが無いと、途中失敗でログイン不能が残る。
+    template.hasResource("AWS::Cognito::UserPoolDomain", {
+      DependsOn: Match.arrayWith([Match.stringLikeRegexp("AdminLoginBranding")]),
     });
   });
 
