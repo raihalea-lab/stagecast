@@ -19,7 +19,6 @@ import {
   type DeploymentMode,
   type DescribeResult,
 } from "./cfn-provisioner.js";
-import type { EventMediaSpec } from "./provisioner.js";
 
 /** infra の eventMediaStackName と一致させる規約。 */
 export function eventMediaStackName(eventId: string): string {
@@ -81,15 +80,13 @@ export class AwsCloudFormationClient implements CloudFormationLike {
 
 export interface AwsProvisionerConfig {
   /** infra の renderEventMediaTemplate を注入する (別 Lambda 呼び出しで async 可, D1)。 */
-  renderTemplate: (spec: EventMediaSpec) => string | Promise<string>;
+  renderTemplate: CfnProvisionerConfig["renderTemplate"];
   /** CloudFormationLike (省略時は AWS SDK 実装)。 */
   cfn?: CloudFormationLike;
   pollIntervalMs?: number;
   maxPolls?: number;
   /** CFN サービスロール ARN (R5)。createStack の RoleARN に渡す。 */
   roleArn?: string | undefined;
-  /** 作成時のテンプレート版 (ADR 0016 D-4)。タグに残して版ズレ検知に使う。 */
-  templateVersion?: CfnProvisionerConfig["templateVersion"];
   /** CloudFormation Express モードで作成する (ADR 0023 D-1)。 */
   expressMode?: boolean | undefined;
   /** describeStacks の観測結果 (Express が実際に効いたかの確認に使う)。 */
@@ -110,7 +107,6 @@ export function createAwsMediaStackProvisioner(
     pollIntervalMs: config.pollIntervalMs,
     maxPolls: config.maxPolls,
     roleArn: config.roleArn,
-    templateVersion: config.templateVersion,
     expressMode: config.expressMode,
     onObserve: config.onObserve,
   });

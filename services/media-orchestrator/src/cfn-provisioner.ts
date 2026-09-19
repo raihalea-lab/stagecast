@@ -30,6 +30,12 @@ export interface DescribeResult {
 /** CloudFormation のデプロイモード (ADR 0023 D-1)。 */
 export type DeploymentMode = "EXPRESS" | "STANDARD";
 
+/**
+ * レンダリング結果。文字列だけを返す実装も許す (既存の注入をそのまま使えるように)。
+ * `version` を返すとスタックのタグになる (ADR 0016 D-4)。
+ */
+export type RenderedTemplate = string | { template: string; version?: string | undefined };
+
 /** CloudFormation の最小サブセット。 */
 export interface CloudFormationLike {
   createStack(input: {
@@ -49,17 +55,18 @@ export interface CloudFormationLike {
 
 export interface CfnProvisionerConfig {
   cfn: CloudFormationLike;
-  /** イベント仕様 → CloudFormation テンプレート (JSON 文字列)。別 Lambda 呼び出しで async 可 (D1)。 */
-  renderTemplate: (spec: EventMediaSpec) => string | Promise<string>;
+  /**
+   * イベント仕様 → CloudFormation テンプレート (JSON 文字列)。別 Lambda 呼び出しで async 可 (D1)。
+   *
+   * `{ template, version }` を返すと、その版がスタックのタグになる (ADR 0016 D-4)。
+   * **版はレンダリングと同じ呼び出しで受け取る。** 別経路で取ると、タグに載る版と
+   * 判定に使う版がズレて、事前作成スタックが破棄と再作成を繰り返す。
+   */
+  renderTemplate: (spec: EventMediaSpec) => RenderedTemplate | Promise<RenderedTemplate>;
   /** イベント ID → スタック名 (infra の eventMediaStackName と一致させる)。 */
   stackName: (eventId: string) => string;
   /** CFN サービスロール ARN (R5)。createStack の RoleARN に渡す。 */
   roleArn?: string | undefined;
-  /**
-   * 作成時のテンプレート版 (ADR 0016 D-4)。タグに残して、事前作成済みスタックの版ズレを
-   * reconcile が検知できるようにする。未指定ならタグを付けない (従来の挙動)。
-   */
-  templateVersion?: (() => Promise<string | undefined>) | undefined;
   /**
    * CloudFormation Express モードでスタックを作成する (ADR 0023 D-1)。
    * リソースが「設定適用済み」になった時点で完了扱いになり、作成が大幅に速くなる。
@@ -127,10 +134,14 @@ export class CloudFormationMediaStackProvisioner implements MediaStackProvisione
 
   async provision(spec: EventMediaSpec): Promise<MediaStackHandle> {
     const stackName = this.config.stackName(spec.eventId);
-    const version = await this.config.templateVersion?.();
+    // **版はレンダリング結果から取る。** 別呼び出しにすると、render より先に版を読んで
+    // しまう順序事故が起きる (実際に踏んだ)。同じ呼び出しで受ければ順序を間違えようがない。
+    const rendered = await this.config.renderTemplate(spec);
+    const templateBody = typeof rendered === "string" ? rendered : rendered.template;
+    const version = typeof rendered === "string" ? undefined : rendered.version;
     const created = await this.config.cfn.createStack({
       StackName: stackName,
-      TemplateBody: await this.config.renderTemplate(spec),
+      TemplateBody: templateBody,
       Capabilities: ["CAPABILITY_IAM", "CAPABILITY_NAMED_IAM"],
       ...(this.config.roleArn ? { RoleARN: this.config.roleArn } : {}),
       // ADR 0016 D-4: 事前作成済みスタックの版ズレ検知用。

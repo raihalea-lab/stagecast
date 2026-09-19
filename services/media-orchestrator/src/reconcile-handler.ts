@@ -636,8 +636,12 @@ async function deleteRoute53ARecord(hostedZoneId: string, recordName: string): P
 }
 
 /**
- * 現在のテンプレート版 (ADR 0016 D-4)。コールドスタートごとに 1 回だけ RenderTemplateFunction を叩く。
- * レンダリング処理も env も Lambda を入れ替えないと変わらないので、コンテナの寿命と一致する。
+ * 現在のテンプレート版 (ADR 0016 D-4)。毎 tick RenderTemplateFunction に問い合わせる。
+ *
+ * **ここでキャッシュしてはいけない。** 版を決めるのは render Lambda 側のコードで、
+ * この関数のコンテナは別の寿命を持つ。古い版を握り続けると、デプロイ直後に検知が
+ * 効かないばかりか、新旧コンテナが別の版を主張してスタックの破棄と再作成が
+ * 毎 tick フラップする (実際に踏んだ)。
  */
 async function templateVersionOf(): Promise<string | undefined> {
   try {
@@ -675,9 +679,6 @@ function makeExecutor(): ReconcileExecutor {
       const fnName = process.env.RENDER_TEMPLATE_FUNCTION_NAME;
       if (!fnName) throw new Error("RENDER_TEMPLATE_FUNCTION_NAME is required");
       const expressMode = process.env.CFN_EXPRESS_MODE !== "false";
-      // render が返した版を provision 時のタグに使う。reconcile 側で別に計算すると、
-      // 作成時のタグと判定時の版がズレて作り直しがフラップする。
-      let lastRenderedVersion: string | undefined;
       return createAwsMediaStackProvisioner({
         renderTemplate: async (spec) => {
           const res = await lambda.send(
@@ -704,18 +705,15 @@ function makeExecutor(): ReconcileExecutor {
           const text = res.Payload ? new TextDecoder().decode(res.Payload) : "";
           const parsed = JSON.parse(text) as { template?: string; version?: string };
           if (!parsed.template) throw new Error("render template returned empty");
-          // 版は render が返したものをそのまま使う。reconcile 側で別に計算すると、
-          // 作成時のタグと判定時の版がズレて作り直しがフラップする。
-          lastRenderedVersion = parsed.version;
-          return parsed.template;
+          // 版はテンプレートと同じ応答で受け取り、そのまま provisioner に渡す
+          // (別経路にすると順序事故でタグが付かない)。
+          return { template: parsed.template, version: parsed.version };
         },
         pollIntervalMs: 5000,
         // reconcile は次回 tick (60s 後) で続きを見るため waitForComplete は短く打ち切る。
         maxPolls: 1,
         // CFN にリソース作成権限を委譲する実行ロール (R5, ADR 0005 D-5)。
         roleArn: process.env.CFN_EXEC_ROLE_ARN,
-        // ADR 0016 D-4: 事前作成済みスタックの版ズレ検知用。同じ render を使うので追加の実装は要らない。
-        templateVersion: async () => lastRenderedVersion,
         // ADR 0023 D-1: CloudFormation Express モードでスタック作成を短縮する。
         // 事故時の退避用に CFN_EXPRESS_MODE=false で従来の STANDARD に戻せる。
         expressMode,
@@ -921,7 +919,9 @@ export async function handler(
       // 古い livekitUrl も消す。残すと破棄〜再作成の間、実在しないホストを掴ませる。
       await d.mediaPublisher.clear(d2.eventId);
       await d.provisioningPublisher.publish(d2.eventId, {
-        stack: { kind: "deleting" },
+        // 生ステータスは残す。失われると failed (CREATE_FAILED) の表示が
+        // 「削除中」に化けて、管理画面から失敗の痕跡が消える。
+        stack: { kind: "deleting", status: actualById.get(d2.eventId)?.status },
         services: [],
         mediaReady: false,
         wantTasks: !d2.pending,

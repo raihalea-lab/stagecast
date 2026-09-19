@@ -17,13 +17,17 @@ class FakeCfn implements CloudFormationLike {
   readonly deleted: string[] = [];
   /** createStack に渡された DeploymentMode (ADR 0023 D-1)。 */
   readonly createModes: (string | undefined)[] = [];
+  /** createStack に渡されたタグ (ADR 0016 D-4)。 */
+  readonly createTags: ({ Key: string; Value: string }[] | undefined)[] = [];
   constructor(private readonly describe: () => DescribeResult) {}
   async createStack(input: {
     StackName: string;
     DeploymentMode?: string | undefined;
+    Tags?: { Key: string; Value: string }[] | undefined;
   }): Promise<{ StackId?: string }> {
     this.created.push(input.StackName);
     this.createModes.push(input.DeploymentMode);
+    this.createTags.push(input.Tags);
     return { StackId: `arn:${input.StackName}` };
   }
   async deleteStack(input: { StackName: string }): Promise<void> {
@@ -233,5 +237,35 @@ describe("Express モード (ADR 0023 D-1)", () => {
       valkeyNamespace: "evt-express",
     });
     expect(cfn.deleted).toEqual([stackName("evt-express")]);
+  });
+});
+
+describe("テンプレート版タグ (ADR 0016 D-4)", () => {
+  const completed = (): DescribeResult => ({ Stacks: [{ StackStatus: "CREATE_COMPLETE" }] });
+
+  // 版はレンダリング結果と同じ呼び出しで受け取り、そのまま createStack のタグになる。
+  // ここが切れると版が読めないスタックが生まれ、毎 tick 破棄→再作成でループする。
+  it("renderTemplate が返した版を createStack のタグに載せる", async () => {
+    const cfn = new FakeCfn(completed);
+    const p = new CloudFormationMediaStackProvisioner({
+      cfn,
+      renderTemplate: () => ({ template: '{"Resources":{}}', version: "v1" }),
+      stackName,
+      delay: noDelay,
+    });
+    await p.provision(spec("evt-tagged"));
+    expect(cfn.createTags).toEqual([[{ Key: "stagecast:template-version", Value: "v1" }]]);
+  });
+
+  it("文字列だけを返す実装ではタグを付けない", async () => {
+    const cfn = new FakeCfn(completed);
+    const p = new CloudFormationMediaStackProvisioner({
+      cfn,
+      renderTemplate: () => '{"Resources":{}}',
+      stackName,
+      delay: noDelay,
+    });
+    await p.provision(spec("evt-untagged"));
+    expect(cfn.createTags).toEqual([undefined]);
   });
 });
