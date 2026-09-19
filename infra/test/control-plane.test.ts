@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { App } from "aws-cdk-lib";
-import { Match, Template } from "aws-cdk-lib/assertions";
+import { Annotations, Match, Template } from "aws-cdk-lib/assertions";
 import { MATERIALS_PREFIX } from "@stagecast/shared";
 import {
   ControlPlaneStack,
@@ -18,7 +18,9 @@ import {
  * 呼ぶとテストごとにそれを払うことになり、CI の 5 秒タイムアウトに引っかかる
  * (実際に落ちた)。アサーションは読み取りしかしないので共有して問題ない。
  */
-let synthed: { base: Template; withOpsEmail: Template; withDomain: Template } | undefined;
+let synthed:
+  | { base: Template; withOpsEmail: Template; withDomain: Template; baseStack: ControlPlaneStack }
+  | undefined;
 
 /**
  * 既定構成と `opsEmail` 設定済み構成を **同じ App で** 作る。
@@ -27,7 +29,12 @@ let synthed: { base: Template; withOpsEmail: Template; withDomain: Template } | 
  * ぶんは使い回されるので、2 つ目のスタックはほぼ増分コストで済む。
  * (App を分けたときは CI で 5 秒、負荷の高いマシンでは 120 秒でもタイムアウトした)
  */
-function synthAll(): { base: Template; withOpsEmail: Template; withDomain: Template } {
+function synthAll(): {
+  base: Template;
+  withOpsEmail: Template;
+  withDomain: Template;
+  baseStack: ControlPlaneStack;
+} {
   if (synthed) return synthed;
   const app = new App({
     context: {
@@ -58,6 +65,7 @@ function synthAll(): { base: Template; withOpsEmail: Template; withDomain: Templ
     base: Template.fromStack(base),
     withOpsEmail: Template.fromStack(withOpsEmail),
     withDomain: Template.fromStack(withDomain),
+    baseStack: base,
   };
   return synthed;
 }
@@ -789,5 +797,16 @@ describe("公開ホスト名を製品サブドメインに揃える (ADR 0028)",
       expect(text).not.toContain(`${app}.stagecast.example.com`);
     }
     expect(synth().findResources("AWS::Route53::RecordSet")).toEqual({});
+  });
+});
+
+describe("ACME 連絡先が未設定なら deploy 時に警告する (O0 の再発防止)", () => {
+  it("ホストゾーンがあるのに acmeEmail / opsEmail が無ければ警告が出る", () => {
+    // 警告を落とすと、証明書の更新が 5 分おきに失敗し続けるのに誰も気づけない。
+    // throw にしないのは、RenderTemplateFunction の synth が落ちると配信を開始できなくなるため。
+    Annotations.fromStack(synthAll().baseStack).hasWarning(
+      "*",
+      Match.stringLikeRegexp("acmeEmail"),
+    );
   });
 });

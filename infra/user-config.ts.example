@@ -1,3 +1,23 @@
+/**
+ * このファイルは `infra/user-config.ts` にコピーして使う (コピー先は .gitignore 済み)。
+ *
+ * ## CI / 他環境から deploy するとき (ADR 0028 D-6)
+ *
+ * `user-config.ts` はコミットされないので **CI には存在しない**。環境変数で上書きできる:
+ *
+ * | 環境変数                             | 対応する項目            |
+ * | ------------------------------------ | ----------------------- |
+ * | `STAGECAST_MEDIA_HOSTED_ZONE_NAME`   | `mediaHostedZoneName`   |
+ * | `STAGECAST_ACME_EMAIL`               | `acmeEmail`             |
+ *
+ * GitHub Actions では repository variables から渡している
+ * (`.github/workflows/deploy.yml` の `env:`)。新しい環境を足すときは
+ * `gh variable set STAGECAST_MEDIA_HOSTED_ZONE_NAME --body "<ゾーン名>"` のように設定する。
+ *
+ * **渡し忘れると `mediaHostedZoneName` が未設定の構成でデプロイされる。** CloudFront の
+ * 独自ドメインと Route53 レコードが消え、Cognito のコールバックが払い出しドメインに戻るため、
+ * **管理画面にログインできなくなる**。
+ */
 import type { UserConfig } from "./lib/user-config";
 
 const config: UserConfig = {
