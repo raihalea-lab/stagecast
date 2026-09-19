@@ -14,6 +14,22 @@ if (existsSync(join(__dirname, "..", "user-config.ts"))) {
   userConfig = (require("../user-config") as { default: UserConfig }).default;
 }
 
+/**
+ * 環境変数による上書き (ADR 0028)。
+ *
+ * `user-config.ts` は `.gitignore` に入っているので **CI には存在しない**。CI から
+ * `cdk deploy` すると `mediaHostedZoneName` が undefined になり、CloudFront の Aliases と
+ * Route53 レコードが消え、Cognito のコールバックが払い出しドメインに戻る =
+ * **管理画面にログインできなくなる**。GitHub Actions からは vars で渡す。
+ */
+userConfig = {
+  ...userConfig,
+  ...(process.env.STAGECAST_MEDIA_HOSTED_ZONE_NAME
+    ? { mediaHostedZoneName: process.env.STAGECAST_MEDIA_HOSTED_ZONE_NAME }
+    : {}),
+  ...(process.env.STAGECAST_ACME_EMAIL ? { acmeEmail: process.env.STAGECAST_ACME_EMAIL } : {}),
+};
+
 const app = new App();
 
 const env = {

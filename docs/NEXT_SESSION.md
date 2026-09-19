@@ -51,8 +51,8 @@
 | --------------------- | ----------------------------------------------------------- |
 | AWS Account           | `542328051110` (ap-northeast-1)                             |
 | ControlPlane Stack    | `StagecastControlPlane`                                     |
-| admin-web             | https://dXXXXXXXX.cloudfront.net                       |
-| stage-web             | https://dXXXXXXXX.cloudfront.net                       |
+| admin-web             | https://dXXXXXXXX.cloudfront.net                            |
+| stage-web             | https://dXXXXXXXX.cloudfront.net                            |
 | composer-web          | https://dcxk8k5d51220.cloudfront.net                        |
 | control-api           | https://68p7p25j1a.execute-api.ap-northeast-1.amazonaws.com |
 | Cognito UserPool      | `ap-northeast-1_BxiekyXuK`                                  |

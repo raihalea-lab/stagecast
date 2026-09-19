@@ -72,6 +72,11 @@ interface HandlerDeps {
   provisioningPublisher: ReturnType<typeof createProvisioningPublisher>;
   /** ADR 0027 D-1: シグナリングに外から到達できるかを確かめる (テストでは fake)。 */
   probeSignaling: (livekitUrl: string) => Promise<SignalingProbeResult>;
+  /**
+   * per-event スタックの CfnOutput `LivekitDomainName` (ADR 0009 D-1)。
+   * Route53 のクリーンアップで使う。env から組み直すとドメイン改名後に空振りする。
+   */
+  livekitDomainOf: (eventId: string) => Promise<string | undefined>;
   /** ADR 0016 D-6 / ADR 0023 D-2: ECS サービスの観測とスケールアップ。 */
   ecs: EcsLike;
   maxParallel: number;
@@ -337,6 +342,14 @@ async function deps(): Promise<HandlerDeps> {
     mediaPublisher,
     provisioningPublisher,
     probeSignaling: (url) => probeSignaling(url),
+    livekitDomainOf: async (eventId) => {
+      const stacks = await cfn.send(
+        new DescribeStacksCommand({ StackName: eventMediaStackName(eventId) }),
+      );
+      return (stacks.Stacks?.[0]?.Outputs ?? []).find(
+        (o: { OutputKey?: string }) => o.OutputKey === "LivekitDomainName",
+      )?.OutputValue;
+    },
     ecs: ecsLike,
     maxParallel,
   };
@@ -939,7 +952,11 @@ export async function handler(
   if (mediaDomainName && hostedZoneId) {
     for (const a of actual) {
       if (!desiredIds.has(a.eventId) && a.kind !== "deleting") {
-        const recordName = `event-${a.eventId.slice(0, 8)}.${mediaDomainName}`;
+        // **スタックが持っているドメイン名を優先する。** env から組み直すと、
+        // MEDIA_DOMAIN_NAME を変えた後 (ADR 0028) に作成済みイベントの旧名レコードを
+        // 探して空振りし、解放済み Public IP を指す A レコードが永久に残る。
+        const fromStack = await d.livekitDomainOf(a.eventId).catch(() => undefined);
+        const recordName = fromStack ?? `event-${a.eventId.slice(0, 8)}.${mediaDomainName}`;
         try {
           await deleteRoute53ARecord(hostedZoneId, recordName);
         } catch {

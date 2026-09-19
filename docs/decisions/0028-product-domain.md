@@ -9,10 +9,10 @@
 
 ドメインが層ごとにバラバラだった。
 
-| 層                                      | ホスト名                           | 証明書          |
-| --------------------------------------- | ---------------------------------- | --------------- |
-| メディア (SFU)                          | `event-xxx.media.aws.example.com`  | Let's Encrypt   |
-| Web 4 本 (admin/stage/composer/request) | `dXXXXXXXX.cloudfront.net` 等 | CloudFront 既定 |
+| 層                                      | ホスト名                          | 証明書          |
+| --------------------------------------- | --------------------------------- | --------------- |
+| メディア (SFU)                          | `event-xxx.media.aws.example.com` | Let's Encrypt   |
+| Web 4 本 (admin/stage/composer/request) | `dXXXXXXXX.cloudfront.net` 等     | CloudFront 既定 |
 
 Web 側は CloudFront が払い出す名前をそのまま使っていた。結果として:
 
@@ -72,6 +72,15 @@ NEXT_WORK O0 (ACME アカウントのメールが未設定で更新に失敗し�
 本稼働前なので後方互換は不要 (2026-09-19 に確認)。Cognito のコールバック・CORS 許可
 オリジンから旧名を外し、新ホスト名だけにする。
 
+### D-6: 設定は環境変数でも渡せるようにする
+
+`infra/user-config.ts` は `.gitignore` にあり **CI には存在しない**。CI から `cdk deploy` すると
+`mediaHostedZoneName` が undefined になり、CloudFront の Aliases と Route53 レコードが消え、
+Cognito のコールバックが払い出しドメインに戻る = **管理画面にログインできなくなる**。
+
+`STAGECAST_MEDIA_HOSTED_ZONE_NAME` / `STAGECAST_ACME_EMAIL` で上書きできるようにし、
+GitHub Actions からは repository vars で渡す。
+
 ## 影響・トレードオフ
 
 - 利用者に見せる URL が読める名前になる。招待リンクも `https://stage.stagecast.…/join`。
@@ -80,3 +89,7 @@ NEXT_WORK O0 (ACME アカウントのメールが未設定で更新に失敗し�
   本稼働前なので許容するが、以後は変更のたびに同じ待ちが発生する。
 - ACM は無料、Route53 のクエリ課金は無視できる。常時稼働リソースは増えない (N-1)。
 - メディアの証明書は取り直しになる。O0 が直っていることが前提 (D-4)。
+- **us-east-1 の `cdk bootstrap` が必須になる** (証明書スタックの置き場所)。未 bootstrap だと
+  `cdk deploy StagecastControlPlane` が上流スタックを解決できず失敗する。
+- リポジトリ vars (`STAGECAST_MEDIA_HOSTED_ZONE_NAME`) を設定するまで、CI デプロイは
+  自前ドメイン無しの構成になる (D-6)。
