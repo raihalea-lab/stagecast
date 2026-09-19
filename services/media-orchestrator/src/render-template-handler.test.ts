@@ -13,5 +13,7 @@ describe("render-template-handler (D1)", () => {
     // ADR 0017: Valkey は SFU sidecar に統合、CloudMap は不要。
     // SFU(+Egress+Valkey sidecar) + CaptionWorker = 2 サービス。
     expect(types.filter((t) => t === "AWS::ECS::Service")).toHaveLength(2);
-  });
+    // Lambda の中で CDK synth を走らせるので単体でも 6 秒前後かかる。既定の 5 秒だと、
+    // 他パッケージと並走する pre-push で中身は正しいのにタイムアウトで落ちる。
+  }, 30_000);
 });

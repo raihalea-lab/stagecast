@@ -395,7 +395,7 @@ export class ControlPlaneStack extends Stack {
         "user-config.ts に acmeEmail (または opsEmail) がありません。" +
           "Caddy が ACME アカウントのメールアドレスを storage の一覧から推測し、" +
           "Let's Encrypt に invalidContact で蹴られて証明書を更新できなくなります " +
-          "(NEXT_WORK.md O0)。",
+          "(ADR 0016 D-6 / infra/user-config.ts.example)。",
       );
     }
 
