@@ -52,10 +52,9 @@ R12-followup-1〜22 で **stage-web から SFU への WebRTC 接続** が完了 
 > phase が `none → creating → ready` と進み、`sfu: 0/1` / `captionworker: 1/1` の
 > サービス単位の進捗も管理データに出た。CaptionWorker がスタック完成前に 1/1 になっており、
 > D-2 の「CREATE_IN_PROGRESS でも引き上げる」が効いていることも確認できた。
-> あわせて **`DesiredEvent.captionEnabled` が未配線**のまま残っている (ADR 0017 で型に
-> 足されたきり `toDesiredEvent` が埋めておらず、`CaptionSettings` にも字幕オフの項目が無い)。
-> ADR 0023 D-2 で「目標 0 なら引き上げない」形は入れたので、字幕オフを選べるようにすれば
-> ADR 0017 D-2 のコスト削減 (-35%) が実際に効くようになる。
+> (`DesiredEvent.captionEnabled` の未配線はその後解消済み。`reconcile.ts` の
+> `captionDesiredCount` と admin-web の EventForm まで通っており、字幕オフで
+> ADR 0017 D-2 のコスト削減 (-35%) が実際に効く。)
 
 > 🟢 **2026-09-16 追記: F-3 (スライド投影) は実配信で検証済み ✅**。
 > stage-web から PDF をアップロード → 投影 → ページ送り → composer での描画まで通った。
@@ -113,7 +112,6 @@ R12-followup-1〜22 で **stage-web から SFU への WebRTC 接続** が完了 
 
 5. **O1〜O5: 運用準備 (本番運用前の必須)**
    - O2 GitHub OIDC IAM Role (deploy.yml が引き受ける用)
-   - O3 main ブランチ保護
    - O4 Cognito 管理者ユーザー (R6 で Custom Resource 化済み、 確認のみ)
    - O5 Secrets Manager の実値投入 (LiveKit / YouTube)
 
@@ -157,7 +155,7 @@ R12-followup-1〜22 で **stage-web から SFU への WebRTC 接続** が完了 
 | **R3**              | S3    | stage-web → 実 LiveKit E2E (Playwright)                                               | `claude/stage-web-livekit-e2e`                                      | 雛形 (`describe.skip`) のみ。Playwright 実装は別 PR                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
 | **R4**              | S4    | 字幕ワーカー Docker 化 + ECR Repository + GHA build/push                              | `claude/caption-worker-docker` (IaC/CI 完)                          | Dockerfile + ECR + GHA build 完。実 push/疎通は deploy 後。**ADR 0019 で CDK DockerImageAsset ビルドに移行 (GHA / 専用 ECR 廃止)**                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
 | **R5**              | S5    | reconcile Lambda IAM 最小化 (CFN Service Role + PassRole)                             | `claude/reconcile-iam-min` (完)                                     | reconcile は cloudformation:\* + iam:PassRole のみ (実権限は CFN ロールへ)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
-| **R6**              | S5    | Cognito 管理者 Custom Resource (✅) + CloudFront カスタムドメイン + ACM (✅ ADR 0028) | `claude/cognito-admin-bootstrap` (CR 完)                            | `-c initialAdmins=...` で初期管理者を IaC 投入。ACM/独自ドメインは要ドメインで別途                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
+| **R6**              | S5    | Cognito 管理者 Custom Resource (✅) + CloudFront カスタムドメイン + ACM (✅ ADR 0028) | `claude/cognito-admin-bootstrap` (CR 完)                            | `-c initialAdmins=...` で初期管理者を IaC 投入。ACM/独自ドメインは ADR 0028 で完了                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
 | **R7**              | S5    | 統合テスト CI workflow + YouTube ingestion URL 自動取得                               | `claude/integration-ci-youtube`                                     | 1 イベントを実 YouTube Live に配信、SLO 観測                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
 | **R8**              | S3+   | LiveKit per-event URL ルーティング + NLB 廃止 (ADR 0008)                              | `claude/livekit-per-event-url` (**✅ 完**)                          | events.media.livekitUrl を reconcile が書き戻し、/join が per-event URL を返す。並列 2 イベントで相互干渉なし (ADR 0008 受け入れ基準)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
 | **R9**              | S3+   | stage-web → 実 LiveKit 接続の E2E 確認 (TLS 込み)                                     | `claude/r11-caption-worker-ecr-push` (ADR 0009)                     | 招待 URL 発行 → stage-web で /join → LiveKit Server に WebSocket 接続成功。**ADR 0009 で NLB + ACM + Route53 による TLS 終端を実装**。確認は実機デプロイ後                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
@@ -355,6 +353,29 @@ aws secretsmanager update-secret --secret-id stagecast/youtube \
 ---
 
 ## D: 技術的負債 (今回 PR #9 で残した宿題)
+
+### D18. 事前作成済みスタックはテンプレートを変えても更新されない
+
+`CloudFormationMediaStackProvisioner` は **`createStack` しか呼ばない**
+(`services/media-orchestrator/src/cfn-provisioner.ts`)。`destroy` も `deleteStack` だけで、
+**更新経路が存在しない**。
+
+ADR 0016 D-4 により `scheduled` の時点で desiredCount 0 のスタックを先に作るので、
+**テンプレートを変えても既存の `scheduled` イベントには反映されない**。古いテンプレートを
+抱えたまま開催時刻に立ち上がる。
+
+2026-09-19 に ADR 0028 でメディア層のホスト名と Caddy の起動コマンドを変えたが、
+そのとき `scheduled` のイベントが 0 件だったため実害は出なかった。**次にテンプレートを
+変えるときは、`scheduled` のイベントスタックを手で消す**こと (次の tick で新しい
+テンプレートから作り直される)。
+
+対応案: reconcile が「スタックのテンプレートが古いか」を見て作り直す。あるいは
+`scheduled` での事前作成をやめる (ADR 0016 D-4 の見直し)。
+
+### D19. reconcile の provision 失敗にバックオフが無い
+
+壊れている間ずっと毎分 provision を叩き続ける。D16 の 1-2 (失敗理由を管理画面に出す) は
+対応済みだが、この 3 番目だけ残っている。優先度は低い (料金もレート制限も実害が出ていない)。
 
 ### D8. 配信経路のレジリエンス (一過性エラー耐性)
 
@@ -630,3 +651,31 @@ devDependencies : "@voidzero-dev/vite-plus-core": "^0.1.24" → 0.1.24 を解決
    (ただし CLAUDE.md で「触らない方が良いもの」に指定されている箇所)
 
 どちらにせよ **1 を待つのが素直**。上流が alpha 段階なので、揃ってから動く。
+
+---
+
+## 削除済み項目の対照表 (2026-09-19)
+
+完了した項目を本文から削除したが、**コードや ADR のコメントが節 ID で参照している**ため、
+対照表だけ残す。詳細は `git log -p docs/NEXT_WORK.md` で辿れる。
+
+| 削除した ID | 内容                                       | いま情報がある場所                                               |
+| ----------- | ------------------------------------------ | ---------------------------------------------------------------- |
+| **O0**      | Caddy の ACME アカウントにメールを明示する | ADR 0016 D-6 / `infra/user-config.ts.example`                    |
+| **O3**      | main ブランチ保護                          | GitHub の Settings (ルールセット `main`)                         |
+| **D1**      | reconcile Lambda の bundle 削減            | `infra/lib/control-plane-stack.ts` の bundling 設定              |
+| **D2**      | `bin/app.ts` の file mode                  | — (再発しない)                                                   |
+| **D3 / D5** | LiveKit SDK 検証 / Valkey 名の 40 文字制限 | ADR 0006 / `event-media-stack.ts` の `serverlessCacheName`       |
+| **D4**      | Cognito Hosted UI のドメイン衝突           | リスク無しと判明 (アカウント ID が一意)                          |
+| **D6**      | Dependabot のグループ化                    | `.github/dependabot.yml`                                         |
+| **D7**      | reconcile Lambda の IAM 範囲               | `control-plane-stack.ts` の各 policy                             |
+| **D9**      | AssetsBucket の CORS                       | `control-plane-stack.ts` の `cors`                               |
+| **D10**     | 公開ルートの二重管理                       | `packages/shared/public-routes.json` の `$doc`                   |
+| **D11**     | admin-web のログイン切れ                   | `apps/admin-web/src/auth`                                        |
+| **D14**     | 字幕オフの配線                             | `reconcile.ts` の `captionDesiredCount`                          |
+| **D15**     | Lambda 内 CDK synth の実行確認             | `infra/test/render-template-bundle.test.ts`                      |
+| **D16**     | provision 失敗の可視化                     | 1-2 は `provisioning.ts`。3 (バックオフ) は **D19 に残っている** |
+| **D17**     | pre-push と CI の重複                      | `.husky/pre-push`                                                |
+| **N1 / N6** | 成果物 UI / UI 全面リニューアル            | 実装済み (`Artifacts` タブ / `packages/ui`)                      |
+| **L2**      | YouTube 利用規約                           | `docs/legal/youtube-operations.md`                               |
+| **P**       | 未マージ PR の棚卸し                       | 解消済み                                                         |

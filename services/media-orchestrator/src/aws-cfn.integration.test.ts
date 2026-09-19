@@ -33,5 +33,6 @@ describe.skipIf(!RUN)("media-orchestrator 実 CFN 疎通 (T8)", () => {
     const parsed = JSON.parse(json);
     expect(parsed.Resources).toBeDefined();
     expect(typeof parsed.Resources).toBe("object");
-  });
+    // CDK synth を走らせるので既定の 5 秒では足りない (render-template-handler.test.ts と同じ)。
+  }, 30_000);
 });
