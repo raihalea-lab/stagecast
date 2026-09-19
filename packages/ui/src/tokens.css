@@ -4,7 +4,7 @@
  * 単一の正としての CSS Custom Properties。 Tailwind preset (tailwind-preset.ts) は
  * このファイルの var(--*) を参照するだけ。 Tailwind の theme.extend に直値を書かない。
  *
- * カラー戦略 (ADR 0029): 主要アクションは brand 紫、赤はオンエア (tally) と破壊的操作 (error) に限定する。
+ * カラー戦略 (ADR 0029): 主要アクションは brand 青、赤はオンエア (tally) と破壊的操作 (error) に限定する。
  * 赤が「押していい」と「配信中」の両方を指していた混線を解く。
  * 階調は無彩色 + hairline + 微妙な surface 差で表現する。
  */
