@@ -29,6 +29,8 @@ import {
   aws_s3_deployment as s3deploy,
   aws_s3_notifications as s3n,
   aws_route53 as route53,
+  aws_route53_targets as route53Targets,
+  aws_certificatemanager as acm,
   aws_budgets as budgets,
   aws_sns_subscriptions as snsSubscriptions,
   aws_ec2 as ec2,
@@ -53,6 +55,11 @@ export interface ControlPlaneStackProps extends StackProps {
     requestWebDir?: string;
   };
   userConfig?: UserConfig;
+  /**
+   * Web SPA 用 ACM 証明書の ARN (ADR 0028 D-2)。us-east-1 の別スタックが作る。
+   * 未指定なら CloudFront は払い出しドメインのままになる (自前ドメイン無しの構成)。
+   */
+  webCertificateArn?: string;
 }
 
 /**
@@ -96,6 +103,18 @@ export function resolveCfnValidateWasm(): string {
 export const PUBLIC_ROUTES: string[] = (
   require("../../packages/shared/public-routes.json") as { routes: string[] }
 ).routes;
+
+/**
+ * 公開ホスト名をまとめる製品サブドメイン (ADR 0028 D-1)。
+ *
+ * `admin.stagecast.<zone>` のように 1 段挟む。ゾーン直下に並べると、Web 用の
+ * ワイルドカード証明書がゾーンの他の用途まで覆ってしまう。
+ */
+export const PRODUCT_SUBDOMAIN = "stagecast";
+
+/** Web SPA の公開ホスト名 (ADR 0028 D-1)。証明書は `*.stagecast.<zone>` 1 枚で足りる。 */
+export const WEB_APPS = ["admin", "stage", "composer", "request"] as const;
+export type WebApp = (typeof WEB_APPS)[number];
 
 /** RenderTemplateFunction のエントリ (テストが同じものをバンドルできるよう公開する)。 */
 export const RENDER_TEMPLATE_ENTRY = path.join(
@@ -343,11 +362,14 @@ export class ControlPlaneStack extends Stack {
     const mediaHostedZoneName = uc.mediaHostedZoneName;
     const tlsConfig = mediaHostedZoneName
       ? (() => {
-          const mediaDomainName = `media.${mediaHostedZoneName}`;
+          // ADR 0028 D-1: 公開ホスト名は製品サブドメインの下にまとめる。ゾーン直下に
+          // 並べると、ワイルドカード証明書がゾーンの他の用途まで巻き込む。
+          const appDomainName = `${PRODUCT_SUBDOMAIN}.${mediaHostedZoneName}`;
+          const mediaDomainName = `media.${appDomainName}`;
           const mediaHostedZone = route53.HostedZone.fromLookup(this, "MediaHostedZone", {
             domainName: mediaHostedZoneName,
           });
-          return { mediaDomainName, mediaHostedZone };
+          return { appDomainName, mediaDomainName, mediaHostedZone };
         })()
       : undefined;
 
@@ -405,10 +427,29 @@ export class ControlPlaneStack extends Stack {
     );
 
     // --- S3 + CloudFront: 管理 SPA / 登壇者 SPA の静的ホスティング (DESIGN.md 3.1, T6) ---
+    // ADR 0028 D-1/D-2: ホストゾーンと証明書が揃っているときだけ自前ホスト名で公開する。
+    // 片方でも欠けたら CloudFront の払い出し名のまま (自前ドメイン無しでもデプロイできる)。
+    const webCertificate =
+      tlsConfig && props?.webCertificateArn
+        ? acm.Certificate.fromCertificateArn(this, "WebCertificate", props.webCertificateArn)
+        : undefined;
+    const webDomain = (app: WebApp) =>
+      tlsConfig && webCertificate
+        ? { hostName: `${app}.${tlsConfig.appDomainName}`, certificate: webCertificate }
+        : undefined;
+
     const adminWebBucket = this.buildSpaBucket("AdminWebBucket");
-    const adminWebDistribution = this.buildSpaDistribution("AdminWebDistribution", adminWebBucket);
+    const adminWebDistribution = this.buildSpaDistribution(
+      "AdminWebDistribution",
+      adminWebBucket,
+      webDomain("admin"),
+    );
     const stageWebBucket = this.buildSpaBucket("StageWebBucket");
-    const stageWebDistribution = this.buildSpaDistribution("StageWebDistribution", stageWebBucket);
+    const stageWebDistribution = this.buildSpaDistribution(
+      "StageWebDistribution",
+      stageWebBucket,
+      webDomain("stage"),
+    );
     // ADR 0012 D-2: カスタム Egress テンプレート (composer-template) を独立 Distribution で配信。
     // 当初は admin-web Distribution に /composer/ path で追加する案だったが、 CloudFront の
     // cache behavior 切替と admin-web の SPA routing (BrowserRouter) の衝突懸念があり、
@@ -419,12 +460,54 @@ export class ControlPlaneStack extends Stack {
     const composerWebDistribution = this.buildSpaDistribution(
       "ComposerWebDistribution",
       composerWebBucket,
+      webDomain("composer"),
     );
     const requestWebBucket = this.buildSpaBucket("RequestWebBucket");
     const requestWebDistribution = this.buildSpaDistribution(
       "RequestWebDistribution",
       requestWebBucket,
+      webDomain("request"),
     );
+
+    /**
+     * SPA の公開オリジン (ADR 0028 D-3)。**ここだけが公開 URL を決める。**
+     *
+     * 以前は `distribution.domainName` の参照が 17 箇所に散っていた。カスタムドメインを
+     * 後付けすると必ずどこかが取り残される (CORS・Cognito コールバック・招待 URL・config.json)。
+     * ホストゾーン未設定の環境では CloudFront の払い出し名を返すので、自前ドメインを
+     * 持たないアカウントでもデプロイできる。
+     */
+    const distributionOf: Record<WebApp, cloudfront.Distribution> = {
+      admin: adminWebDistribution,
+      stage: stageWebDistribution,
+      composer: composerWebDistribution,
+      request: requestWebDistribution,
+    };
+    const webOrigin = (app: WebApp): string =>
+      tlsConfig && webCertificate
+        ? `https://${app}.${tlsConfig.appDomainName}`
+        : `https://${distributionOf[app].domainName}`;
+
+    // ADR 0028 D-1: 自前ホスト名を CloudFront に向ける。A と AAAA の両方を張らないと、
+    // IPv6 しか引けない環境から到達できない。
+    if (tlsConfig && webCertificate) {
+      for (const app of WEB_APPS) {
+        const target = route53.RecordTarget.fromAlias(
+          new route53Targets.CloudFrontTarget(distributionOf[app]),
+        );
+        const recordName = `${app}.${tlsConfig.appDomainName}`;
+        new route53.ARecord(this, `${app}WebAliasA`, {
+          zone: tlsConfig.mediaHostedZone,
+          recordName,
+          target,
+        });
+        new route53.AaaaRecord(this, `${app}WebAliasAAAA`, {
+          zone: tlsConfig.mediaHostedZone,
+          recordName,
+          target,
+        });
+      }
+    }
 
     // --- AssetsBucket の CORS (D9) ---
     // 署名付き URL でブラウザが S3 を直接叩く経路があるため、バケット側に CORS が要る。
@@ -439,9 +522,9 @@ export class ControlPlaneStack extends Stack {
     assetsBucket.addCorsRule({
       allowedMethods: [s3.HttpMethods.GET, s3.HttpMethods.PUT, s3.HttpMethods.HEAD],
       allowedOrigins: [
-        `https://${adminWebDistribution.domainName}`,
-        `https://${stageWebDistribution.domainName}`,
-        `https://${composerWebDistribution.domainName}`,
+        webOrigin("admin"),
+        webOrigin("stage"),
+        webOrigin("composer"),
         // ローカル開発 (vite は 5173 から順に空きポートを取る。SPA は 4 つ)。
         "http://localhost:5173",
         "http://localhost:5174",
@@ -481,13 +564,10 @@ export class ControlPlaneStack extends Stack {
     });
 
     const adminCallbackUrls = [
-      `https://${adminWebDistribution.domainName}/auth/callback`,
+      `${webOrigin("admin")}/auth/callback`,
       "http://localhost:5173/auth/callback",
     ];
-    const adminLogoutUrls = [
-      `https://${adminWebDistribution.domainName}/`,
-      "http://localhost:5173/",
-    ];
+    const adminLogoutUrls = [`${webOrigin("admin")}/`, "http://localhost:5173/"];
     // セッション長 (2026-06-20): 1 イベント運営で 1〜2 時間のオペレーションが続くため、
     // ID/Access Token を 6 時間に延長し、その間トークン再取得不要にする (UX 改善要望)。
     // Cognito の上限: id/access は 1分〜24時間、refresh は 60分〜10年。
@@ -653,7 +733,7 @@ export class ControlPlaneStack extends Stack {
         COGNITO_USER_POOL_ID: adminUserPool.userPoolId,
         COGNITO_USER_POOL_CLIENT_ID: adminUserPoolClient.userPoolClientId,
         INVITE_TOKEN_SECRET_ARN: inviteTokenSecret.secretArn,
-        INVITE_BASE_URL: `https://${stageWebDistribution.domainName}/join`,
+        INVITE_BASE_URL: `${webOrigin("stage")}/join`,
         LIVEKIT_SECRET_ARN: livekitSecret.secretArn,
         // 運用設定 (LiveKit / YouTube) を管理画面から更新できるようにする。
         YOUTUBE_SECRET_ARN: youtubeSecret.secretArn,
@@ -697,9 +777,9 @@ export class ControlPlaneStack extends Stack {
       protocolType: "HTTP",
       corsConfiguration: {
         allowOrigins: [
-          `https://${adminWebDistribution.domainName}`,
-          `https://${stageWebDistribution.domainName}`,
-          `https://${requestWebDistribution.domainName}`,
+          webOrigin("admin"),
+          webOrigin("stage"),
+          webOrigin("request"),
           "http://localhost:5173",
           "http://localhost:5174",
         ],
@@ -776,8 +856,8 @@ export class ControlPlaneStack extends Stack {
               clientId: adminUserPoolClient.userPoolClientId,
             },
             // R17 / ADR 0012 D-6: admin-web の LivePreview iframe が開く composer-template の URL。
-            composerTemplateUrl: `https://${composerWebDistribution.domainName}`,
-            requestWebUrl: `https://${requestWebDistribution.domainName}`,
+            composerTemplateUrl: webOrigin("composer"),
+            requestWebUrl: webOrigin("request"),
           }),
         ],
       });
@@ -791,7 +871,7 @@ export class ControlPlaneStack extends Stack {
             controlApiUrl,
             // R17-Phase3 / ADR 0012 D-6: stage-web の登壇者ビュー右下小窓プレビューが
             // composer-template を iframe で開くための URL。
-            composerTemplateUrl: `https://${composerWebDistribution.domainName}`,
+            composerTemplateUrl: webOrigin("composer"),
           }),
         ],
       });
@@ -818,13 +898,13 @@ export class ControlPlaneStack extends Stack {
     }
 
     // --- 出力 (フロントビルド / 運用) ---
-    new CfnOutput(this, "AdminWebUrl", { value: `https://${adminWebDistribution.domainName}` });
-    new CfnOutput(this, "StageWebUrl", { value: `https://${stageWebDistribution.domainName}` });
+    new CfnOutput(this, "AdminWebUrl", { value: webOrigin("admin") });
+    new CfnOutput(this, "StageWebUrl", { value: webOrigin("stage") });
     // ADR 0012 D-3: ComposerWebUrl は Egress config の template_base に渡される (event-media-stack.ts)。
     new CfnOutput(this, "ComposerWebUrl", {
-      value: `https://${composerWebDistribution.domainName}`,
+      value: webOrigin("composer"),
     });
-    new CfnOutput(this, "RequestWebUrl", { value: `https://${requestWebDistribution.domainName}` });
+    new CfnOutput(this, "RequestWebUrl", { value: webOrigin("request") });
     new CfnOutput(this, "ControlApiId", { value: httpApi.ref });
     new CfnOutput(this, "ControlApiEndpoint", {
       value: `https://${httpApi.ref}.execute-api.${this.region}.amazonaws.com`,
@@ -992,7 +1072,7 @@ export class ControlPlaneStack extends Stack {
         // ADR 0012 D-3: カスタム Egress テンプレート (composer-template) の URL を
         // EventMediaStack に渡す。 render-template.ts が process.env から読んで Egress config
         // の template_base に注入する。
-        COMPOSER_TEMPLATE_URL: `https://${composerWebDistribution.domainName}`,
+        COMPOSER_TEMPLATE_URL: webOrigin("composer"),
       },
     });
 
@@ -1311,9 +1391,19 @@ export class ControlPlaneStack extends Stack {
     });
   }
 
-  /** SPA 用 CloudFront ディストリビューションの共通設定 (OAC + SPA ルーティング)。 */
-  private buildSpaDistribution(id: string, bucket: s3.Bucket): cloudfront.Distribution {
+  /**
+   * SPA 用 CloudFront ディストリビューションの共通設定 (OAC + SPA ルーティング)。
+   *
+   * `domain` を渡すと自前ホスト名で公開する (ADR 0028 D-1)。証明書は us-east-1 の
+   * ワイルドカード 1 枚を全 Distribution で共有する。
+   */
+  private buildSpaDistribution(
+    id: string,
+    bucket: s3.Bucket,
+    domain?: { hostName: string; certificate: acm.ICertificate },
+  ): cloudfront.Distribution {
     return new cloudfront.Distribution(this, id, {
+      ...(domain ? { domainNames: [domain.hostName], certificate: domain.certificate } : {}),
       defaultRootObject: "index.html",
       defaultBehavior: {
         origin: origins.S3BucketOrigin.withOriginAccessControl(bucket),

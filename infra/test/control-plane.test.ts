@@ -18,7 +18,7 @@ import {
  * 呼ぶとテストごとにそれを払うことになり、CI の 5 秒タイムアウトに引っかかる
  * (実際に落ちた)。アサーションは読み取りしかしないので共有して問題ない。
  */
-let synthed: { base: Template; withOpsEmail: Template } | undefined;
+let synthed: { base: Template; withOpsEmail: Template; withDomain: Template } | undefined;
 
 /**
  * 既定構成と `opsEmail` 設定済み構成を **同じ App で** 作る。
@@ -27,7 +27,7 @@ let synthed: { base: Template; withOpsEmail: Template } | undefined;
  * ぶんは使い回されるので、2 つ目のスタックはほぼ増分コストで済む。
  * (App を分けたときは CI で 5 秒、負荷の高いマシンでは 120 秒でもタイムアウトした)
  */
-function synthAll(): { base: Template; withOpsEmail: Template } {
+function synthAll(): { base: Template; withOpsEmail: Template; withDomain: Template } {
   if (synthed) return synthed;
   const app = new App({
     context: {
@@ -47,9 +47,17 @@ function synthAll(): { base: Template; withOpsEmail: Template } {
     env,
     userConfig: { mediaHostedZoneName: "example.com", opsEmail: "ops@example.com" },
   });
+  // ADR 0028: 自前ドメインを使う構成 (証明書 ARN が渡ってくる)。
+  const withDomain = new ControlPlaneStack(app, "TestControlPlaneDomain", {
+    env,
+    userConfig: { mediaHostedZoneName: "example.com" },
+    crossRegionReferences: true,
+    webCertificateArn: "arn:aws:acm:us-east-1:111111111111:certificate/test",
+  });
   synthed = {
     base: Template.fromStack(base),
     withOpsEmail: Template.fromStack(withOpsEmail),
+    withDomain: Template.fromStack(withDomain),
   };
   return synthed;
 }
@@ -735,5 +743,51 @@ describe("運用アラームの通知先 (D16 の実効性)", () => {
     // 既定の synth には opsEmail を渡していない。email 購読はコスト用の budgetEmail 分だけ。
     const subs = Object.values(synth().findResources("AWS::SNS::Subscription"));
     expect(subs.filter((s) => s.Properties.Protocol === "email")).toHaveLength(0);
+  });
+});
+
+describe("公開ホスト名を製品サブドメインに揃える (ADR 0028)", () => {
+  const template = () => synthAll().withDomain;
+
+  it("4 本の Distribution が自前ホスト名で公開される", () => {
+    const aliases = Object.values(template().findResources("AWS::CloudFront::Distribution"))
+      .flatMap(
+        (d) =>
+          (d.Properties as { DistributionConfig?: { Aliases?: string[] } }).DistributionConfig
+            ?.Aliases ?? [],
+      )
+      .sort();
+    expect(aliases).toEqual([
+      "admin.stagecast.example.com",
+      "composer.stagecast.example.com",
+      "request.stagecast.example.com",
+      "stage.stagecast.example.com",
+    ]);
+  });
+
+  it("A と AAAA の両方を張る (IPv6 しか引けない環境から到達できなくなる)", () => {
+    template().resourceCountIs("AWS::Route53::RecordSet", 8);
+  });
+
+  it("招待 URL と Cognito のコールバックが自前ホスト名になる", () => {
+    // ADR 0028 D-3 の肝。以前は 17 箇所が個別に distribution.domainName を参照しており、
+    // カスタムドメインを後付けするとどれかが CloudFront の払い出し名のまま残る。
+    const text = JSON.stringify(template().toJSON());
+    expect(text).toContain("https://stage.stagecast.example.com/join");
+    expect(text).toContain("https://admin.stagecast.example.com/auth/callback");
+  });
+
+  it("メディア層も同じ名前空間に入る", () => {
+    expect(renderTemplateEnv(template())).toContain("media.stagecast.example.com");
+  });
+
+  it("証明書が無ければ Web は CloudFront の払い出し名のまま (自前ドメイン無しでもデプロイできる)", () => {
+    // メディア層のドメインは証明書と無関係に決まる (Caddy が Let's Encrypt から取る) ので、
+    // ここで見るのは Web の 4 ホストと alias レコードだけ。
+    const text = JSON.stringify(synth().toJSON());
+    for (const app of ["admin", "stage", "composer", "request"]) {
+      expect(text).not.toContain(`${app}.stagecast.example.com`);
+    }
+    expect(synth().findResources("AWS::Route53::RecordSet")).toEqual({});
   });
 });

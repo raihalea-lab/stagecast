@@ -2,7 +2,8 @@
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { App } from "aws-cdk-lib";
-import { ControlPlaneStack } from "../lib/control-plane-stack";
+import { ControlPlaneStack, PRODUCT_SUBDOMAIN } from "../lib/control-plane-stack";
+import { WebCertificateStack } from "../lib/web-certificate-stack";
 import { EventMediaStack, eventMediaStackName } from "../lib/event-media-stack";
 import type { CaptionEngineKind } from "@stagecast/shared";
 import type { UserConfig } from "../lib/user-config";
@@ -37,8 +38,26 @@ const webAssets =
       }
     : undefined;
 
+// ADR 0028 D-2: CloudFront は us-east-1 の証明書しか受け付けない。制御層は ap-northeast-1
+// なので証明書だけ別スタックに分け、crossRegionReferences で ARN を渡す。
+// ホストゾーン未設定なら作らない (自前ドメイン無しでもデプロイできる)。
+const webCertStack = userConfig.mediaHostedZoneName
+  ? new WebCertificateStack(app, "StagecastWebCertificate", {
+      env: { account: env.account, region: "us-east-1" },
+      crossRegionReferences: true,
+      hostedZoneName: userConfig.mediaHostedZoneName,
+      appDomainName: `${PRODUCT_SUBDOMAIN}.${userConfig.mediaHostedZoneName}`,
+    })
+  : undefined;
+
 // 制御層 (常時稼働) は常にデプロイ対象。
-new ControlPlaneStack(app, "StagecastControlPlane", { env, webAssets, userConfig });
+new ControlPlaneStack(app, "StagecastControlPlane", {
+  env,
+  webAssets,
+  userConfig,
+  crossRegionReferences: true,
+  ...(webCertStack ? { webCertificateArn: webCertStack.certificateArn } : {}),
+});
 
 // イベント単位メディアスタックは media-orchestrator が動的に起動する (DESIGN.md 7.1)。
 // `cdk deploy -c eventId=<id> [-c captionEngine=transcribe] [-c customCaptionApi=true]` で
