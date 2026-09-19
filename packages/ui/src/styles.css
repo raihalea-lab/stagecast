@@ -30,7 +30,8 @@
  * どちらも「クラス名では表に出ない」変更なので、入れないと全画面で地味に見た目が変わる。
  *
  * 1. border のデフォルト色: v3 は #e5e7eb、v4 は currentColor。
- *    色を指定していない `border` が文字色になってしまう。
+ *    色を指定していない `border` が文字色になってしまう。 固定グレーだと薄紫の面で濁るので
+ *    hairline トークンに寄せる (テーマ追従)。
  * 2. button の cursor: v3 は pointer、v4 はブラウザ標準 (default)。
  *
  * 将来 v3 互換をやめるなら、色指定のない border を洗い出してから消すこと。
@@ -41,7 +42,7 @@
   ::before,
   ::backdrop,
   ::file-selector-button {
-    border-color: #e5e7eb;
+    border-color: var(--line-2);
   }
 
   button:not(:disabled),
@@ -78,12 +79,12 @@
     font-variant-numeric: tabular-nums slashed-zero;
   }
 
-  /* focus-visible: Tally と同色の ring。 "本番に近い注意" の一貫性 */
+  /* focus-visible: brand 色の ring。 赤はオンエア表示に取っておく (ADR 0029) */
   :focus-visible {
     outline: 2px solid transparent;
     outline-offset: 2px;
     box-shadow:
-      0 0 0 2px var(--tally-500),
+      0 0 0 2px var(--brand-500),
       0 0 0 4px var(--surface-0);
     border-radius: var(--radius-sm);
   }

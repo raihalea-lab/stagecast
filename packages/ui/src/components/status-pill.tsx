@@ -21,9 +21,10 @@ export interface StatusPillProps extends React.HTMLAttributes<HTMLSpanElement> {
 
 const variantClass: Record<StatusVariant, string> = {
   draft: "border-line-2 text-text-secondary bg-surface-2",
-  scheduled: "border-blue-500 text-blue-700 bg-blue-50 dark:text-blue-300 dark:bg-blue-950/30",
-  warmup: "border-amber-500 text-amber-700 bg-amber-50 dark:text-amber-300 dark:bg-amber-950/30",
-  live: "border-tally-500 text-tally-50 bg-tally-700/30",
+  scheduled: "border-brand-500 text-brand-text bg-brand-tint",
+  warmup: "border-warning text-warning bg-surface-2",
+  // ライトでは薄赤地に濃赤字 (白地に text-tally-50 は読めない)
+  live: "border-tally-500 text-tally-700 bg-tally-50 dark:text-tally-50 dark:bg-tally-700/30",
   ended: "border-line-1 text-text-tertiary bg-surface-2",
   ok: "border-preview-500 text-preview-500 bg-surface-2",
   warn: "border-warning text-warning bg-surface-2",

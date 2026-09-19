@@ -6,6 +6,7 @@ import interactionPlugin from "@fullcalendar/interaction";
 import type { EventClickArg } from "@fullcalendar/core";
 import type { DateClickArg } from "@fullcalendar/interaction";
 import { MAX_EVENTS, type EventDefinition, type EventRequest } from "@stagecast/shared";
+import { CALENDAR_EVENT_COLORS, type CalendarEventColors } from "@stagecast/ui";
 
 const TWO_HOURS_MS = 2 * 60 * 60 * 1000;
 const VIEW_STORAGE_KEY = "stagecast-admin-cal-view";
@@ -27,43 +28,14 @@ function formatEventTime(d: Date): string {
   });
 }
 
-const STATUS_COLORS: Record<
-  string,
-  { backgroundColor: string; borderColor: string; textColor: string }
-> = {
-  draft: {
-    backgroundColor: "#f3f4f6",
-    borderColor: "#9ca3af",
-    textColor: "#1f2937",
-  },
-  scheduled: {
-    backgroundColor: "#dbeafe",
-    borderColor: "#3b82f6",
-    textColor: "#1e3a5f",
-  },
-  live: {
-    backgroundColor: "#fee2e2",
-    borderColor: "#ef4444",
-    textColor: "#7f1d1d",
-  },
-  ended: {
-    backgroundColor: "#f9fafb",
-    borderColor: "#d1d5db",
-    textColor: "#6b7280",
-  },
-  request: {
-    backgroundColor: "#fef3c7",
-    borderColor: "#f59e0b",
-    textColor: "#78350f",
-  },
-};
+const STATUS_COLORS: Record<string, CalendarEventColors> = CALENDAR_EVENT_COLORS;
 
 const LEGEND_ITEMS = [
-  { label: "下書き", color: "#9ca3af" },
-  { label: "予定", color: "#3b82f6" },
-  { label: "配信中", color: "#ef4444" },
-  { label: "終了", color: "#d1d5db" },
-  { label: "リクエスト", color: "#f59e0b" },
+  { label: "下書き", color: CALENDAR_EVENT_COLORS.draft.borderColor },
+  { label: "予定", color: CALENDAR_EVENT_COLORS.scheduled.borderColor },
+  { label: "配信中", color: CALENDAR_EVENT_COLORS.live.borderColor },
+  { label: "終了", color: CALENDAR_EVENT_COLORS.ended.borderColor },
+  { label: "リクエスト", color: CALENDAR_EVENT_COLORS.request.borderColor },
 ];
 
 interface EventPopover {
@@ -198,7 +170,7 @@ export function CalendarView(props: {
               {popover.eventId && (
                 <button
                   type="button"
-                  className="mt-2 text-xs font-medium text-blue-600 hover:text-blue-800"
+                  className="mt-2 text-xs font-medium text-brand-text hover:underline"
                   onClick={() => {
                     const id = popover.eventId!;
                     setPopover(null);

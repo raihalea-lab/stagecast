@@ -37,9 +37,9 @@ const STATUS_LABEL: Record<EventStatus, string> = {
 
 const STATUS_CLASS: Record<EventStatus, string> = {
   draft: "text-text-tertiary",
-  scheduled: "text-preview-500",
-  warmup: "text-amber-500",
-  live: "text-tally-400",
+  scheduled: "text-brand-text",
+  warmup: "text-warning",
+  live: "text-tally-500",
   ended: "text-text-tertiary",
 };
 
@@ -57,20 +57,20 @@ export const EventListItem = React.forwardRef<HTMLButtonElement, EventListItemPr
         "group relative flex w-full items-center gap-3 px-3 py-2 text-left transition-colors duration-fast",
         "hover:bg-surface-2",
         active && "bg-surface-2",
-        selected && "bg-tally-700/20",
+        selected && "bg-brand-tint",
         className,
       )}
       {...props}
     >
       {active && !selectable && (
-        <span aria-hidden className="absolute inset-y-0 left-0 w-[2px] bg-tally-500" />
+        <span aria-hidden className="absolute inset-y-0 left-0 w-[2px] bg-brand-600" />
       )}
       {selectable && (
         <span
           aria-hidden
           className={cn(
             "flex size-4 shrink-0 items-center justify-center rounded border transition-colors",
-            selected ? "border-tally-500 bg-tally-500 text-white" : "border-line-2 bg-surface-2",
+            selected ? "border-brand-600 bg-brand-600 text-white" : "border-line-2 bg-surface-2",
           )}
         >
           {selected && (

@@ -233,18 +233,18 @@ function ProvisioningCard(props: {
 
 const TRANSITIONS: Record<
   EventStatus,
-  { label: string; status: EventStatus; variant: "default" | "outline" | "destructive" }[]
+  { label: string; status: EventStatus; variant: "live" | "outline" | "destructive" }[]
 > = {
   draft: [
     { label: "予定にする", status: "scheduled", variant: "outline" },
-    { label: "配信開始", status: "live", variant: "default" },
+    { label: "配信開始", status: "live", variant: "live" },
   ],
   scheduled: [
     { label: "下書きに戻す", status: "draft", variant: "outline" },
-    { label: "配信開始", status: "live", variant: "default" },
+    { label: "配信開始", status: "live", variant: "live" },
   ],
   warmup: [
-    { label: "配信開始", status: "live", variant: "default" },
+    { label: "配信開始", status: "live", variant: "live" },
     { label: "下書きに戻す", status: "draft", variant: "outline" },
   ],
   live: [{ label: "配信終了", status: "ended", variant: "destructive" }],
@@ -358,8 +358,8 @@ function AssetManagerTab(props: { client: ControlApiClient; assets: AssetService
     })();
 
   const iconForType = (contentType: string) => {
-    if (contentType.startsWith("image/")) return <Image className="size-4 text-tally-500" />;
-    if (contentType.startsWith("video/")) return <File className="size-4 text-amber-500" />;
+    if (contentType.startsWith("image/")) return <Image className="size-4 text-brand-text" />;
+    if (contentType.startsWith("video/")) return <File className="size-4 text-warning" />;
     return <File className="size-4 text-text-tertiary" />;
   };
 
@@ -448,7 +448,7 @@ function AssetManagerTab(props: { client: ControlApiClient; assets: AssetService
                   onClick={() => setTagFilter(tagFilter === tag ? undefined : tag)}
                   className={`rounded-full px-2.5 py-0.5 text-xs font-medium transition-colors ${
                     tagFilter === tag
-                      ? "bg-tally-500 text-white"
+                      ? "bg-brand-600 text-white"
                       : "bg-surface-2 text-text-secondary hover:bg-surface-3"
                   }`}
                 >
@@ -517,10 +517,7 @@ function AssetManagerTab(props: { client: ControlApiClient; assets: AssetService
                           </AlertDialogHeader>
                           <AlertDialogFooter>
                             <AlertDialogCancel>キャンセル</AlertDialogCancel>
-                            <AlertDialogAction
-                              className="bg-error text-error-foreground hover:bg-error/90"
-                              onClick={() => handleDelete(asset)}
-                            >
+                            <AlertDialogAction onClick={() => handleDelete(asset)}>
                               削除する
                             </AlertDialogAction>
                           </AlertDialogFooter>
@@ -639,6 +636,16 @@ export function EventDetail(props: {
     setArtifactList(await artifacts.list(event.id));
   });
 
+  // タブを開いたら勝手に取りにいく。失敗は画面全体の赤帯にせず未取得のままにして、
+  // 「一覧を更新」を押したときだけ guard 経由でエラーを見せる。
+  const loadArtifactsOnOpen = () => {
+    if (artifactList !== undefined) return;
+    artifacts
+      .list(event.id)
+      .then(setArtifactList)
+      .catch(() => {});
+  };
+
   const uploadQr = (file: File) =>
     guard(async () => {
       const bytes = new Uint8Array(await file.arrayBuffer());
@@ -714,10 +721,7 @@ export function EventDetail(props: {
               </AlertDialogHeader>
               <AlertDialogFooter>
                 <AlertDialogCancel>キャンセル</AlertDialogCancel>
-                <AlertDialogAction
-                  className="bg-error text-error-foreground hover:bg-error/90"
-                  onClick={() => props.onDelete(event.id)}
-                >
+                <AlertDialogAction onClick={() => props.onDelete(event.id)}>
                   削除する
                 </AlertDialogAction>
               </AlertDialogFooter>
@@ -754,7 +758,12 @@ export function EventDetail(props: {
         </div>
       )}
 
-      <Tabs defaultValue="setup">
+      <Tabs
+        defaultValue="setup"
+        onValueChange={(tab) => {
+          if (tab === "artifacts") loadArtifactsOnOpen();
+        }}
+      >
         <TabsList>
           <TabsTrigger value="setup">Setup</TabsTrigger>
           <TabsTrigger value="assets">Assets</TabsTrigger>
@@ -947,7 +956,7 @@ export function EventDetail(props: {
                         href={a.downloadUrl}
                         download={a.name}
                         rel="noreferrer"
-                        className="text-text-primary underline underline-offset-2 hover:text-tally-500"
+                        className="text-text-primary underline underline-offset-2 hover:text-brand-text"
                       >
                         {a.name}
                       </a>

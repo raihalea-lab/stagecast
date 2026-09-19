@@ -4,7 +4,8 @@
  * 単一の正としての CSS Custom Properties。 Tailwind preset (tailwind-preset.ts) は
  * このファイルの var(--*) を参照するだけ。 Tailwind の theme.extend に直値を書かない。
  *
- * カラー戦略: 赤一色節制。 アクセントは Tally Red (#DC2626) と Preview Green (#16A34A) のみ。
+ * カラー戦略 (ADR 0029): 主要アクションは brand 紫、赤はオンエア (tally) と破壊的操作 (error) に限定する。
+ * 赤が「押していい」と「配信中」の両方を指していた混線を解く。
  * 階調は無彩色 + hairline + 微妙な surface 差で表現する。
  */
 
@@ -41,6 +42,17 @@
   --preview-500: #16a34a;
   --preview-glow: 0 0 0 1px rgba(22, 163, 74, 0.45), 0 0 10px 0 rgba(22, 163, 74, 0.3);
 
+  /* brand — 主要アクション (Button default / focus ring / 選択状態)。 両テーマ共通 */
+  --brand-300: #a19edb;
+  --brand-500: #817dd4;
+  /* 白文字を載せる塗りは常に 600 (白との対比 4.86:1)。 500 は 3.6:1 で本文サイズに足りない */
+  --brand-600: #6b66c4;
+  --brand-700: #5a55ad;
+  /* 文字色 (リンク・ラベル) はテーマで変わる: ダークは明るい 300、ライトは濃い 700 */
+  --brand-text: #a19edb;
+  /* 薄い面 (選択行・注記) */
+  --brand-tint: rgba(129, 125, 212, 0.16);
+
   /* 機能色 (alert / log 系のみ、 通常 UI には極力使わない) */
   --success: #10b981;
   --warning: #f59e0b;
@@ -68,23 +80,33 @@
 }
 
 [data-theme="light"] {
-  --surface-0: #fafafa;
+  /* 面は brand 紫を薄く帯びた灰 (#ddddec 系)。 純白は surface-1 (カード) だけ */
+  --surface-0: #f7f7fb;
   --surface-1: #ffffff;
-  --surface-2: #f5f5f7;
-  --surface-3: #ececef;
-  --surface-4: #dedee3;
+  --surface-2: #ececf5;
+  --surface-3: #ddddec;
+  --surface-4: #c9c7e8;
 
-  --line-1: rgba(0, 0, 0, 0.06);
-  --line-2: rgba(0, 0, 0, 0.1);
-  --line-3: rgba(0, 0, 0, 0.16);
+  --line-1: rgba(60, 56, 120, 0.08);
+  --line-2: rgba(60, 56, 120, 0.14);
+  --line-3: rgba(60, 56, 120, 0.22);
 
-  --text-primary: rgba(17, 17, 20, 0.94);
-  --text-secondary: rgba(17, 17, 20, 0.66);
-  --text-tertiary: rgba(17, 17, 20, 0.42);
-  --text-disabled: rgba(17, 17, 20, 0.24);
+  --text-primary: rgba(26, 26, 36, 0.94);
+  --text-secondary: rgba(26, 26, 36, 0.68);
+  --text-tertiary: rgba(26, 26, 36, 0.46);
+  --text-disabled: rgba(26, 26, 36, 0.26);
 
-  --shadow-overlay: 0 12px 32px -8px rgba(0, 0, 0, 0.18), 0 0 0 1px var(--line-2);
-  /* tally / preview / functional / radius / motion はダークと共通 */
+  --brand-text: #5a55ad;
+  --brand-tint: #e4e3f6;
+
+  /* 機能色を文字として白地に置くと 4.5:1 に届かないので、ライトだけ一段濃くする */
+  --success: #047857;
+  --warning: #b45309;
+  --error: #dc2626;
+  --info: #0369a1;
+
+  --shadow-overlay: 0 12px 32px -8px rgba(40, 36, 90, 0.18), 0 0 0 1px var(--line-2);
+  /* tally / preview / brand 塗り / radius / motion はダークと共通 */
 }
 
 /* prefers-reduced-motion: pulse / 流れる effect を停止、 色は維持して識別可 */

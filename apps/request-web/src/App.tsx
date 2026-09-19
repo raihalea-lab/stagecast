@@ -7,6 +7,7 @@ import type { DateSelectArg, EventClickArg, EventDropArg } from "@fullcalendar/c
 import type { EventResizeDoneArg } from "@fullcalendar/interaction";
 import {
   Button,
+  CALENDAR_EVENT_COLORS,
   Card,
   CardContent,
   CardHeader,
@@ -14,6 +15,7 @@ import {
   Input,
   Label,
   Toaster,
+  type CalendarEventColors,
 } from "@stagecast/ui";
 
 const TWO_HOURS_MS = 2 * 60 * 60 * 1000;
@@ -44,51 +46,17 @@ function computeDefaultEndsAt(startsAt: string): string {
   return toDatetimeLocal(new Date(ms + TWO_HOURS_MS));
 }
 
-const STATUS_COLORS: Record<
-  string,
-  { backgroundColor: string; borderColor: string; textColor: string }
-> = {
-  scheduled: {
-    backgroundColor: "#dbeafe",
-    borderColor: "#3b82f6",
-    textColor: "#1e3a5f",
-  },
-  live: {
-    backgroundColor: "#fee2e2",
-    borderColor: "#ef4444",
-    textColor: "#7f1d1d",
-  },
-  ended: {
-    backgroundColor: "#f9fafb",
-    borderColor: "#d1d5db",
-    textColor: "#6b7280",
-  },
-  draft: {
-    backgroundColor: "#f3f4f6",
-    borderColor: "#9ca3af",
-    textColor: "#1f2937",
-  },
-};
-
-const SELECTION_COLORS = {
-  backgroundColor: "#fef3c7",
-  borderColor: "#f59e0b",
-  textColor: "#78350f",
-};
-
-const REQUEST_COLORS = {
-  backgroundColor: "#ffedd5",
-  borderColor: "#f97316",
-  textColor: "#7c2d12",
-};
+const STATUS_COLORS: Record<string, CalendarEventColors> = CALENDAR_EVENT_COLORS;
+const SELECTION_COLORS = CALENDAR_EVENT_COLORS.selection;
+const REQUEST_COLORS = CALENDAR_EVENT_COLORS.request;
 
 const LEGEND_ITEMS = [
-  { label: "下書き", color: "#9ca3af" },
-  { label: "予定", color: "#3b82f6" },
-  { label: "配信中", color: "#ef4444" },
-  { label: "終了", color: "#d1d5db" },
-  { label: "リクエスト中", color: "#f97316" },
-  { label: "選択中", color: "#f59e0b" },
+  { label: "下書き", color: CALENDAR_EVENT_COLORS.draft.borderColor },
+  { label: "予定", color: CALENDAR_EVENT_COLORS.scheduled.borderColor },
+  { label: "配信中", color: CALENDAR_EVENT_COLORS.live.borderColor },
+  { label: "終了", color: CALENDAR_EVENT_COLORS.ended.borderColor },
+  { label: "リクエスト中", color: CALENDAR_EVENT_COLORS.request.borderColor },
+  { label: "選択中", color: CALENDAR_EVENT_COLORS.selection.borderColor },
 ];
 
 interface PublicEvent {
@@ -391,7 +359,7 @@ export function App(props: { controlApiUrl: string }) {
               <CardContent>
                 {submitted ? (
                   <div className="flex flex-col gap-3">
-                    <p className="text-sm text-emerald-600">
+                    <p className="text-sm text-success">
                       リクエストを送信しました！管理者の承認をお待ちください。
                     </p>
                     <Button
@@ -410,12 +378,12 @@ export function App(props: { controlApiUrl: string }) {
                         {error}
                       </p>
                     )}
-                    <p className="rounded-md border border-blue-200 bg-blue-50 px-3 py-2 text-xs text-blue-700">
-                      <span className="inline-block rounded bg-blue-100 px-1.5 py-0.5 text-[10px] font-semibold text-blue-700">
+                    <p className="rounded-md border border-brand-500/40 bg-brand-tint px-3 py-2 text-xs text-brand-text">
+                      <span className="inline-block rounded bg-brand-600 px-1.5 py-0.5 text-[10px] font-semibold text-white">
                         カレンダーに公開
                       </span>{" "}
                       の項目はカレンダー上に表示されます。
-                      <span className="inline-block rounded bg-gray-100 px-1.5 py-0.5 text-[10px] font-semibold text-gray-600">
+                      <span className="inline-block rounded bg-surface-3 px-1.5 py-0.5 text-[10px] font-semibold text-text-secondary">
                         管理者のみ
                       </span>{" "}
                       の項目は管理者だけが確認できます。
@@ -423,7 +391,7 @@ export function App(props: { controlApiUrl: string }) {
                     <div className="grid gap-1.5">
                       <Label htmlFor="rw-name" className="flex items-center gap-2">
                         お名前 *
-                        <span className="rounded bg-gray-100 px-1.5 py-0.5 text-[10px] font-semibold text-gray-600">
+                        <span className="rounded bg-surface-3 px-1.5 py-0.5 text-[10px] font-semibold text-text-secondary">
                           管理者のみ
                         </span>
                       </Label>
@@ -437,7 +405,7 @@ export function App(props: { controlApiUrl: string }) {
                     <div className="grid gap-1.5">
                       <Label htmlFor="rw-contact" className="flex items-center gap-2">
                         連絡先（メール / Slack / X など）
-                        <span className="rounded bg-gray-100 px-1.5 py-0.5 text-[10px] font-semibold text-gray-600">
+                        <span className="rounded bg-surface-3 px-1.5 py-0.5 text-[10px] font-semibold text-text-secondary">
                           管理者のみ
                         </span>
                       </Label>
@@ -451,7 +419,7 @@ export function App(props: { controlApiUrl: string }) {
                     <div className="grid gap-1.5">
                       <Label htmlFor="rw-title" className="flex items-center gap-2">
                         イベントタイトル *
-                        <span className="rounded bg-blue-100 px-1.5 py-0.5 text-[10px] font-semibold text-blue-700">
+                        <span className="rounded bg-brand-600 px-1.5 py-0.5 text-[10px] font-semibold text-white">
                           カレンダーに公開
                         </span>
                       </Label>
@@ -464,7 +432,7 @@ export function App(props: { controlApiUrl: string }) {
                     <div className="grid gap-1.5">
                       <Label htmlFor="rw-starts" className="flex items-center gap-2">
                         開始日時
-                        <span className="rounded bg-blue-100 px-1.5 py-0.5 text-[10px] font-semibold text-blue-700">
+                        <span className="rounded bg-brand-600 px-1.5 py-0.5 text-[10px] font-semibold text-white">
                           カレンダーに公開
                         </span>
                       </Label>
@@ -481,7 +449,7 @@ export function App(props: { controlApiUrl: string }) {
                     <div className="grid gap-1.5">
                       <Label htmlFor="rw-ends" className="flex items-center gap-2">
                         終了日時
-                        <span className="rounded bg-blue-100 px-1.5 py-0.5 text-[10px] font-semibold text-blue-700">
+                        <span className="rounded bg-brand-600 px-1.5 py-0.5 text-[10px] font-semibold text-white">
                           カレンダーに公開
                         </span>
                       </Label>
@@ -495,7 +463,7 @@ export function App(props: { controlApiUrl: string }) {
                     <div className="grid gap-1.5">
                       <Label htmlFor="rw-desc" className="flex items-center gap-2">
                         説明
-                        <span className="rounded bg-gray-100 px-1.5 py-0.5 text-[10px] font-semibold text-gray-600">
+                        <span className="rounded bg-surface-3 px-1.5 py-0.5 text-[10px] font-semibold text-text-secondary">
                           管理者のみ
                         </span>
                       </Label>

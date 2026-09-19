@@ -118,8 +118,8 @@ export function AssetLibrary(props: { client: ControlApiClient; assets: AssetSer
     })();
 
   const iconForType = (contentType: string) => {
-    if (contentType.startsWith("image/")) return <Image className="size-4 text-tally-500" />;
-    if (contentType.startsWith("video/")) return <File className="size-4 text-amber-500" />;
+    if (contentType.startsWith("image/")) return <Image className="size-4 text-brand-text" />;
+    if (contentType.startsWith("video/")) return <File className="size-4 text-warning" />;
     return <File className="size-4 text-text-tertiary" />;
   };
 
@@ -219,7 +219,7 @@ export function AssetLibrary(props: { client: ControlApiClient; assets: AssetSer
                 onClick={() => setTagFilter(undefined)}
                 className={`rounded-full px-2 py-0.5 text-xs font-medium transition-colors ${
                   !tagFilter
-                    ? "bg-tally-500 text-white"
+                    ? "bg-brand-600 text-white"
                     : "bg-surface-2 text-text-secondary hover:bg-surface-3"
                 }`}
               >
@@ -232,7 +232,7 @@ export function AssetLibrary(props: { client: ControlApiClient; assets: AssetSer
                   onClick={() => setTagFilter(tagFilter === tag ? undefined : tag)}
                   className={`rounded-full px-2 py-0.5 text-xs font-medium transition-colors ${
                     tagFilter === tag
-                      ? "bg-tally-500 text-white"
+                      ? "bg-brand-600 text-white"
                       : "bg-surface-2 text-text-secondary hover:bg-surface-3"
                   }`}
                 >
@@ -310,7 +310,7 @@ export function AssetLibrary(props: { client: ControlApiClient; assets: AssetSer
                             setEditTagsInput(asset.tags.join(", "));
                             setEditDescInput(asset.description ?? "");
                           }}
-                          className="ml-1 text-[10px] text-text-tertiary hover:text-tally-500"
+                          className="ml-1 text-[10px] text-text-tertiary hover:text-brand-text"
                         >
                           編集
                         </button>
