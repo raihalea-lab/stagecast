@@ -9,10 +9,10 @@
 
 ドメインが層ごとにバラバラだった。
 
-| 層                                      | ホスト名                              | 証明書          |
-| --------------------------------------- | ------------------------------------- | --------------- |
-| メディア (SFU)                          | `event-xxx.media.aws.example.com` | Let's Encrypt   |
-| Web 4 本 (admin/stage/composer/request) | `dXXXXXXXX.cloudfront.net` 等    | CloudFront 既定 |
+| 層                                      | ホスト名                           | 証明書          |
+| --------------------------------------- | ---------------------------------- | --------------- |
+| メディア (SFU)                          | `event-xxx.media.aws.example.com`  | Let's Encrypt   |
+| Web 4 本 (admin/stage/composer/request) | `dXXXXXXXX.cloudfront.net` 等 | CloudFront 既定 |
 
 Web 側は CloudFront が払い出す名前をそのまま使っていた。結果として:
 
