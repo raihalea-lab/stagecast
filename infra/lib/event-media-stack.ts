@@ -496,7 +496,12 @@ export class EventMediaStack extends Stack {
                 essential: true,
                 ports: [{ containerPort: 443, protocol: ecs.Protocol.TCP }],
                 entryPoint: ["sh", "-c"],
-                command: [caddyStartCommand({ acmeEmail: props.acmeEmail })],
+                command: [
+                  caddyStartCommand({
+                    acmeEmail: props.acmeEmail,
+                    mediaHostedZoneId: props.mediaHostedZoneId,
+                  }),
+                ],
                 environment: {
                   AWS_REGION: Stack.of(this).region,
                   CADDY_DOMAIN: props.mediaDomainName,
@@ -505,6 +510,9 @@ export class EventMediaStack extends Stack {
                   // command 文字列に直接埋めると、アドレス変更のたびに TaskDefinition の
                   // 新リビジョンが要る (env でも同じだが、値と書式が混ざらないほうが読める)。
                   ...(props.acmeEmail ? { ACME_EMAIL: props.acmeEmail } : {}),
+                  ...(props.mediaHostedZoneId
+                    ? { MEDIA_HOSTED_ZONE_ID: props.mediaHostedZoneId }
+                    : {}),
                 },
               },
             ]
@@ -968,7 +976,9 @@ export function liveKitEgressConfig(valkeyEndpoint: string, composerTemplateUrl?
  * `acmeEmail` 未指定時は `email` 行を出さない (従来の挙動)。**証明書が切れるまで気づけない**
  * ので、本番運用では `UserConfig.acmeEmail` (または `opsEmail`) を必ず設定すること。
  */
-export function caddyStartCommand(opts: { acmeEmail?: string } = {}): string {
+export function caddyStartCommand(
+  opts: { acmeEmail?: string; mediaHostedZoneId?: string } = {},
+): string {
   // printf の書式に渡す %s の順番と、下の実引数の順番を必ず合わせること。
   const globals = [
     // %s をダブルクオートで囲む。囲まないと、空白を含む値 (例: 表示名付きアドレス) が
@@ -985,7 +995,15 @@ export function caddyStartCommand(opts: { acmeEmail?: string } = {}): string {
     "",
     "*.%s {",
     "  tls {",
-    "    dns route53",
+    "    dns route53 {",
+    // **`wait_for_route53_sync` の既定は false。** これを立てないと、Caddy は TXT を書いた
+    // 直後に Let's Encrypt へ検証を依頼し、Route53 の反映が間に合わず NXDOMAIN で落ちる。
+    // 2026-09-19 に実際に発生。6 月に通っていたのは反映がたまたま間に合っただけのレース。
+    "      wait_for_route53_sync true",
+    // ゾーンを明示して探索を省く。ホスト名の階層を深くしたときに、プラグインの
+    // ゾーン推定に依存しなくて済む。
+    ...(opts.mediaHostedZoneId ? ['      hosted_zone_id "%s"'] : []),
+    "    }",
     "  }",
     "  reverse_proxy localhost:7880",
     "}",
@@ -996,6 +1014,7 @@ export function caddyStartCommand(opts: { acmeEmail?: string } = {}): string {
     '"$AWS_REGION"',
     '"$CERT_BUCKET"',
     '"$CADDY_DOMAIN"',
+    ...(opts.mediaHostedZoneId ? ['"$MEDIA_HOSTED_ZONE_ID"'] : []),
   ].join(" ");
   return `printf '${format}' ${args} > /tmp/Caddyfile && exec caddy run --config /tmp/Caddyfile --adapter caddyfile`;
 }
