@@ -8,6 +8,7 @@
 
 // lib
 export { cn } from "./lib/cn.js";
+export * from "./lib/calendar-colors.js";
 
 // primitives
 export * from "./primitives/button.js";

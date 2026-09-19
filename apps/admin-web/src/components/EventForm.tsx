@@ -103,7 +103,7 @@ export function EventForm(props: {
             type="checkbox"
             checked={values.captionEnabled}
             onChange={(e) => set("captionEnabled", e.target.checked)}
-            className="accent-tally-500"
+            className="accent-brand-600"
           />
           字幕を出す
         </label>
@@ -125,7 +125,7 @@ export function EventForm(props: {
                 type="checkbox"
                 checked={values.languages.includes(lang)}
                 onChange={() => toggleLanguage(lang)}
-                className="accent-tally-500"
+                className="accent-brand-600"
               />
               {lang}
             </label>
@@ -173,7 +173,7 @@ export function EventForm(props: {
           disabled={!values.captionEnabled}
           checked={values.captionEnabled && values.customApiEnabled}
           onChange={(e) => set("customApiEnabled", e.target.checked)}
-          className="accent-tally-500"
+          className="accent-brand-600"
         />
         独自字幕配信 API を有効化する
       </label>

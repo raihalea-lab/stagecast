@@ -54,6 +54,7 @@ describe("dynamo single-table mapping (DESIGN.md 3.1)", () => {
       role: "speaker",
       currentVersion: 2,
       revoked: false,
+      issuedAtSec: 1_700_000_000,
     };
     const item = inviteToItem(rec);
     expect(item.pk).toBe("INVITE#tok-1");

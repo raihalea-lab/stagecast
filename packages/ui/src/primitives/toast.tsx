@@ -19,7 +19,7 @@ export function Toaster(props: ToasterProps) {
           toast:
             "group toast group-[.toaster]:bg-surface-2 group-[.toaster]:text-text-primary group-[.toaster]:border group-[.toaster]:border-line-2 group-[.toaster]:shadow-overlay",
           description: "group-[.toast]:text-text-secondary",
-          actionButton: "group-[.toast]:bg-tally-500 group-[.toast]:text-white",
+          actionButton: "group-[.toast]:bg-brand-600 group-[.toast]:text-white",
           cancelButton: "group-[.toast]:bg-surface-3 group-[.toast]:text-text-secondary",
         },
       }}

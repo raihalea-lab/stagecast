@@ -8,12 +8,14 @@ const buttonVariants = cva(
   {
     variants: {
       variant: {
-        default: "bg-tally-500 text-white hover:bg-tally-600 active:bg-tally-700",
+        default: "bg-brand-600 text-white hover:bg-brand-700 active:bg-brand-700",
         secondary: "bg-surface-3 text-text-primary border border-line-1 hover:bg-surface-4",
         ghost: "bg-transparent text-text-secondary hover:bg-surface-2 hover:text-text-primary",
         outline: "bg-transparent text-text-primary border border-line-2 hover:bg-surface-2",
         destructive: "bg-error text-white hover:opacity-90",
-        link: "bg-transparent text-tally-500 hover:underline underline-offset-4",
+        // 赤は「配信開始」のようにオンエアへ踏み込む操作だけ (ADR 0029)。 通常の主要操作は default
+        live: "bg-tally-500 text-white hover:bg-tally-600 active:bg-tally-700",
+        link: "bg-transparent text-brand-text hover:underline underline-offset-4",
       },
       size: {
         sm: "h-8 px-3 text-xs",

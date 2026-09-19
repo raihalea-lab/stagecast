@@ -31,10 +31,20 @@ export interface InviteTokenRecord {
   currentVersion: number;
   /** 失効済みフラグ。 */
   revoked: boolean;
+  /**
+   * 発行時刻 (UNIX 秒)。 署名の入力を固定して、取得のたびに同じ URL を返すために持つ (ADR 0029)。
+   * 旧レコードには無い。 無いものは「1 本に絞る」対象から外し、新しく作り直す。
+   */
+  issuedAtSec?: number;
 }
 
 export interface InviteTokenRepository {
   put(record: InviteTokenRecord): Promise<void>;
+  /**
+   * 同じ jti が無ければ保存し、あれば既存を返す (条件付き put)。
+   * get-or-create を同時に 2 回走らせても片方の put が他方の再発行を巻き戻さないための口。
+   */
+  putIfAbsent(record: InviteTokenRecord): Promise<InviteTokenRecord>;
   get(jti: string): Promise<InviteTokenRecord | undefined>;
   listByEvent(eventId: string): Promise<InviteTokenRecord[]>;
 }

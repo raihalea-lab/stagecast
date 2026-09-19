@@ -146,7 +146,7 @@ export function App(props: {
   const [busy, setBusy] = useState(false);
   const [sheetOpen, setSheetOpen] = useState(false);
   const [theme, setTheme] = useState<ThemeMode>(readInitialTheme);
-  const [statusFilter, setStatusFilter] = useState<EventStatus | "all">("draft");
+  const [statusFilter, setStatusFilter] = useState<EventStatus | "all">("all");
   const [sortNewestFirst, setSortNewestFirst] = useState(true);
   const [selectMode, setSelectMode] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
@@ -576,10 +576,7 @@ export function App(props: {
               </AlertDialogHeader>
               <AlertDialogFooter>
                 <AlertDialogCancel>キャンセル</AlertDialogCancel>
-                <AlertDialogAction
-                  className="bg-error text-error-foreground hover:bg-error/90"
-                  onClick={bulkDelete}
-                >
+                <AlertDialogAction onClick={bulkDelete}>
                   {selectedIds.size}件を削除する
                 </AlertDialogAction>
               </AlertDialogFooter>
@@ -606,7 +603,7 @@ export function App(props: {
           <Inbox className="size-4" />
           リクエスト管理
           {pendingRequestCount > 0 && (
-            <span className="ml-auto rounded-full bg-amber-500 px-1.5 py-0.5 text-[10px] font-bold text-white">
+            <span className="ml-auto rounded-full bg-warning px-1.5 py-0.5 text-[10px] font-bold text-white">
               {pendingRequestCount}
             </span>
           )}

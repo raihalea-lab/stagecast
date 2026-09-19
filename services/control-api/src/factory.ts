@@ -25,7 +25,7 @@ import type {
 } from "./repo/types.js";
 import { createEventService } from "./usecases/events.js";
 import { createEventRequestService } from "./usecases/event-requests.js";
-import { createInviteService } from "./usecases/invites.js";
+import { createInviteService, inviteExpiryFor } from "./usecases/invites.js";
 import { createPresentationService } from "./usecases/presentation.js";
 import { createJoinService, type IceServerProvider } from "./usecases/join.js";
 import {
@@ -150,6 +150,8 @@ export function buildControlApi(config: FactoryConfig = {}) {
     newJti: newId,
     now,
     baseUrl,
+    // 期限はイベントの開催時間から決める (ADR 0029)。 存在しないイベントは events.get が 404 にする。
+    expiresAtFor: async (eventId) => inviteExpiryFor(await events.get(eventId)),
   });
   const presentation = createPresentationService({
     repo: config.presentationRepo ?? dynamo?.presentationRepo ?? new MemoryPresentationRepository(),

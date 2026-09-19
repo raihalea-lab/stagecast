@@ -135,9 +135,7 @@ export function EventRequestList(props: {
               </div>
               <span
                 className={`rounded-full px-2 py-0.5 text-[10px] font-medium ${
-                  r.status === "approved"
-                    ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400"
-                    : "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400"
+                  r.status === "approved" ? "bg-success/15 text-success" : "bg-error/15 text-error"
                 }`}
               >
                 {r.status === "approved" ? "承認済み" : "却下"}

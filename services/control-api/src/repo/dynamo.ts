@@ -111,6 +111,24 @@ export class DynamoInviteTokenRepository implements InviteTokenRepository {
   async put(record: InviteTokenRecord): Promise<void> {
     await this.doc.send(new PutCommand({ TableName: this.table, Item: inviteToItem(record) }));
   }
+  async putIfAbsent(record: InviteTokenRecord): Promise<InviteTokenRecord> {
+    try {
+      await this.doc.send(
+        new PutCommand({
+          TableName: this.table,
+          Item: inviteToItem(record),
+          ConditionExpression: "attribute_not_exists(pk)",
+        }),
+      );
+      return record;
+    } catch (err) {
+      // 先に誰かが作っていた。 そちらが正なので読み直して返す (put で上書きしない)。
+      if ((err as { name?: string }).name !== "ConditionalCheckFailedException") throw err;
+      const existing = await this.get(record.jti);
+      if (!existing) throw err;
+      return existing;
+    }
+  }
   async get(jti: string): Promise<InviteTokenRecord | undefined> {
     const res = await this.doc.send(
       new GetCommand({ TableName: this.table, Key: { pk: invitePk(jti), sk: "META" } }),

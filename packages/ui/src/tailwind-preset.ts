@@ -41,6 +41,14 @@ export const stagecastPreset = {
         preview: {
           500: "var(--preview-500)",
         },
+        brand: {
+          300: "var(--brand-300)",
+          500: "var(--brand-500)",
+          600: "var(--brand-600)",
+          700: "var(--brand-700)",
+          text: "var(--brand-text)",
+          tint: "var(--brand-tint)",
+        },
         success: "var(--success)",
         warning: "var(--warning)",
         error: "var(--error)",

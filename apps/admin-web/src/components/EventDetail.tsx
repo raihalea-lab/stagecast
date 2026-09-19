@@ -231,20 +231,25 @@ function ProvisioningCard(props: {
   );
 }
 
+const INVITE_ROLE_LABEL: Record<InvitedRole, string> = {
+  moderator: "モデレーター",
+  speaker: "登壇者",
+};
+
 const TRANSITIONS: Record<
   EventStatus,
-  { label: string; status: EventStatus; variant: "default" | "outline" | "destructive" }[]
+  { label: string; status: EventStatus; variant: "live" | "outline" | "destructive" }[]
 > = {
   draft: [
     { label: "予定にする", status: "scheduled", variant: "outline" },
-    { label: "配信開始", status: "live", variant: "default" },
+    { label: "配信開始", status: "live", variant: "live" },
   ],
   scheduled: [
     { label: "下書きに戻す", status: "draft", variant: "outline" },
-    { label: "配信開始", status: "live", variant: "default" },
+    { label: "配信開始", status: "live", variant: "live" },
   ],
   warmup: [
-    { label: "配信開始", status: "live", variant: "default" },
+    { label: "配信開始", status: "live", variant: "live" },
     { label: "下書きに戻す", status: "draft", variant: "outline" },
   ],
   live: [{ label: "配信終了", status: "ended", variant: "destructive" }],
@@ -358,8 +363,8 @@ function AssetManagerTab(props: { client: ControlApiClient; assets: AssetService
     })();
 
   const iconForType = (contentType: string) => {
-    if (contentType.startsWith("image/")) return <Image className="size-4 text-tally-500" />;
-    if (contentType.startsWith("video/")) return <File className="size-4 text-amber-500" />;
+    if (contentType.startsWith("image/")) return <Image className="size-4 text-brand-text" />;
+    if (contentType.startsWith("video/")) return <File className="size-4 text-warning" />;
     return <File className="size-4 text-text-tertiary" />;
   };
 
@@ -448,7 +453,7 @@ function AssetManagerTab(props: { client: ControlApiClient; assets: AssetService
                   onClick={() => setTagFilter(tagFilter === tag ? undefined : tag)}
                   className={`rounded-full px-2.5 py-0.5 text-xs font-medium transition-colors ${
                     tagFilter === tag
-                      ? "bg-tally-500 text-white"
+                      ? "bg-brand-600 text-white"
                       : "bg-surface-2 text-text-secondary hover:bg-surface-3"
                   }`}
                 >
@@ -517,10 +522,7 @@ function AssetManagerTab(props: { client: ControlApiClient; assets: AssetService
                           </AlertDialogHeader>
                           <AlertDialogFooter>
                             <AlertDialogCancel>キャンセル</AlertDialogCancel>
-                            <AlertDialogAction
-                              className="bg-error text-error-foreground hover:bg-error/90"
-                              onClick={() => handleDelete(asset)}
-                            >
+                            <AlertDialogAction onClick={() => handleDelete(asset)}>
                               削除する
                             </AlertDialogAction>
                           </AlertDialogFooter>
@@ -592,7 +594,20 @@ export function EventDetail(props: {
   onCopy: (event: EventDefinition) => void;
 }) {
   const { event, client, assets, artifacts, materials, onChanged } = props;
-  const [invites, setInvites] = useState<IssuedInvite[]>([]);
+  // undefined = 未取得 (読み込み中 or 失敗)。 失敗は inviteError で見せる。
+  const [invites, setInvites] = useState<IssuedInvite[] | undefined>();
+  const [inviteError, setInviteError] = useState<string | undefined>();
+  // コピー直後だけボタンの文言を変える (Toaster は admin-web に置いていない)。
+  const [copiedJti, setCopiedJti] = useState<string | undefined>();
+  const copyInvite = (inv: IssuedInvite) => {
+    navigator.clipboard
+      .writeText(inv.url)
+      .then(() => {
+        setCopiedJti(inv.jti);
+        setTimeout(() => setCopiedJti((cur) => (cur === inv.jti ? undefined : cur)), 2000);
+      })
+      .catch(() => setError("クリップボードに書き込めませんでした"));
+  };
   const [artifactList, setArtifactList] = useState<Artifact[] | undefined>();
   // ADR 0021: 翻訳参考資料。登録すると抽出 Lambda がテキストを取り出し、字幕翻訳の文脈になる。
   const [materialList, setMaterialList] = useState<MaterialItem[]>([]);
@@ -639,6 +654,16 @@ export function EventDetail(props: {
     setArtifactList(await artifacts.list(event.id));
   });
 
+  // タブを開いたら勝手に取りにいく。失敗は画面全体の赤帯にせず未取得のままにして、
+  // 「一覧を更新」を押したときだけ guard 経由でエラーを見せる。
+  const loadArtifactsOnOpen = () => {
+    if (artifactList !== undefined) return;
+    artifacts
+      .list(event.id)
+      .then(setArtifactList)
+      .catch(() => {});
+  };
+
   const uploadQr = (file: File) =>
     guard(async () => {
       const bytes = new Uint8Array(await file.arrayBuffer());
@@ -651,10 +676,34 @@ export function EventDetail(props: {
       onChanged();
     })();
 
-  const issue = (role: InvitedRole) =>
+  // 招待 URL はロールごとに 1 本で、サーバーが持つ (ADR 0029)。開いた時点で取りにいく。
+  // 終了したイベントの URL は期限切れなので取らない (死んだリンクを生きているように見せない)。
+  // endsAt を編集すると期限表示が変わるので日時と status を依存に入れる。 event オブジェクトごと
+  // 入れると refresh のたびに再取得してしまう (URL 自体は変わらない)。
+  const { id: eventId, status: eventStatus, startsAt, endsAt } = event;
+  const loadInvites = useCallback(() => {
+    if (eventStatus === "ended") return;
+    let cancelled = false;
+    setInviteError(undefined);
+    client
+      .listInvites(eventId)
+      .then((list) => {
+        if (!cancelled) setInvites(list);
+      })
+      .catch((err) => {
+        if (!cancelled) setInviteError(toErrorMessage(err));
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [client, eventId, eventStatus, startsAt, endsAt]);
+
+  useEffect(loadInvites, [loadInvites]);
+
+  const reissue = (jti: string) =>
     guard(async () => {
-      const invite = await client.issueInvite(event.id, role, 60 * 60 * 12);
-      setInvites((prev) => [...prev, invite]);
+      const next = await client.reissueInvite(jti);
+      setInvites((prev) => prev?.map((inv) => (inv.jti === jti ? next : inv)));
     })();
 
   return (
@@ -714,10 +763,7 @@ export function EventDetail(props: {
               </AlertDialogHeader>
               <AlertDialogFooter>
                 <AlertDialogCancel>キャンセル</AlertDialogCancel>
-                <AlertDialogAction
-                  className="bg-error text-error-foreground hover:bg-error/90"
-                  onClick={() => props.onDelete(event.id)}
-                >
+                <AlertDialogAction onClick={() => props.onDelete(event.id)}>
                   削除する
                 </AlertDialogAction>
               </AlertDialogFooter>
@@ -754,7 +800,12 @@ export function EventDetail(props: {
         </div>
       )}
 
-      <Tabs defaultValue="setup">
+      <Tabs
+        defaultValue="setup"
+        onValueChange={(tab) => {
+          if (tab === "artifacts") loadArtifactsOnOpen();
+        }}
+      >
         <TabsList>
           <TabsTrigger value="setup">Setup</TabsTrigger>
           <TabsTrigger value="assets">Assets</TabsTrigger>
@@ -855,26 +906,87 @@ export function EventDetail(props: {
                 招待 URL
               </CardTitle>
             </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="flex gap-2">
-                <Button variant="outline" onClick={() => issue("moderator")} disabled={busy}>
-                  モデレーター招待を発行
-                </Button>
-                <Button variant="outline" onClick={() => issue("speaker")} disabled={busy}>
-                  登壇者招待を発行
-                </Button>
-              </div>
-              {invites.length > 0 && (
+            <CardContent className="space-y-3">
+              {event.status === "ended" ? (
+                <p className="text-sm text-text-tertiary">
+                  終了したイベントの招待 URL は無効です。
+                </p>
+              ) : inviteError ? (
+                <div className="flex items-center gap-3 text-sm text-error">
+                  <span className="flex-1">招待 URL を取得できませんでした: {inviteError}</span>
+                  <Button variant="outline" size="sm" onClick={loadInvites}>
+                    再試行
+                  </Button>
+                </div>
+              ) : invites === undefined ? (
+                <p className="text-sm text-text-tertiary">読み込み中…</p>
+              ) : (
                 <ul className="space-y-2">
                   {invites.map((inv) => (
-                    <li key={inv.jti} className="rounded-md border border-line-1 px-3 py-2 text-sm">
-                      <span className="font-medium text-text-primary">{inv.role}</span>
-                      <code className="mt-1 block break-all text-xs text-text-secondary">
-                        {inv.url}
-                      </code>
+                    <li
+                      key={inv.jti}
+                      className="flex items-center gap-3 rounded-md border border-line-1 px-3 py-2 text-sm"
+                    >
+                      <span className="w-24 shrink-0 font-medium text-text-primary">
+                        {INVITE_ROLE_LABEL[inv.role]}
+                      </span>
+                      {inv.revoked ? (
+                        <span className="flex-1 text-xs text-warning">
+                          失効中 — 再発行するまで入室できません
+                        </span>
+                      ) : inv.expiresAtSec * 1000 < Date.now() ? (
+                        <span className="flex-1 text-xs text-warning">
+                          期限切れ — イベントの日時を更新すると同じ URL が有効になります
+                        </span>
+                      ) : (
+                        <>
+                          <code className="min-w-0 flex-1 truncate text-xs text-text-secondary">
+                            {inv.url}
+                          </code>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => copyInvite(inv)}
+                            aria-label={`${INVITE_ROLE_LABEL[inv.role]}の招待 URL をコピー`}
+                          >
+                            <Copy />
+                            {copiedJti === inv.jti ? "コピーしました" : "コピー"}
+                          </Button>
+                        </>
+                      )}
+                      <AlertDialog>
+                        <AlertDialogTrigger asChild>
+                          <Button variant="ghost" size="sm" disabled={busy}>
+                            再発行
+                          </Button>
+                        </AlertDialogTrigger>
+                        <AlertDialogContent>
+                          <AlertDialogHeader>
+                            <AlertDialogTitle>
+                              {INVITE_ROLE_LABEL[inv.role]}の招待 URL を再発行しますか？
+                            </AlertDialogTitle>
+                            <AlertDialogDescription>
+                              今の URL は無効になります。すでに共有した相手には新しい URL
+                              を送り直してください。
+                            </AlertDialogDescription>
+                          </AlertDialogHeader>
+                          <AlertDialogFooter>
+                            <AlertDialogCancel>キャンセル</AlertDialogCancel>
+                            <AlertDialogAction onClick={() => reissue(inv.jti)}>
+                              再発行する
+                            </AlertDialogAction>
+                          </AlertDialogFooter>
+                        </AlertDialogContent>
+                      </AlertDialog>
                     </li>
                   ))}
                 </ul>
+              )}
+              {invites?.[0] && event.status !== "ended" && (
+                <p className="text-xs text-text-tertiary">
+                  有効期限: {new Date(invites[0].expiresAtSec * 1000).toLocaleString("ja-JP")} まで
+                  （イベント終了 + 1 時間。日時を編集すると URL はそのままで期限だけ変わります）
+                </p>
               )}
             </CardContent>
           </Card>
@@ -947,7 +1059,7 @@ export function EventDetail(props: {
                         href={a.downloadUrl}
                         download={a.name}
                         rel="noreferrer"
-                        className="text-text-primary underline underline-offset-2 hover:text-tally-500"
+                        className="text-text-primary underline underline-offset-2 hover:text-brand-text"
                       >
                         {a.name}
                       </a>
