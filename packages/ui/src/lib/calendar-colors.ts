@@ -11,10 +11,10 @@ export interface CalendarEventColors {
 }
 
 export const CALENDAR_EVENT_COLORS = {
-  draft: { backgroundColor: "#ececf5", borderColor: "#9a9aab", textColor: "#3a3a46" },
-  scheduled: { backgroundColor: "#e4e3f6", borderColor: "#817dd4", textColor: "#3c3878" },
+  draft: { backgroundColor: "#e6eff5", borderColor: "#8fa3ae", textColor: "#33414a" },
+  scheduled: { backgroundColor: "#dbeaf2", borderColor: "#509ab7", textColor: "#1f4a5e" },
   live: { backgroundColor: "#fde8e8", borderColor: "#dc2626", textColor: "#7f1d1d" },
-  ended: { backgroundColor: "#f4f4f8", borderColor: "#c9c7e8", textColor: "#6b6b7c" },
+  ended: { backgroundColor: "#f1f6f9", borderColor: "#b8d3e2", textColor: "#607684" },
   request: { backgroundColor: "#fdf0e0", borderColor: "#c2740a", textColor: "#7c2d12" },
   selection: { backgroundColor: "#fff4d6", borderColor: "#b45309", textColor: "#78350f" },
 } as const satisfies Record<string, CalendarEventColors>;
