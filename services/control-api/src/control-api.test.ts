@@ -243,6 +243,13 @@ describe("control-api integration (in-memory)", () => {
     expect(third.invites).toHaveLength(2);
     expect(third.invites.find((i) => i.role === "speaker")?.url).toBe(next.url);
 
+    // 失効させたロールは、勝手に作り直さず「無し」になる (revoke が rotate にならない)。
+    await app.handle(
+      req({ method: "POST", path: `/invites/${speaker.jti}/revoke`, headers: adminAuth }),
+    );
+    const afterRevoke = (await list()).body as { invites: IssuedInvite[] };
+    expect(afterRevoke.invites.map((i) => i.role)).toEqual(["moderator"]);
+
     const missing = await app.handle(
       req({ method: "GET", path: "/events/nope/invites", headers: adminAuth }),
     );

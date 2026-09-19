@@ -121,11 +121,13 @@ export function createInviteService(deps: {
   async function listForEvent(eventId: string): Promise<IssuedInvite[]> {
     const exp = await expiresAtFor(eventId);
     const existing = (await repo.listByEvent(eventId))
-      .filter((r) => !r.revoked && r.issuedAtSec !== undefined)
+      .filter((r) => r.issuedAtSec !== undefined)
       .sort((a, b) => a.jti.localeCompare(b.jti));
     const result: IssuedInvite[] = [];
     for (const role of INVITE_ROLES) {
       let record = existing.find((r) => r.role === role);
+      // 失効させたロールは「再発行するまで無し」。 ここで作り直すと revoke が rotate と同じになってしまう。
+      if (record?.revoked) continue;
       if (!record) {
         record = {
           jti: newJti(),
