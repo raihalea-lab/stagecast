@@ -5,6 +5,7 @@ import { buildControlApi } from "./factory.js";
 import type { App, HttpRequest } from "./http/app.js";
 import { createSettingsService } from "./usecases/settings.js";
 import type { IssuedInvite } from "./usecases/invites.js";
+import { MemoryEventRepository, MemoryInviteTokenRepository } from "./repo/memory.js";
 
 const caption: CaptionSettings = {
   languages: ["ja", "en"],
@@ -243,17 +244,89 @@ describe("control-api integration (in-memory)", () => {
     expect(third.invites).toHaveLength(2);
     expect(third.invites.find((i) => i.role === "speaker")?.url).toBe(next.url);
 
-    // 失効させたロールは、勝手に作り直さず「無し」になる (revoke が rotate にならない)。
+    // 失効させたロールは、勝手に作り直さず revoked=true で返る (revoke が rotate にならない)。
     await app.handle(
       req({ method: "POST", path: `/invites/${speaker.jti}/revoke`, headers: adminAuth }),
     );
     const afterRevoke = (await list()).body as { invites: IssuedInvite[] };
-    expect(afterRevoke.invites.map((i) => i.role)).toEqual(["moderator"]);
+    expect(afterRevoke.invites.map((i) => [i.role, i.revoked])).toEqual([
+      ["moderator", false],
+      ["speaker", true],
+    ]);
+    expect(afterRevoke.invites.find((i) => i.role === "speaker")?.jti).toBe(speaker.jti);
 
     const missing = await app.handle(
       req({ method: "GET", path: "/events/nope/invites", headers: adminAuth }),
     );
     expect(missing.status).toBe(404);
+  });
+
+  it("endsAt を編集しても招待 URL は変わらず、期限だけ追従する (ADR 0029 D-2)", async () => {
+    const eventId = await createEvent(app);
+    const list = async () =>
+      (
+        (
+          await app.handle(
+            req({ method: "GET", path: `/events/${eventId}/invites`, headers: adminAuth }),
+          )
+        ).body as { invites: IssuedInvite[] }
+      ).invites;
+
+    const before = await list();
+    await app.handle(
+      req({
+        method: "PATCH",
+        path: `/events/${eventId}`,
+        headers: adminAuth,
+        body: { endsAt: "2026-07-01T15:00:00Z" },
+      }),
+    );
+    const after = await list();
+    expect(after.map((i) => i.url)).toEqual(before.map((i) => i.url));
+    expect(after[0]?.expiresAtSec).toBe(Date.parse("2026-07-01T16:00:00Z") / 1000);
+  });
+
+  it("イベント終了 + 猶予を過ぎた招待は署名が有効でも expired になる (ADR 0029 D-2)", async () => {
+    // 発行時は開催前、検証時は終了後。 now を差し替えられるよう同じリポジトリで 2 つの app を組む。
+    const inviteRepo = new MemoryInviteTokenRepository();
+    const eventRepo = new MemoryEventRepository();
+    const beforeEvent = buildControlApi({
+      inviteSecret: "test-secret",
+      inviteRepo,
+      eventRepo,
+      now: () => Date.parse("2026-06-30T09:00:00Z"),
+    });
+    const eventId = await createEvent(beforeEvent);
+    const invites = (
+      (
+        await beforeEvent.handle(
+          req({ method: "GET", path: `/events/${eventId}/invites`, headers: adminAuth }),
+        )
+      ).body as { invites: IssuedInvite[] }
+    ).invites;
+    const token = invites[0]!.token;
+
+    const stillOpen = buildControlApi({
+      inviteSecret: "test-secret",
+      inviteRepo,
+      eventRepo,
+      now: () => Date.parse("2026-07-01T11:30:00Z"),
+    });
+    const ok = await stillOpen.handle(
+      req({ method: "POST", path: "/invites/verify", body: { token } }),
+    );
+    expect((ok.body as { valid: boolean }).valid).toBe(true);
+
+    const afterEvent = buildControlApi({
+      inviteSecret: "test-secret",
+      inviteRepo,
+      eventRepo,
+      now: () => Date.parse("2026-07-01T12:30:00Z"),
+    });
+    const expired = await afterEvent.handle(
+      req({ method: "POST", path: "/invites/verify", body: { token } }),
+    );
+    expect((expired.body as { valid: boolean; reason?: string }).reason).toBe("expired");
   });
 
   it("投影状態の正をサーバーに置く: デッキとページを保存して読み戻せる (ADR 0022 D-1)", async () => {

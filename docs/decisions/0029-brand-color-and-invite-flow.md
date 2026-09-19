@@ -41,12 +41,17 @@
 ### D-2: 招待 URL はロールごと 1 本、期限はイベント終了に追従
 
 - `GET /events/{id}/invites` を追加。 moderator / speaker それぞれ 1 本を返し、無ければその場で作る。
-- 招待レコードに `issuedAtSec` を持たせ、署名の入力をレコードとイベントだけから決める。
+  jti は `${eventId}:${role}` で決定的にする。 同時に 2 回呼ばれても同じレコードに落ちる (作成が冪等)。
+- 招待レコードに `issuedAtSec` を持たせ、署名の入力を jti / issuedAtSec / version だけにする。
   **何度取得しても同じ URL 文字列** になり、トークン自体は保存しない。
-- 期限は `endsAt` (未設定なら `startsAt + 2h`) + 1 時間。 `endsAt` を編集すれば URL の期限も追従する。
-- 再発行 (`POST /invites/{jti}/reissue`) も同じ期限計算を使う。 ここだけ 12 時間に戻ると穴が復活する。
+- 署名内の `exp` は 1 年の天井で、本当の期限は **verify 時に今の `endsAt` で判定**する
+  (`endsAt` 未設定なら `startsAt + 2h`、そこに + 1 時間)。 だから `endsAt` を編集しても配った URL は
+  そのまま生きて、期限だけ追従する。 期限をトークンに焼き込むと、延長したのに配った URL が本番中に切れる。
+- 再発行 (`POST /invites/{jti}/reissue`) は version を繰り上げて旧トークンを `stale-version` にする。
+- 失効 (`revoke`) したロールは作り直さず `revoked: true` で返す。 画面は「失効中 / 再発行」を出す。
 - admin-web はイベント詳細を開いた時点で取得し、コピーボタンと「再発行」だけを持つ。
   「発行」操作は無くした。 `POST /events/{id}/invites` はテストと fake client のために残す。
+- 既定所要時間 2h は `@stagecast/shared` の `DEFAULT_EVENT_DURATION_MS` に一本化 (フォーム・カレンダー・期限が同じ値を見る)。
 
 ### D-3: 小さな動線
 

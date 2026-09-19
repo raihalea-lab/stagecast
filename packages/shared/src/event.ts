@@ -22,6 +22,12 @@ export type EventStatus = "draft" | "scheduled" | "warmup" | "live" | "ended";
  */
 export const MAX_EVENTS = 1000;
 
+/**
+ * endsAt 未設定のイベントの所要時間。 フォームの既定値・カレンダーの描画・招待 URL の期限 (ADR 0029)
+ * が同じ値を見る。 ここを変えると招待の有効期限も動く。
+ */
+export const DEFAULT_EVENT_DURATION_MS = 2 * 60 * 60 * 1000;
+
 /** 字幕エンジンの経路種別 (DESIGN.md 6.2)。 */
 export type CaptionEngineKind = "transcribe" | "llm" | "self-hosted-asr";
 

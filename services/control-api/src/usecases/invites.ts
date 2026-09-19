@@ -4,7 +4,7 @@
  * 署名 (HMAC) は invite/token.ts、失効状態は InviteTokenRepository が担う。
  * 検証は「署名・有効期限」(token.ts) に加えて「失効していないか・version 一致」(repo) を確認する。
  */
-import type { InvitedRole } from "@stagecast/shared";
+import { DEFAULT_EVENT_DURATION_MS, type InvitedRole } from "@stagecast/shared";
 import type { InviteTokenRecord, InviteTokenRepository } from "../repo/types.js";
 import { signInviteToken, verifyInviteToken } from "../invite/token.js";
 import { NotFoundError, ValidationError } from "./events.js";
@@ -13,10 +13,13 @@ import { NotFoundError, ValidationError } from "./events.js";
 export const MIN_TTL_SEC = 60;
 export const MAX_TTL_SEC = 7 * 24 * 60 * 60;
 
-/** endsAt 未設定のイベントの既定所要時間 (admin-web の EventForm と同じ 2h)。 */
-const DEFAULT_DURATION_SEC = 2 * 60 * 60;
 /** 終了時刻を過ぎても片付け中に入室できるよう、期限にはこれだけ余裕を足す。 */
 const INVITE_GRACE_SEC = 60 * 60;
+/**
+ * 署名に焼き込む exp の上限。 本当の期限はイベント終了 (verify 時に今の endsAt で判定) なので、
+ * これは「イベントが消えても永遠には残らない」ための天井。 endsAt を編集しても URL が変わらない。
+ */
+const INVITE_TOKEN_CEILING_SEC = 365 * 24 * 60 * 60;
 
 /**
  * 招待 URL の期限 (UNIX 秒) をイベントの開催時間から決める (ADR 0029)。
@@ -25,11 +28,19 @@ const INVITE_GRACE_SEC = 60 * 60;
 export function inviteExpiryFor(event: { startsAt: string; endsAt?: string }): number {
   const endMs = event.endsAt
     ? Date.parse(event.endsAt)
-    : Date.parse(event.startsAt) + DEFAULT_DURATION_SEC * 1000;
+    : Date.parse(event.startsAt) + DEFAULT_EVENT_DURATION_MS;
   return Math.floor(endMs / 1000) + INVITE_GRACE_SEC;
 }
 
 const INVITE_ROLES: readonly InvitedRole[] = ["moderator", "speaker"];
+
+/** ロールごと 1 本の招待の jti。 決定的なので同時に 2 回作られても同じレコードに落ちる。 */
+export function inviteJti(eventId: string, role: InvitedRole): string {
+  return `${eventId}:${role}`;
+}
+
+/** listForEvent / reissue が扱うレコード (issuedAtSec 必須)。 */
+type StableInviteRecord = InviteTokenRecord & { issuedAtSec: number };
 
 function validateRole(role: unknown): InvitedRole {
   if (role !== "moderator" && role !== "speaker") {
@@ -61,8 +72,11 @@ export interface IssuedInvite {
   url: string;
   role: InvitedRole;
   eventId: string;
+  /** 表示用の期限 (イベント終了 + 猶予)。 署名内の exp ではない。 */
   expiresAtSec: number;
   version: number;
+  /** 失効中 (再発行するまで入室できない)。 */
+  revoked: boolean;
 }
 
 export type InviteVerifyResult =
@@ -90,14 +104,18 @@ export function createInviteService(deps: {
 }) {
   const { repo, secret, newJti, now, baseUrl, expiresAtFor } = deps;
 
-  function toIssued(record: InviteTokenRecord, issuedAtSec: number, exp: number): IssuedInvite {
+  /**
+   * 署名の入力は jti / issuedAtSec / version だけ (期限は天井)。 すべてレコードから決まるので
+   * 何度呼んでも同じ URL 文字列になり、endsAt を編集しても配った URL がそのまま生きる。
+   */
+  function toIssued(record: StableInviteRecord, expiresAtSec: number): IssuedInvite {
     const token = signInviteToken(
       {
         eventId: record.eventId,
         role: record.role,
         jti: record.jti,
-        issuedAtSec,
-        ttlSec: exp - issuedAtSec,
+        issuedAtSec: record.issuedAtSec,
+        ttlSec: INVITE_TOKEN_CEILING_SEC,
         version: record.currentVersion,
       },
       secret,
@@ -108,29 +126,26 @@ export function createInviteService(deps: {
       url: `${baseUrl}?token=${encodeURIComponent(token)}`,
       role: record.role,
       eventId: record.eventId,
-      expiresAtSec: exp,
+      expiresAtSec,
       version: record.currentVersion,
+      revoked: record.revoked,
     };
   }
 
   /**
    * ロールごとに 1 本の招待を返す。 無ければ作る (get-or-create)。
-   * 署名の入力 (jti / issuedAtSec / version / 期限) がすべてレコードとイベントから決まるので、
-   * 何度呼んでも同じ URL 文字列になる。 issuedAtSec を持たない旧レコードは対象外にして作り直す。
+   * jti が決定的なので同時に 2 回呼ばれても 1 レコードに落ち、旧レコード (UUID jti) は自然に無視される。
+   * 失効させたロールも revoked=true で返す (画面が「失効中 / 再発行」を出せるように)。
    */
   async function listForEvent(eventId: string): Promise<IssuedInvite[]> {
     const exp = await expiresAtFor(eventId);
-    const existing = (await repo.listByEvent(eventId))
-      .filter((r) => r.issuedAtSec !== undefined)
-      .sort((a, b) => a.jti.localeCompare(b.jti));
     const result: IssuedInvite[] = [];
     for (const role of INVITE_ROLES) {
-      let record = existing.find((r) => r.role === role);
-      // 失効させたロールは「再発行するまで無し」。 ここで作り直すと revoke が rotate と同じになってしまう。
-      if (record?.revoked) continue;
+      const jti = inviteJti(eventId, role);
+      let record = (await repo.get(jti)) as StableInviteRecord | undefined;
       if (!record) {
         record = {
-          jti: newJti(),
+          jti,
           eventId,
           role,
           currentVersion: 1,
@@ -139,7 +154,7 @@ export function createInviteService(deps: {
         };
         await repo.put(record);
       }
-      result.push(toIssued(record, record.issuedAtSec!, exp));
+      result.push(toIssued(record, exp));
     }
     return result;
   }
@@ -165,6 +180,7 @@ export function createInviteService(deps: {
       eventId,
       expiresAtSec: issuedAtSec + ttlSec,
       version,
+      revoked: false,
     };
   }
 
@@ -179,14 +195,14 @@ export function createInviteService(deps: {
     const exp = await expiresAtFor(record.eventId);
     // 再発行は同じ jti を使い version だけ繰り上げる。古い version のトークンは stale-version で弾く。
     // issuedAtSec も更新して、以後の listForEvent がこの再発行結果と同じ URL を返すようにする。
-    const next: InviteTokenRecord = {
+    const next: StableInviteRecord = {
       ...record,
       currentVersion: record.currentVersion + 1,
       revoked: false,
       issuedAtSec: Math.floor(now() / 1000),
     };
     await repo.put(next);
-    return toIssued(next, next.issuedAtSec!, exp);
+    return toIssued(next, exp);
   }
 
   async function revoke(jti: string): Promise<void> {
@@ -203,6 +219,13 @@ export function createInviteService(deps: {
     if (!record || record.revoked) return { valid: false, reason: "revoked" };
     if (res.payload.version !== record.currentVersion) {
       return { valid: false, reason: "stale-version" };
+    }
+    // ロールごと 1 本の招待 (issuedAtSec あり) は、本当の期限をイベント終了 (今の endsAt) で判定する。
+    // イベントが消えていれば入れない。 TTL 指定で発行した旧方式のトークンは署名内の exp だけで判定する。
+    if (record.issuedAtSec !== undefined) {
+      const eventExp = await expiresAtFor(res.payload.eventId).catch(() => undefined);
+      if (eventExp === undefined) return { valid: false, reason: "revoked" };
+      if (nowSec > eventExp) return { valid: false, reason: "expired" };
     }
     return {
       valid: true,

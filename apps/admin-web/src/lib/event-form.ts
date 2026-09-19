@@ -2,6 +2,7 @@
  * イベント設定フォームのドメインロジック (DESIGN.md 8 章)。純粋関数でテスト可能にする。
  */
 import {
+  DEFAULT_EVENT_DURATION_MS,
   isCaptionEnabled,
   isValidCaptionSettings,
   SUPPORTED_LANGUAGES,
@@ -72,7 +73,7 @@ export function computeDefaultEndsAt(startsAt: string): string {
   if (!startsAt) return "";
   const ms = Date.parse(startsAt);
   if (Number.isNaN(ms)) return "";
-  return toDateTimeLocal(new Date(ms + 2 * 60 * 60 * 1000).toISOString());
+  return toDateTimeLocal(new Date(ms + DEFAULT_EVENT_DURATION_MS).toISOString());
 }
 
 /**

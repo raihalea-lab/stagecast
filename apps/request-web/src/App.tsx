@@ -5,6 +5,7 @@ import timeGridPlugin from "@fullcalendar/timegrid";
 import interactionPlugin from "@fullcalendar/interaction";
 import type { DateSelectArg, EventClickArg, EventDropArg } from "@fullcalendar/core";
 import type { EventResizeDoneArg } from "@fullcalendar/interaction";
+import { DEFAULT_EVENT_DURATION_MS } from "@stagecast/shared";
 import {
   Button,
   CALENDAR_EVENT_COLORS,
@@ -18,7 +19,6 @@ import {
   type CalendarEventColors,
 } from "@stagecast/ui";
 
-const TWO_HOURS_MS = 2 * 60 * 60 * 1000;
 const SELECTION_ID = "_selection_";
 const VIEW_STORAGE_KEY = "stagecast-request-cal-view";
 
@@ -43,7 +43,7 @@ function computeDefaultEndsAt(startsAt: string): string {
   if (!startsAt) return "";
   const ms = Date.parse(startsAt);
   if (Number.isNaN(ms)) return "";
-  return toDatetimeLocal(new Date(ms + TWO_HOURS_MS));
+  return toDatetimeLocal(new Date(ms + DEFAULT_EVENT_DURATION_MS));
 }
 
 const STATUS_COLORS: Record<string, CalendarEventColors> = CALENDAR_EVENT_COLORS;
@@ -96,7 +96,7 @@ function CalendarDisplay(props: {
       id: e.id,
       title: e.title,
       start: e.startsAt,
-      end: e.endsAt ?? new Date(Date.parse(e.startsAt) + TWO_HOURS_MS).toISOString(),
+      end: e.endsAt ?? new Date(Date.parse(e.startsAt) + DEFAULT_EVENT_DURATION_MS).toISOString(),
       editable: false,
       ...(STATUS_COLORS[e.status] ?? STATUS_COLORS.scheduled),
     }));

@@ -5,10 +5,14 @@ import timeGridPlugin from "@fullcalendar/timegrid";
 import interactionPlugin from "@fullcalendar/interaction";
 import type { EventClickArg } from "@fullcalendar/core";
 import type { DateClickArg } from "@fullcalendar/interaction";
-import { MAX_EVENTS, type EventDefinition, type EventRequest } from "@stagecast/shared";
+import {
+  DEFAULT_EVENT_DURATION_MS,
+  MAX_EVENTS,
+  type EventDefinition,
+  type EventRequest,
+} from "@stagecast/shared";
 import { CALENDAR_EVENT_COLORS, type CalendarEventColors } from "@stagecast/ui";
 
-const TWO_HOURS_MS = 2 * 60 * 60 * 1000;
 const VIEW_STORAGE_KEY = "stagecast-admin-cal-view";
 
 function toDatetimeLocal(d: Date, hour?: number, minute?: number): string {
@@ -63,7 +67,7 @@ export function CalendarView(props: {
       id: e.id,
       title: e.title,
       start: e.startsAt,
-      end: e.endsAt ?? new Date(Date.parse(e.startsAt) + TWO_HOURS_MS).toISOString(),
+      end: e.endsAt ?? new Date(Date.parse(e.startsAt) + DEFAULT_EVENT_DURATION_MS).toISOString(),
       ...(STATUS_COLORS[e.status] ?? STATUS_COLORS.scheduled),
     }));
     const requestItems = props.requests

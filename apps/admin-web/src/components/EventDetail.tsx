@@ -594,7 +594,9 @@ export function EventDetail(props: {
   onCopy: (event: EventDefinition) => void;
 }) {
   const { event, client, assets, artifacts, materials, onChanged } = props;
-  const [invites, setInvites] = useState<IssuedInvite[]>([]);
+  // undefined = 未取得 (読み込み中 or 失敗)。 失敗は inviteError で見せる。
+  const [invites, setInvites] = useState<IssuedInvite[] | undefined>();
+  const [inviteError, setInviteError] = useState<string | undefined>();
   // コピー直後だけボタンの文言を変える (Toaster は admin-web に置いていない)。
   const [copiedJti, setCopiedJti] = useState<string | undefined>();
   const copyInvite = (inv: IssuedInvite) => {
@@ -676,24 +678,30 @@ export function EventDetail(props: {
 
   // 招待 URL はロールごとに 1 本で、サーバーが持つ (ADR 0029)。開いた時点で取りにいく。
   // 終了したイベントの URL は期限切れなので取らない (死んだリンクを生きているように見せない)。
-  useEffect(() => {
+  // endsAt を編集すると期限表示が変わるので、event ごと依存に入れる (URL 自体は変わらない)。
+  const loadInvites = useCallback(() => {
     if (event.status === "ended") return;
     let cancelled = false;
+    setInviteError(undefined);
     client
       .listInvites(event.id)
       .then((list) => {
         if (!cancelled) setInvites(list);
       })
-      .catch(() => {});
+      .catch((err) => {
+        if (!cancelled) setInviteError(toErrorMessage(err));
+      });
     return () => {
       cancelled = true;
     };
-  }, [client, event.id, event.status]);
+  }, [client, event]);
+
+  useEffect(loadInvites, [loadInvites]);
 
   const reissue = (jti: string) =>
     guard(async () => {
       const next = await client.reissueInvite(jti);
-      setInvites((prev) => prev.map((inv) => (inv.jti === jti ? next : inv)));
+      setInvites((prev) => prev?.map((inv) => (inv.jti === jti ? next : inv)));
     })();
 
   return (
@@ -901,7 +909,14 @@ export function EventDetail(props: {
                 <p className="text-sm text-text-tertiary">
                   終了したイベントの招待 URL は無効です。
                 </p>
-              ) : invites.length === 0 ? (
+              ) : inviteError ? (
+                <div className="flex items-center gap-3 text-sm text-error">
+                  <span className="flex-1">招待 URL を取得できませんでした: {inviteError}</span>
+                  <Button variant="outline" size="sm" onClick={loadInvites}>
+                    再試行
+                  </Button>
+                </div>
+              ) : invites === undefined ? (
                 <p className="text-sm text-text-tertiary">読み込み中…</p>
               ) : (
                 <ul className="space-y-2">
@@ -913,18 +928,30 @@ export function EventDetail(props: {
                       <span className="w-24 shrink-0 font-medium text-text-primary">
                         {INVITE_ROLE_LABEL[inv.role]}
                       </span>
-                      <code className="min-w-0 flex-1 truncate text-xs text-text-secondary">
-                        {inv.url}
-                      </code>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => copyInvite(inv)}
-                        aria-label={`${INVITE_ROLE_LABEL[inv.role]}の招待 URL をコピー`}
-                      >
-                        <Copy />
-                        {copiedJti === inv.jti ? "コピーしました" : "コピー"}
-                      </Button>
+                      {inv.revoked ? (
+                        <span className="flex-1 text-xs text-warning">
+                          失効中 — 再発行するまで入室できません
+                        </span>
+                      ) : inv.expiresAtSec * 1000 < Date.now() ? (
+                        <span className="flex-1 text-xs text-warning">
+                          期限切れ — イベントの日時を更新すると同じ URL が有効になります
+                        </span>
+                      ) : (
+                        <>
+                          <code className="min-w-0 flex-1 truncate text-xs text-text-secondary">
+                            {inv.url}
+                          </code>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => copyInvite(inv)}
+                            aria-label={`${INVITE_ROLE_LABEL[inv.role]}の招待 URL をコピー`}
+                          >
+                            <Copy />
+                            {copiedJti === inv.jti ? "コピーしました" : "コピー"}
+                          </Button>
+                        </>
+                      )}
                       <AlertDialog>
                         <AlertDialogTrigger asChild>
                           <Button variant="ghost" size="sm" disabled={busy}>
@@ -953,10 +980,10 @@ export function EventDetail(props: {
                   ))}
                 </ul>
               )}
-              {invites[0] && event.status !== "ended" && (
+              {invites?.[0] && event.status !== "ended" && (
                 <p className="text-xs text-text-tertiary">
                   有効期限: {new Date(invites[0].expiresAtSec * 1000).toLocaleString("ja-JP")} まで
-                  （イベント終了 + 1 時間）
+                  （イベント終了 + 1 時間。日時を編集すると URL はそのままで期限だけ変わります）
                 </p>
               )}
             </CardContent>

@@ -33,8 +33,11 @@ export interface IssuedInvite {
   url: string;
   role: InvitedRole;
   eventId: string;
+  /** 表示用の期限 (イベント終了 + 猶予)。 endsAt を編集すると追従する。 */
   expiresAtSec: number;
   version: number;
+  /** 失効中。 再発行するまで入室できない。 */
+  revoked: boolean;
 }
 
 /** Egress 起動結果 (R12)。 */
