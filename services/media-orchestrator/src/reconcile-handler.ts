@@ -335,23 +335,28 @@ async function deps(): Promise<HandlerDeps> {
           const status = s.StackStatus ?? "";
           stacks.push({ eventId, kind: classifyStackStatus(status), status, ageMs });
         }
-        // D18: ListStacks はタグを返さないので、完成済みのスタックだけ DescribeStacks で補う。
-        // 対象は同時並列数の上限 (既定 10) までなので、tick あたりの呼び出しは十分小さい。
-        for (const s of stacks) {
-          if (s.kind !== "running") continue;
-          try {
-            const d = await cfn.send(
-              new DescribeStacksCommand({ StackName: eventMediaStackName(s.eventId) }),
-            );
-            s.templateVersion = (d.Stacks?.[0]?.Tags ?? []).find(
-              (t: { Key?: string }) => t.Key === TEMPLATE_VERSION_TAG,
-            )?.Value;
-          } catch {
-            // 読めなければ版ズレの判定をしない (undefined のまま)。
-          }
-        }
         next = res.NextToken;
       } while (next);
+      // D18: ListStacks はタグを返さないので、完成済みのスタックだけ DescribeStacks で補う。
+      // **ページングの外で回す。** 中に置くと、2 ページ目以降で 1 ページ目の分を
+      // 何度も引き直してスロットリングを誘発する。
+      for (const s of stacks) {
+        if (s.kind !== "running") continue;
+        try {
+          const d = await cfn.send(
+            new DescribeStacksCommand({ StackName: eventMediaStackName(s.eventId) }),
+          );
+          const tag = (d.Stacks?.[0]?.Tags ?? []).find(
+            (t: { Key?: string }) => t.Key === TEMPLATE_VERSION_TAG,
+          )?.Value;
+          // 読めた上でタグが無いなら null (作り直し対象)。読めなかったのとは区別する。
+          s.templateVersion = tag ?? null;
+        } catch (err) {
+          // 読めなければ版ズレの判定をしない (undefined のまま)。黙ると検知が
+          // 無言で無効化されるので警告は出す。
+          log.warn("template version tag read failed", { eventId: s.eventId, err: String(err) });
+        }
+      }
       return stacks;
     },
     executor: makeExecutor(),
@@ -634,23 +639,26 @@ async function deleteRoute53ARecord(hostedZoneId: string, recordName: string): P
  * 現在のテンプレート版 (D18)。コールドスタートごとに 1 回だけ RenderTemplateFunction を叩く。
  * レンダリング処理も env も Lambda を入れ替えないと変わらないので、コンテナの寿命と一致する。
  */
-const templateVersionOf = createTemplateVersionResolver(async (spec) => {
-  const { LambdaClient, InvokeCommand } = await import("@aws-sdk/client-lambda");
-  const fnName = process.env.RENDER_TEMPLATE_FUNCTION_NAME;
-  if (!fnName) throw new Error("RENDER_TEMPLATE_FUNCTION_NAME is required");
-  const res = await new LambdaClient({}).send(
-    new InvokeCommand({
-      FunctionName: fnName,
-      Payload: new TextEncoder().encode(JSON.stringify(spec)),
-    }),
-  );
-  if (res.FunctionError) throw new Error(`render template failed: ${res.FunctionError}`);
-  const parsed = JSON.parse(res.Payload ? new TextDecoder().decode(res.Payload) : "") as {
-    template?: string;
-  };
-  if (!parsed.template) throw new Error("render template returned empty");
-  return parsed.template;
-});
+const templateVersionOf = createTemplateVersionResolver(
+  async (spec) => {
+    const { LambdaClient, InvokeCommand } = await import("@aws-sdk/client-lambda");
+    const fnName = process.env.RENDER_TEMPLATE_FUNCTION_NAME;
+    if (!fnName) throw new Error("RENDER_TEMPLATE_FUNCTION_NAME is required");
+    const res = await new LambdaClient({}).send(
+      new InvokeCommand({
+        FunctionName: fnName,
+        Payload: new TextEncoder().encode(JSON.stringify(spec)),
+      }),
+    );
+    if (res.FunctionError) throw new Error(`render template failed: ${res.FunctionError}`);
+    const parsed = JSON.parse(res.Payload ? new TextDecoder().decode(res.Payload) : "") as {
+      template?: string;
+    };
+    if (!parsed.template) throw new Error("render template returned empty");
+    return parsed.template;
+  },
+  (err) => log.warn("template version probe failed", { err: String(err) }),
+);
 
 function makeExecutor(): ReconcileExecutor {
   // renderTemplate は CDK synth を伴うため遅延ロード。
@@ -891,8 +899,15 @@ export async function handler(
   //  - ADR 0008 D-2: task の Public IP から livekitUrl を確定させる。
   //  - ADR 0023 D-3: 上記の観測結果を events.provisioning に書き戻し、管理画面に出す。
   const actualById = new Map(actual.map((a) => [a.eventId, a]));
+  // この tick で destroy を出したイベントは、まだ running に見えても中身は消え始めている。
+  // 観測して「ready」と書き戻すと、管理画面が実在しない livekitUrl を出す (D18 の
+  // 版ズレ作り直しで実際に起きる)。
+  const destroying = new Set(
+    plan.actions.filter((x) => x.type === "destroy").map((x) => x.eventId),
+  );
   let mediaUpdated = 0;
   for (const d2 of desired) {
+    if (destroying.has(d2.eventId)) continue;
     const a = actualById.get(d2.eventId);
     const wantTasks = !d2.pending;
 

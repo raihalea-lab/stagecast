@@ -36,6 +36,14 @@ export class AwsCloudFormationClient implements CloudFormationLike {
     Capabilities?: string[] | undefined;
     RoleARN?: string | undefined;
     DeploymentMode?: DeploymentMode | undefined;
+    /**
+     * スタックのタグ (D18: テンプレート版の記録)。
+     *
+     * **ここで転送し忘れると、タグが黙って捨てられる。** 版が読めないスタックは
+     * 「古い」と判定されるので、事前作成スタックが毎 tick 破棄→再作成される
+     * 無限ループになる (型は引数の双変性で通ってしまうので、テストで守る)。
+     */
+    Tags?: { Key: string; Value: string }[] | undefined;
   }): Promise<{ StackId?: string | undefined }> {
     const res = await this.client.send(
       new CreateStackCommand({
@@ -43,6 +51,7 @@ export class AwsCloudFormationClient implements CloudFormationLike {
         TemplateBody: input.TemplateBody,
         Capabilities: input.Capabilities as never,
         ...(input.RoleARN ? { RoleARN: input.RoleARN } : {}),
+        ...(input.Tags ? { Tags: input.Tags } : {}),
         // ADR 0023 D-1: Express モードはリソースが安定するのを待たずに完了するので、
         // EventMediaStack の作成が大幅に速くなる。ロールバックは既定で無効になり、
         // 失敗は CREATE_FAILED のまま残る → reconcile が destroy → 再作成で復旧する。

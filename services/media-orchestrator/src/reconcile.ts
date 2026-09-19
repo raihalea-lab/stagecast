@@ -39,8 +39,17 @@ export interface ActualStack {
   status?: string;
   /** スタック作成からの経過時間 (ms)。観測できないなら未設定。stale 検知に使う (L3)。 */
   ageMs?: number;
-  /** 作成時のテンプレート版 (D18)。タグから読む。付いていないスタックは undefined。 */
-  templateVersion?: string;
+  /**
+   * 作成時のテンプレート版 (D18)。タグから読む。**三状態**であることが重要:
+   *
+   * - `undefined` … 読めなかった (DescribeStacks の失敗等)。**版ズレの判定をしない**
+   * - `null` … 読めたがタグが無い (D18 以前に作られたスタック)。作り直しの対象
+   * - 文字列 … その版
+   *
+   * 読めなかったのを「タグ無し」と同一視すると、一過性のスロットリングだけで
+   * 健全な事前作成スタックが破棄・再作成される。
+   */
+  templateVersion?: string | null;
 }
 
 /** reconcile が出すアクション (副作用なし)。 */
@@ -96,7 +105,13 @@ export function planReconcile(
     // **`pending` のものだけを対象にする。** 配信中のスタックを消すと配信が切れる。
     // 版が取れないとき (undefined) は比較しない — 古いまま残すほうが、誤って
     // 作り直すより安全。
-    if (d.pending && currentTemplateVersion && a.templateVersion !== currentTemplateVersion) {
+    if (
+      d.pending &&
+      currentTemplateVersion &&
+      // 読めなかった (undefined) ときは判定しない。null (タグ無し確定) は対象。
+      a.templateVersion !== undefined &&
+      a.templateVersion !== currentTemplateVersion
+    ) {
       actions.push({
         type: "destroy",
         eventId: d.eventId,

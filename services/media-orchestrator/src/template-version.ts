@@ -40,6 +40,8 @@ export function createTemplateVersionResolver(
     captionEngine: "transcribe";
     customCaptionApi: false;
   }) => Promise<string>,
+  /** 版が取れなかったときの通知。黙ると版ズレ検知が無言で無効化される。 */
+  onError?: (err: unknown) => void,
 ) {
   let cached: string | undefined;
   return async (): Promise<string | undefined> => {
@@ -53,9 +55,11 @@ export function createTemplateVersionResolver(
         }),
       );
       return cached;
-    } catch {
-      // 版が取れないときは**比較しない** (undefined)。ここで失敗して作り直しを止めるより、
-      // 古いままにしておくほうが安全side (作り直しは次の tick で再試行される)。
+    } catch (err) {
+      // 版が取れないときは**比較しない** (undefined)。作り直しを止めるより、古いまま
+      // にしておくほうが安全 (次の tick で再試行される)。ただし黙ると検知が無言で
+      // 無効化されるので、呼び出し側でログを出せるよう理由を渡す。
+      onError?.(err);
       return undefined;
     }
   };

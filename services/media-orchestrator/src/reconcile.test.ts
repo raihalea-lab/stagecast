@@ -206,9 +206,14 @@ describe("事前作成済みスタックの版ズレ (D18)", () => {
   const pending = (id: string): DesiredEvent => ({
     eventId: id,
     captionEngine: "transcribe",
+    customCaptionApi: false,
     pending: true,
   });
-  const live = (id: string): DesiredEvent => ({ eventId: id, captionEngine: "transcribe" });
+  const live = (id: string): DesiredEvent => ({
+    eventId: id,
+    captionEngine: "transcribe",
+    customCaptionApi: false,
+  });
   const running = (id: string, templateVersion?: string): ActualStack => ({
     eventId: id,
     kind: "running",
@@ -234,9 +239,18 @@ describe("事前作成済みスタックの版ズレ (D18)", () => {
     expect(planReconcile([pending("e1")], [running("e1", "old")], undefined).actions).toEqual([]);
   });
 
-  it("タグが無い旧スタックは作り直す対象になる", () => {
-    const plan = planReconcile([pending("e1")], [running("e1")], "new");
+  it("タグが無い旧スタック (null) は作り直す対象になる", () => {
+    const plan = planReconcile(
+      [pending("e1")],
+      [{ eventId: "e1", kind: "running", templateVersion: null }],
+      "new",
+    );
     expect(plan.actions[0]).toMatchObject({ type: "destroy" });
     expect(plan.actions[0]?.reason).toContain("untagged");
+  });
+
+  it("**版が読めなかった (undefined) スタックは触らない**", () => {
+    // DescribeStacks の一過性失敗で、健全な事前作成スタックを壊さない。
+    expect(planReconcile([pending("e1")], [running("e1")], "new").actions).toEqual([]);
   });
 });
