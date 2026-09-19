@@ -53,6 +53,7 @@ import {
   TabsTrigger,
 } from "@stagecast/ui";
 import {
+  Copy,
   Download,
   ExternalLink,
   File,
@@ -587,6 +588,8 @@ export function EventDetail(props: {
   materials: MaterialsService;
   onChanged: () => void;
   onDelete: (id: string) => void;
+  /** このイベントの設定を写した新規作成フォームを開く。 */
+  onCopy: (event: EventDefinition) => void;
 }) {
   const { event, client, assets, artifacts, materials, onChanged } = props;
   const [invites, setInvites] = useState<IssuedInvite[]>([]);
@@ -680,6 +683,15 @@ export function EventDetail(props: {
             onError={(err) => setError(toErrorMessage(err))}
             className="gap-2"
           />
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            aria-label="このイベントをコピーして新規作成"
+            title="このイベントをコピーして新規作成"
+            onClick={() => props.onCopy(event)}
+          >
+            <Copy className="size-4" />
+          </Button>
           <AlertDialog>
             <AlertDialogTrigger asChild>
               <Button

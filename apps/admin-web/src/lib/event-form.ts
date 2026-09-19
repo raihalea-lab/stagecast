@@ -2,9 +2,11 @@
  * イベント設定フォームのドメインロジック (DESIGN.md 8 章)。純粋関数でテスト可能にする。
  */
 import {
+  isCaptionEnabled,
   isValidCaptionSettings,
   SUPPORTED_LANGUAGES,
   type CaptionEngineKind,
+  type EventDefinition,
   type LanguageCode,
 } from "@stagecast/shared";
 import type { CreateEventInput } from "@stagecast/control-api";
@@ -53,13 +55,47 @@ export function defaultFormValues(startsAt?: string): EventFormValues {
   };
 }
 
+/**
+ * ISO 文字列 → `<input type="datetime-local">` が読む `YYYY-MM-DDTHH:mm`。
+ * 保存済みの startsAt は `Z` 付き ISO のこともあるので、フォームに戻すときは必ず通す。
+ */
+export function toDateTimeLocal(iso: string | undefined): string {
+  if (!iso) return "";
+  const ms = Date.parse(iso);
+  if (Number.isNaN(ms)) return "";
+  const d = new Date(ms);
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
 export function computeDefaultEndsAt(startsAt: string): string {
   if (!startsAt) return "";
   const ms = Date.parse(startsAt);
   if (Number.isNaN(ms)) return "";
-  const d = new Date(ms + 2 * 60 * 60 * 1000);
-  const pad = (n: number) => String(n).padStart(2, "0");
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  return toDateTimeLocal(new Date(ms + 2 * 60 * 60 * 1000).toISOString());
+}
+
+/**
+ * 既存イベント → フォーム値 (複製ボタン)。**設定だけを写す。**
+ * id / status / 配信結果 (media・egress・provisioning) は `CreateEventInput` に無いので
+ * 構造的に持ち込まれない。開催日時は元のまま出す (使い回すか直すかは人が決める)。
+ */
+export function toFormValues(event: EventDefinition): EventFormValues {
+  const c = event.caption;
+  return {
+    title: `${event.title} のコピー`,
+    startsAt: toDateTimeLocal(event.startsAt),
+    endsAt: toDateTimeLocal(event.endsAt),
+    // 生の enabled を見ると、未指定 (= 有効) の既存イベントが複製で黙って字幕オフになる。
+    captionEnabled: isCaptionEnabled(c),
+    languages: [...c.languages],
+    youtubeLanguage: c.youtubeLanguage,
+    engine: c.engine,
+    customApiEnabled: c.customApiEnabled,
+    ...(event.youtube
+      ? { rtmpUrl: event.youtube.rtmpUrl, streamKeyRef: event.youtube.streamKeyRef }
+      : {}),
+  };
 }
 
 export interface FormValidation {

@@ -3,8 +3,10 @@ import {
   computeDefaultEndsAt,
   defaultFormValues,
   toCreateEventInput,
+  toFormValues,
   validateForm,
 } from "./event-form.js";
+import type { EventDefinition } from "@stagecast/shared";
 
 describe("event form", () => {
   it("accepts valid defaults plus required fields", () => {
@@ -112,5 +114,59 @@ describe("字幕オフ (ADR 0017 D-2 / D14)", () => {
   it("オンなら従来どおり言語を検証する", () => {
     const v = { ...base, captionEnabled: true, languages: [] as never[] };
     expect(validateForm(v).ok).toBe(false);
+  });
+});
+
+describe("toFormValues (イベントの複製)", () => {
+  const base: EventDefinition = {
+    id: "evt-1",
+    title: "第12回 勉強会",
+    startsAt: "2026-07-01T00:00:00.000Z",
+    endsAt: "2026-07-01T02:00:00.000Z",
+    status: "ended",
+    caption: {
+      languages: ["ja", "en"],
+      youtubeLanguage: "en",
+      engine: "llm",
+      customApiEnabled: true,
+    },
+    createdAtMs: 1,
+    updatedAtMs: 2,
+  };
+
+  it("設定を写し、タイトルにコピーの印を付ける", () => {
+    const v = toFormValues(base);
+    expect(v.title).toBe("第12回 勉強会 のコピー");
+    expect(v.languages).toEqual(["ja", "en"]);
+    expect(v.youtubeLanguage).toBe("en");
+    expect(v.engine).toBe("llm");
+    expect(v.customApiEnabled).toBe(true);
+  });
+
+  it("ISO の日時を datetime-local 形式に直す (そのままだと入力欄が空になる)", () => {
+    const v = toFormValues(base);
+    // 既存の整形 (2 時間後) と同じローカル表記になることで、TZ 非依存に形を確かめる。
+    expect(v.startsAt).toBe(computeDefaultEndsAt("2026-06-30T22:00:00.000Z"));
+    expect(v.startsAt).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/);
+    expect(v.endsAt).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/);
+  });
+
+  it("**caption.enabled 未指定は有効**として写す (複製で字幕が黙って止まらない)", () => {
+    expect(toFormValues(base).captionEnabled).toBe(true);
+    expect(
+      toFormValues({ ...base, caption: { ...base.caption, enabled: false } }).captionEnabled,
+    ).toBe(false);
+  });
+
+  it("そのまま作成できる値になっている (id/status は入らない)", () => {
+    const input = toCreateEventInput(toFormValues(base));
+    expect(validateForm(toFormValues(base)).ok).toBe(true);
+    expect(input).not.toHaveProperty("id");
+    expect(input).not.toHaveProperty("status");
+  });
+
+  it("YouTube 設定があれば引き継ぐ", () => {
+    const v = toFormValues({ ...base, youtube: { rtmpUrl: "rtmp://x", streamKeyRef: "key-a" } });
+    expect(toCreateEventInput(v).youtube).toEqual({ rtmpUrl: "rtmp://x", streamKeyRef: "key-a" });
   });
 });
