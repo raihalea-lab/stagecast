@@ -119,9 +119,9 @@ describe("ControlPlaneStack", () => {
     template.hasResourceProperties("AWS::Cognito::ManagedLoginBranding", {
       UseCognitoProvidedValues: true,
     });
-    // ドメインの v2 切り替えより後に作られないと、途中失敗でログイン不能が残る。
-    template.hasResource("AWS::Cognito::ManagedLoginBranding", {
-      DependsOn: Match.arrayWith([Match.stringLikeRegexp("AdminAuthDomain")]),
+    // ドメインの v2 切り替えより先にスタイルが無いと、途中失敗でログイン不能が残る。
+    template.hasResource("AWS::Cognito::UserPoolDomain", {
+      DependsOn: Match.arrayWith([Match.stringLikeRegexp("AdminLoginBranding")]),
     });
   });
 

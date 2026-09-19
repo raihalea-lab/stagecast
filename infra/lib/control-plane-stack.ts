@@ -603,9 +603,10 @@ export class ControlPlaneStack extends Stack {
       clientId: adminUserPoolClient.userPoolClientId,
       useCognitoProvidedValues: true,
     });
-    // ドメインを先に v2 へ切り替えてブランディング作成が失敗すると、ログイン不能のまま
-    // 取り残される。トークン参照が無いので明示的に順序を固定する。
-    adminLoginBranding.node.addDependency(adminAuthDomain);
+    // スタイルを先に作る。逆順だと「v2 なのにスタイル未割当」の窓ができ、そこで
+    // ブランディング作成が失敗するとログイン不能のまま取り残される。この順なら失敗しても
+    // 未使用のスタイルが残るだけで済む。両者に相互参照が無く CFN が順序を決めないので明示する。
+    adminAuthDomain.node.addDependency(adminLoginBranding);
 
     // --- 初期管理者の自動投入 Custom Resource (R6, ADR 0005 D-4 案 A) ---
     // `-c initialAdmins=a@x.com,b@y.com` を渡したときだけ作成する。未指定なら従来どおり
@@ -948,7 +949,7 @@ export class ControlPlaneStack extends Stack {
     new CfnOutput(this, "AdminAuthDomain", {
       value: `${adminAuthDomain.domainName}.auth.${this.region}.amazoncognito.com`,
       description:
-        "Cognito Hosted UI ドメイン (admin-web の OAuth Authorization Code + PKCE で使用)",
+        "Cognito Managed login ドメイン (admin-web の OAuth Authorization Code + PKCE で使用)",
     });
     new CfnOutput(this, "InviteTokenSecretArn", { value: inviteTokenSecret.secretArn });
     new CfnOutput(this, "LiveKitSecretArn", { value: livekitSecret.secretArn });
