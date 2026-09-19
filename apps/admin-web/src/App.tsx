@@ -53,6 +53,7 @@ import { HttpArtifactService } from "./api/http-artifact-service.js";
 import type { ControlApiClient, AssetService, ArtifactService } from "./api/types.js";
 import { CalendarView } from "./components/CalendarView.js";
 import { EventForm } from "./components/EventForm.js";
+import { toFormValues, type EventFormValues } from "./lib/event-form.js";
 import { EventDetail } from "./components/EventDetail.js";
 import { EventRequestList } from "./components/EventRequestList.js";
 import { AssetLibrary } from "./components/AssetLibrary.js";
@@ -150,7 +151,17 @@ export function App(props: {
   const [selectMode, setSelectMode] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [bulkDeleteOpen, setBulkDeleteOpen] = useState(false);
-  const [prefillStartsAt, setPrefillStartsAt] = useState<string | undefined>();
+  // 新規フォームへの流し込み (カレンダーの日時クリック / イベントの複製)。
+  // key を一緒に持つのは、同じ値でもう一度開いたときにフォームを作り直すため。
+  const [prefill, setPrefill] = useState<{
+    key: number;
+    startsAt?: string;
+    values?: EventFormValues;
+  }>({ key: 0 });
+  const openCreateSheet = (p: { startsAt?: string; values?: EventFormValues } = {}) => {
+    setPrefill((prev) => ({ key: prev.key + 1, ...p }));
+    setSheetOpen(true);
+  };
 
   useEffect(() => {
     applyTheme(theme);
@@ -372,13 +383,12 @@ export function App(props: {
           open={sheetOpen}
           onOpenChange={(open) => {
             setSheetOpen(open);
-            if (!open) setPrefillStartsAt(undefined);
           }}
         >
           <Button
             variant="outline"
             className="w-full justify-start gap-2"
-            onClick={() => setSheetOpen(true)}
+            onClick={() => openCreateSheet()}
           >
             <Plus className="size-4" />
             新規イベント
@@ -390,10 +400,11 @@ export function App(props: {
             </SheetHeader>
             <div className="mt-6">
               <EventForm
-                key={prefillStartsAt ?? "new"}
+                key={prefill.key}
                 onCreate={create}
                 busy={busy}
-                initialStartsAt={prefillStartsAt}
+                initialStartsAt={prefill.startsAt}
+                initialValues={prefill.values}
               />
             </div>
           </SheetContent>
@@ -721,6 +732,7 @@ export function App(props: {
                   materials={materials}
                   onChanged={() => void run(refresh)}
                   onDelete={deleteEvent}
+                  onCopy={(e) => openCreateSheet({ values: toFormValues(e) })}
                 />
               }
             />
@@ -731,10 +743,7 @@ export function App(props: {
                   events={events}
                   requests={eventRequests}
                   onEventClick={(id) => navigate(`/events/${id}`)}
-                  onDateTimeClick={(dateTime) => {
-                    setPrefillStartsAt(dateTime);
-                    setSheetOpen(true);
-                  }}
+                  onDateTimeClick={(dateTime) => openCreateSheet({ startsAt: dateTime })}
                 />
               }
             />
@@ -769,6 +778,7 @@ function EventDetailRoute(props: {
   materials: MaterialsService;
   onChanged: () => void;
   onDelete: (id: string) => void;
+  onCopy: (event: EventDefinition) => void;
 }) {
   const { id } = useParams<{ id: string }>();
   const event = props.events.find((e) => e.id === id);
@@ -792,6 +802,7 @@ function EventDetailRoute(props: {
       materials={props.materials}
       onChanged={props.onChanged}
       onDelete={props.onDelete}
+      onCopy={props.onCopy}
     />
   );
 }

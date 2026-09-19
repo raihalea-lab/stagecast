@@ -1,7 +1,7 @@
 import { useState } from "react";
 import type { LanguageCode } from "@stagecast/shared";
 import {
-  computeDefaultEndsAt,
+  shiftEndsAt,
   defaultFormValues,
   ENGINE_OPTIONS,
   LANGUAGE_OPTIONS,
@@ -16,8 +16,12 @@ export function EventForm(props: {
   onCreate: (input: CreateEventInput) => void;
   busy?: boolean;
   initialStartsAt?: string;
+  /** 複製時の初期値。全項目を埋める (呼び出し側は key でフォームを作り直すこと)。 */
+  initialValues?: EventFormValues;
 }) {
-  const [values, setValues] = useState<EventFormValues>(defaultFormValues(props.initialStartsAt));
+  const [values, setValues] = useState<EventFormValues>(
+    props.initialValues ?? defaultFormValues(props.initialStartsAt),
+  );
   const [errors, setErrors] = useState<string[]>([]);
   const [endsAtManual, setEndsAtManual] = useState(false);
 
@@ -27,7 +31,7 @@ export function EventForm(props: {
   const setStartsAt = (v: string) => {
     setValues((prev) => {
       const next = { ...prev, startsAt: v };
-      if (!endsAtManual) next.endsAt = computeDefaultEndsAt(v);
+      if (!endsAtManual) next.endsAt = shiftEndsAt(prev, v);
       return next;
     });
   };

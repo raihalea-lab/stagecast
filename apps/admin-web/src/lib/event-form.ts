@@ -2,12 +2,14 @@
  * イベント設定フォームのドメインロジック (DESIGN.md 8 章)。純粋関数でテスト可能にする。
  */
 import {
+  isCaptionEnabled,
   isValidCaptionSettings,
   SUPPORTED_LANGUAGES,
   type CaptionEngineKind,
+  type EventDefinition,
   type LanguageCode,
 } from "@stagecast/shared";
-import type { CreateEventInput } from "@stagecast/control-api";
+import { MAX_TITLE_LENGTH, type CreateEventInput } from "@stagecast/control-api";
 
 export interface EventFormValues {
   title: string;
@@ -53,13 +55,66 @@ export function defaultFormValues(startsAt?: string): EventFormValues {
   };
 }
 
+/**
+ * ISO 文字列 → `<input type="datetime-local">` が読む `YYYY-MM-DDTHH:mm`。
+ * 保存済みの startsAt は `Z` 付き ISO のこともあるので、フォームに戻すときは必ず通す。
+ */
+export function toDateTimeLocal(iso: string | undefined): string {
+  if (!iso) return "";
+  const ms = Date.parse(iso);
+  if (Number.isNaN(ms)) return "";
+  const d = new Date(ms);
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
 export function computeDefaultEndsAt(startsAt: string): string {
   if (!startsAt) return "";
   const ms = Date.parse(startsAt);
   if (Number.isNaN(ms)) return "";
-  const d = new Date(ms + 2 * 60 * 60 * 1000);
-  const pad = (n: number) => String(n).padStart(2, "0");
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  return toDateTimeLocal(new Date(ms + 2 * 60 * 60 * 1000).toISOString());
+}
+
+/**
+ * 開始日時を変えたときの終了日時。**所要時間を保って平行移動する。**
+ *
+ * 一律で開始+2h にすると、3 時間のイベントを複製して日付だけ直した瞬間に
+ * 終了が 2 時間へ黙って縮む。元の長さが読めないとき (新規フォーム等) だけ既定値を使う。
+ */
+export function shiftEndsAt(prev: EventFormValues, nextStartsAt: string): string {
+  const prevStart = Date.parse(prev.startsAt);
+  const prevEnd = prev.endsAt ? Date.parse(prev.endsAt) : Number.NaN;
+  const nextStart = Date.parse(nextStartsAt);
+  if (Number.isNaN(prevStart) || Number.isNaN(prevEnd) || Number.isNaN(nextStart)) {
+    return computeDefaultEndsAt(nextStartsAt);
+  }
+  return toDateTimeLocal(new Date(nextStart + (prevEnd - prevStart)).toISOString());
+}
+
+/**
+ * 既存イベント → フォーム値 (複製ボタン)。**フォームが持つ設定だけを写す。**
+ *
+ * id / status / 配信結果 (media・egress・provisioning) は `CreateEventInput` に無いので
+ * 構造的に持ち込まれない。QR・ブランディング・スライドの素材は API 上は指定できるが
+ * フォームに入力欄が無いため**引き継がない** (複製先で付け直す)。
+ * 開催日時は元のまま出す (使い回すか直すかは人が決める)。
+ */
+export function toFormValues(event: EventDefinition): EventFormValues {
+  const c = event.caption;
+  return {
+    title: `${event.title} のコピー`,
+    startsAt: toDateTimeLocal(event.startsAt),
+    endsAt: toDateTimeLocal(event.endsAt),
+    // 生の enabled を見ると、未指定 (= 有効) の既存イベントが複製で黙って字幕オフになる。
+    captionEnabled: isCaptionEnabled(c),
+    languages: [...c.languages],
+    youtubeLanguage: c.youtubeLanguage,
+    engine: c.engine,
+    customApiEnabled: c.customApiEnabled,
+    ...(event.youtube
+      ? { rtmpUrl: event.youtube.rtmpUrl, streamKeyRef: event.youtube.streamKeyRef }
+      : {}),
+  };
 }
 
 export interface FormValidation {
@@ -70,6 +125,11 @@ export interface FormValidation {
 export function validateForm(values: EventFormValues): FormValidation {
   const errors: string[] = [];
   if (!values.title.trim()) errors.push("タイトルは必須です");
+  // サーバ側と同じ上限。ここで見ないと、複製で「 のコピー」が伸びたときに
+  // 作成ボタンを押して初めて生の 400 が出る。
+  if (values.title.length > MAX_TITLE_LENGTH) {
+    errors.push(`タイトルは ${MAX_TITLE_LENGTH} 文字以内にしてください`);
+  }
   if (!values.startsAt) errors.push("開催日時は必須です");
   // 字幕オフなら言語は使われないので問わない。設定は残しておき、オンに戻せば効く。
   if (values.captionEnabled) {
