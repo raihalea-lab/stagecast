@@ -73,7 +73,7 @@ describe("createAwsMediaStackProvisioner (配線の合流点)", () => {
   });
 });
 
-describe("createStack のタグ転送 (D18)", () => {
+describe("createStack のタグ転送 (ADR 0016 D-4)", () => {
   it("Tags を CreateStackCommand に渡す", async () => {
     // **ここを転送し忘れるとタグが黙って捨てられる。** 版が読めないスタックは
     // 「古い」扱いになり、事前作成スタックが毎 tick 破棄→再作成される無限ループになる。

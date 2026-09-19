@@ -51,7 +51,7 @@ import {
 } from "./provisioning.js";
 import { createMediaPublisher, type MediaResolver, type MediaStore } from "./media-publisher.js";
 import { probeSignaling, type SignalingProbeResult } from "./signaling-probe.js";
-import { createTemplateVersionResolver, TEMPLATE_VERSION_TAG } from "./template-version.js";
+import { TEMPLATE_VERSION_TAG } from "./template-version.js";
 import type { EventMediaInfo, EventProvisioningInfo } from "@stagecast/shared";
 // 型だけの import なので実行時の読み込みは増えない。
 import type { DynamoDBDocumentClient } from "@aws-sdk/lib-dynamodb";
@@ -337,7 +337,7 @@ async function deps(): Promise<HandlerDeps> {
         }
         next = res.NextToken;
       } while (next);
-      // D18: ListStacks はタグを返さないので、完成済みのスタックだけ DescribeStacks で補う。
+      // ADR 0016 D-4: ListStacks はタグを返さないので、完成済みのスタックだけ DescribeStacks で補う。
       // **ページングの外で回す。** 中に置くと、2 ページ目以降で 1 ページ目の分を
       // 何度も引き直してスロットリングを誘発する。
       for (const s of stacks) {
@@ -636,29 +636,31 @@ async function deleteRoute53ARecord(hostedZoneId: string, recordName: string): P
 }
 
 /**
- * 現在のテンプレート版 (D18)。コールドスタートごとに 1 回だけ RenderTemplateFunction を叩く。
+ * 現在のテンプレート版 (ADR 0016 D-4)。コールドスタートごとに 1 回だけ RenderTemplateFunction を叩く。
  * レンダリング処理も env も Lambda を入れ替えないと変わらないので、コンテナの寿命と一致する。
  */
-const templateVersionOf = createTemplateVersionResolver(
-  async (spec) => {
+async function templateVersionOf(): Promise<string | undefined> {
+  try {
     const { LambdaClient, InvokeCommand } = await import("@aws-sdk/client-lambda");
     const fnName = process.env.RENDER_TEMPLATE_FUNCTION_NAME;
     if (!fnName) throw new Error("RENDER_TEMPLATE_FUNCTION_NAME is required");
     const res = await new LambdaClient({}).send(
       new InvokeCommand({
         FunctionName: fnName,
-        Payload: new TextEncoder().encode(JSON.stringify(spec)),
+        Payload: new TextEncoder().encode(JSON.stringify({ probeVersion: true })),
       }),
     );
-    if (res.FunctionError) throw new Error(`render template failed: ${res.FunctionError}`);
+    if (res.FunctionError) throw new Error(`version probe failed: ${res.FunctionError}`);
     const parsed = JSON.parse(res.Payload ? new TextDecoder().decode(res.Payload) : "") as {
-      template?: string;
+      version?: string;
     };
-    if (!parsed.template) throw new Error("render template returned empty");
-    return parsed.template;
-  },
-  (err) => log.warn("template version probe failed", { err: String(err) }),
-);
+    return parsed.version;
+  } catch (err) {
+    // 版が取れないときは比較しない (undefined)。黙ると検知が無言で無効化される。
+    log.warn("template version probe failed", { err: String(err) });
+    return undefined;
+  }
+}
 
 function makeExecutor(): ReconcileExecutor {
   // renderTemplate は CDK synth を伴うため遅延ロード。
@@ -673,6 +675,9 @@ function makeExecutor(): ReconcileExecutor {
       const fnName = process.env.RENDER_TEMPLATE_FUNCTION_NAME;
       if (!fnName) throw new Error("RENDER_TEMPLATE_FUNCTION_NAME is required");
       const expressMode = process.env.CFN_EXPRESS_MODE !== "false";
+      // render が返した版を provision 時のタグに使う。reconcile 側で別に計算すると、
+      // 作成時のタグと判定時の版がズレて作り直しがフラップする。
+      let lastRenderedVersion: string | undefined;
       return createAwsMediaStackProvisioner({
         renderTemplate: async (spec) => {
           const res = await lambda.send(
@@ -697,8 +702,11 @@ function makeExecutor(): ReconcileExecutor {
             throw new Error(`render template failed: ${res.FunctionError}`);
           }
           const text = res.Payload ? new TextDecoder().decode(res.Payload) : "";
-          const parsed = JSON.parse(text) as { template?: string };
+          const parsed = JSON.parse(text) as { template?: string; version?: string };
           if (!parsed.template) throw new Error("render template returned empty");
+          // 版は render が返したものをそのまま使う。reconcile 側で別に計算すると、
+          // 作成時のタグと判定時の版がズレて作り直しがフラップする。
+          lastRenderedVersion = parsed.version;
           return parsed.template;
         },
         pollIntervalMs: 5000,
@@ -706,8 +714,8 @@ function makeExecutor(): ReconcileExecutor {
         maxPolls: 1,
         // CFN にリソース作成権限を委譲する実行ロール (R5, ADR 0005 D-5)。
         roleArn: process.env.CFN_EXEC_ROLE_ARN,
-        // D18: 事前作成済みスタックの版ズレ検知用。同じ render を使うので追加の実装は要らない。
-        templateVersion: templateVersionOf,
+        // ADR 0016 D-4: 事前作成済みスタックの版ズレ検知用。同じ render を使うので追加の実装は要らない。
+        templateVersion: async () => lastRenderedVersion,
         // ADR 0023 D-1: CloudFormation Express モードでスタック作成を短縮する。
         // 事故時の退避用に CFN_EXPRESS_MODE=false で従来の STANDARD に戻せる。
         expressMode,
@@ -877,7 +885,7 @@ export async function handler(
     });
   }
 
-  // D18: 版が取れないときは undefined のまま渡す (版ズレ判定をしない)。
+  // ADR 0016 D-4: 版が取れないときは undefined のまま渡す (版ズレ判定をしない)。
   const templateVersion = await templateVersionOf();
   const plan = planReconcile(desired, actual, templateVersion);
   // D16: 失敗理由をイベント単位で拾い、下の進捗書き戻しに載せる。ログに出して消えるだけだと
@@ -900,14 +908,27 @@ export async function handler(
   //  - ADR 0023 D-3: 上記の観測結果を events.provisioning に書き戻し、管理画面に出す。
   const actualById = new Map(actual.map((a) => [a.eventId, a]));
   // この tick で destroy を出したイベントは、まだ running に見えても中身は消え始めている。
-  // 観測して「ready」と書き戻すと、管理画面が実在しない livekitUrl を出す (D18 の
+  // 観測して「ready」と書き戻すと、管理画面が実在しない livekitUrl を出す (ADR 0016 D-4 の
   // 版ズレ作り直しで実際に起きる)。
   const destroying = new Set(
     plan.actions.filter((x) => x.type === "destroy").map((x) => x.eventId),
   );
   let mediaUpdated = 0;
   for (const d2 of desired) {
-    if (destroying.has(d2.eventId)) continue;
+    if (destroying.has(d2.eventId)) {
+      // 観測はしないが、**書き戻しは省かない**。省くと failed → destroy のときに
+      // 失敗理由 (D16) がどこからも読まれず、管理画面が前 tick のフェーズで固まる。
+      // 古い livekitUrl も消す。残すと破棄〜再作成の間、実在しないホストを掴ませる。
+      await d.mediaPublisher.clear(d2.eventId);
+      await d.provisioningPublisher.publish(d2.eventId, {
+        stack: { kind: "deleting" },
+        services: [],
+        mediaReady: false,
+        wantTasks: !d2.pending,
+        error: stepErrors.get(d2.eventId),
+      });
+      continue;
+    }
     const a = actualById.get(d2.eventId);
     const wantTasks = !d2.pending;
 

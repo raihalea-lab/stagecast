@@ -40,10 +40,10 @@ export interface ActualStack {
   /** スタック作成からの経過時間 (ms)。観測できないなら未設定。stale 検知に使う (L3)。 */
   ageMs?: number;
   /**
-   * 作成時のテンプレート版 (D18)。タグから読む。**三状態**であることが重要:
+   * 作成時のテンプレート版 (ADR 0016 D-4)。タグから読む。**三状態**であることが重要:
    *
    * - `undefined` … 読めなかった (DescribeStacks の失敗等)。**版ズレの判定をしない**
-   * - `null` … 読めたがタグが無い (D18 以前に作られたスタック)。作り直しの対象
+   * - `null` … 読めたがタグが無い (版タグ導入前に作られたスタック)。作り直しの対象
    * - 文字列 … その版
    *
    * 読めなかったのを「タグ無し」と同一視すると、一過性のスロットリングだけで
@@ -68,7 +68,7 @@ export interface ReconcilePlan {
 export function planReconcile(
   desired: DesiredEvent[],
   actual: ActualStack[],
-  /** 現在のテンプレート版 (D18)。未指定なら版ズレの判定をしない。 */
+  /** 現在のテンプレート版 (ADR 0016 D-4)。未指定なら版ズレの判定をしない。 */
   currentTemplateVersion?: string,
 ): ReconcilePlan {
   const desiredById = new Map<string, DesiredEvent>(desired.map((d) => [d.eventId, d]));
@@ -99,7 +99,7 @@ export function planReconcile(
       });
       continue;
     }
-    // D18: 事前作成済み (desiredCount=0) のスタックがテンプレートの版ズレを起こしていたら
+    // ADR 0016 D-4: 事前作成済み (desiredCount=0) のスタックがテンプレートの版ズレを起こしていたら
     // 作り直す。更新経路が無いので、消して次の tick で作らせるしかない。
     //
     // **`pending` のものだけを対象にする。** 配信中のスタックを消すと配信が切れる。

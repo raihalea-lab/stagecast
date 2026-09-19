@@ -37,7 +37,7 @@ export class AwsCloudFormationClient implements CloudFormationLike {
     RoleARN?: string | undefined;
     DeploymentMode?: DeploymentMode | undefined;
     /**
-     * スタックのタグ (D18: テンプレート版の記録)。
+     * スタックのタグ (ADR 0016 D-4: テンプレート版の記録)。
      *
      * **ここで転送し忘れると、タグが黙って捨てられる。** 版が読めないスタックは
      * 「古い」と判定されるので、事前作成スタックが毎 tick 破棄→再作成される
@@ -88,7 +88,7 @@ export interface AwsProvisionerConfig {
   maxPolls?: number;
   /** CFN サービスロール ARN (R5)。createStack の RoleARN に渡す。 */
   roleArn?: string | undefined;
-  /** 作成時のテンプレート版 (D18)。タグに残して版ズレ検知に使う。 */
+  /** 作成時のテンプレート版 (ADR 0016 D-4)。タグに残して版ズレ検知に使う。 */
   templateVersion?: CfnProvisionerConfig["templateVersion"];
   /** CloudFormation Express モードで作成する (ADR 0023 D-1)。 */
   expressMode?: boolean | undefined;

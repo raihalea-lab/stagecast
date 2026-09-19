@@ -202,7 +202,7 @@ describe("enforceMaxParallel (ADR 0008 D-6)", () => {
   });
 });
 
-describe("事前作成済みスタックの版ズレ (D18)", () => {
+describe("事前作成済みスタックの版ズレ (ADR 0016 D-4)", () => {
   const pending = (id: string): DesiredEvent => ({
     eventId: id,
     captionEngine: "transcribe",

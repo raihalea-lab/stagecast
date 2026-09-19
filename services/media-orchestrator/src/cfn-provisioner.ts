@@ -40,7 +40,7 @@ export interface CloudFormationLike {
     RoleARN?: string | undefined;
     /** Express モード (ADR 0023 D-1)。未指定は CFN 既定の STANDARD。 */
     DeploymentMode?: DeploymentMode | undefined;
-    /** スタックに付けるタグ (D18: テンプレート版の記録)。 */
+    /** スタックに付けるタグ (ADR 0016 D-4: テンプレート版の記録)。 */
     Tags?: { Key: string; Value: string }[] | undefined;
   }): Promise<{ StackId?: string | undefined }>;
   deleteStack(input: { StackName: string }): Promise<void>;
@@ -56,7 +56,7 @@ export interface CfnProvisionerConfig {
   /** CFN サービスロール ARN (R5)。createStack の RoleARN に渡す。 */
   roleArn?: string | undefined;
   /**
-   * 作成時のテンプレート版 (D18)。タグに残して、事前作成済みスタックの版ズレを
+   * 作成時のテンプレート版 (ADR 0016 D-4)。タグに残して、事前作成済みスタックの版ズレを
    * reconcile が検知できるようにする。未指定ならタグを付けない (従来の挙動)。
    */
   templateVersion?: (() => Promise<string | undefined>) | undefined;
@@ -133,7 +133,7 @@ export class CloudFormationMediaStackProvisioner implements MediaStackProvisione
       TemplateBody: await this.config.renderTemplate(spec),
       Capabilities: ["CAPABILITY_IAM", "CAPABILITY_NAMED_IAM"],
       ...(this.config.roleArn ? { RoleARN: this.config.roleArn } : {}),
-      // D18: 事前作成済みスタックの版ズレ検知用。
+      // ADR 0016 D-4: 事前作成済みスタックの版ズレ検知用。
       ...(version ? { Tags: [{ Key: TEMPLATE_VERSION_TAG, Value: version }] } : {}),
       // 破棄側 (deleteStack) は Express にしない: 削除完了の報告が実際の破棄より先行すると、
       // 直後の作り直しが「まだ消えていない ECS サービス」と名前衝突する (ADR 0023 D-1)。
