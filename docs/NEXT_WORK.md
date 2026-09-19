@@ -354,25 +354,7 @@ aws secretsmanager update-secret --secret-id stagecast/youtube \
 
 ## D: 技術的負債 (今回 PR #9 で残した宿題)
 
-### D18. 事前作成済みスタックはテンプレートを変えても更新されない
-
-`CloudFormationMediaStackProvisioner` は **`createStack` しか呼ばない**
-(`services/media-orchestrator/src/cfn-provisioner.ts`)。`destroy` も `deleteStack` だけで、
-**更新経路が存在しない**。
-
-ADR 0016 D-4 により `scheduled` の時点で desiredCount 0 のスタックを先に作るので、
-**テンプレートを変えても既存の `scheduled` イベントには反映されない**。古いテンプレートを
-抱えたまま開催時刻に立ち上がる。
-
-2026-09-19 に ADR 0028 でメディア層のホスト名と Caddy の起動コマンドを変えたが、
-そのとき `scheduled` のイベントが 0 件だったため実害は出なかった。**次にテンプレートを
-変えるときは、`scheduled` のイベントスタックを手で消す**こと (次の tick で新しい
-テンプレートから作り直される)。
-
-対応案: reconcile が「スタックのテンプレートが古いか」を見て作り直す。あるいは
-`scheduled` での事前作成をやめる (ADR 0016 D-4 の見直し)。
-
-### D19. reconcile の provision 失敗にバックオフが無い
+### D20. reconcile の provision 失敗にバックオフが無い
 
 壊れている間ずっと毎分 provision を叩き続ける。D16 の 1-2 (失敗理由を管理画面に出す) は
 対応済みだが、この 3 番目だけ残っている。優先度は低い (料金もレート制限も実害が出ていない)。
@@ -674,7 +656,7 @@ devDependencies : "@voidzero-dev/vite-plus-core": "^0.1.24" → 0.1.24 を解決
 | **D11**     | admin-web のログイン切れ                   | `apps/admin-web/src/auth`                                        |
 | **D14**     | 字幕オフの配線                             | `reconcile.ts` の `captionDesiredCount`                          |
 | **D15**     | Lambda 内 CDK synth の実行確認             | `infra/test/render-template-bundle.test.ts`                      |
-| **D16**     | provision 失敗の可視化                     | 1-2 は `provisioning.ts`。3 (バックオフ) は **D19 に残っている** |
+| **D16**     | provision 失敗の可視化                     | 1-2 は `provisioning.ts`。3 (バックオフ) は **D20 に残っている** |
 | **D17**     | pre-push と CI の重複                      | `.husky/pre-push`                                                |
 | **N1 / N6** | 成果物 UI / UI 全面リニューアル            | 実装済み (`Artifacts` タブ / `packages/ui`)                      |
 | **L2**      | YouTube 利用規約                           | `docs/legal/youtube-operations.md`                               |

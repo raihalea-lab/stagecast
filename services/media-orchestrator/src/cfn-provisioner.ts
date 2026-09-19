@@ -10,6 +10,7 @@
  */
 import { withRetry, type RetryOptions } from "@stagecast/shared";
 import type { EventMediaSpec, MediaStackHandle, MediaStackProvisioner } from "./provisioner.js";
+import { TEMPLATE_VERSION_TAG } from "./template-version.js";
 
 export interface StackOutput {
   OutputKey?: string | undefined;
@@ -39,6 +40,8 @@ export interface CloudFormationLike {
     RoleARN?: string | undefined;
     /** Express モード (ADR 0023 D-1)。未指定は CFN 既定の STANDARD。 */
     DeploymentMode?: DeploymentMode | undefined;
+    /** スタックに付けるタグ (D18: テンプレート版の記録)。 */
+    Tags?: { Key: string; Value: string }[] | undefined;
   }): Promise<{ StackId?: string | undefined }>;
   deleteStack(input: { StackName: string }): Promise<void>;
   describeStacks(input: { StackName: string }): Promise<DescribeResult>;
@@ -52,6 +55,11 @@ export interface CfnProvisionerConfig {
   stackName: (eventId: string) => string;
   /** CFN サービスロール ARN (R5)。createStack の RoleARN に渡す。 */
   roleArn?: string | undefined;
+  /**
+   * 作成時のテンプレート版 (D18)。タグに残して、事前作成済みスタックの版ズレを
+   * reconcile が検知できるようにする。未指定ならタグを付けない (従来の挙動)。
+   */
+  templateVersion?: (() => Promise<string | undefined>) | undefined;
   /**
    * CloudFormation Express モードでスタックを作成する (ADR 0023 D-1)。
    * リソースが「設定適用済み」になった時点で完了扱いになり、作成が大幅に速くなる。
@@ -119,11 +127,14 @@ export class CloudFormationMediaStackProvisioner implements MediaStackProvisione
 
   async provision(spec: EventMediaSpec): Promise<MediaStackHandle> {
     const stackName = this.config.stackName(spec.eventId);
+    const version = await this.config.templateVersion?.();
     const created = await this.config.cfn.createStack({
       StackName: stackName,
       TemplateBody: await this.config.renderTemplate(spec),
       Capabilities: ["CAPABILITY_IAM", "CAPABILITY_NAMED_IAM"],
       ...(this.config.roleArn ? { RoleARN: this.config.roleArn } : {}),
+      // D18: 事前作成済みスタックの版ズレ検知用。
+      ...(version ? { Tags: [{ Key: TEMPLATE_VERSION_TAG, Value: version }] } : {}),
       // 破棄側 (deleteStack) は Express にしない: 削除完了の報告が実際の破棄より先行すると、
       // 直後の作り直しが「まだ消えていない ECS サービス」と名前衝突する (ADR 0023 D-1)。
       ...(this.config.expressMode ? { DeploymentMode: "EXPRESS" as const } : {}),

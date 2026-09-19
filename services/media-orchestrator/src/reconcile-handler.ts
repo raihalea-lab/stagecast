@@ -51,6 +51,7 @@ import {
 } from "./provisioning.js";
 import { createMediaPublisher, type MediaResolver, type MediaStore } from "./media-publisher.js";
 import { probeSignaling, type SignalingProbeResult } from "./signaling-probe.js";
+import { createTemplateVersionResolver, TEMPLATE_VERSION_TAG } from "./template-version.js";
 import type { EventMediaInfo, EventProvisioningInfo } from "@stagecast/shared";
 // 型だけの import なので実行時の読み込みは増えない。
 import type { DynamoDBDocumentClient } from "@aws-sdk/lib-dynamodb";
@@ -334,6 +335,21 @@ async function deps(): Promise<HandlerDeps> {
           const status = s.StackStatus ?? "";
           stacks.push({ eventId, kind: classifyStackStatus(status), status, ageMs });
         }
+        // D18: ListStacks はタグを返さないので、完成済みのスタックだけ DescribeStacks で補う。
+        // 対象は同時並列数の上限 (既定 10) までなので、tick あたりの呼び出しは十分小さい。
+        for (const s of stacks) {
+          if (s.kind !== "running") continue;
+          try {
+            const d = await cfn.send(
+              new DescribeStacksCommand({ StackName: eventMediaStackName(s.eventId) }),
+            );
+            s.templateVersion = (d.Stacks?.[0]?.Tags ?? []).find(
+              (t: { Key?: string }) => t.Key === TEMPLATE_VERSION_TAG,
+            )?.Value;
+          } catch {
+            // 読めなければ版ズレの判定をしない (undefined のまま)。
+          }
+        }
         next = res.NextToken;
       } while (next);
       return stacks;
@@ -614,6 +630,28 @@ async function deleteRoute53ARecord(hostedZoneId: string, recordName: string): P
   );
 }
 
+/**
+ * 現在のテンプレート版 (D18)。コールドスタートごとに 1 回だけ RenderTemplateFunction を叩く。
+ * レンダリング処理も env も Lambda を入れ替えないと変わらないので、コンテナの寿命と一致する。
+ */
+const templateVersionOf = createTemplateVersionResolver(async (spec) => {
+  const { LambdaClient, InvokeCommand } = await import("@aws-sdk/client-lambda");
+  const fnName = process.env.RENDER_TEMPLATE_FUNCTION_NAME;
+  if (!fnName) throw new Error("RENDER_TEMPLATE_FUNCTION_NAME is required");
+  const res = await new LambdaClient({}).send(
+    new InvokeCommand({
+      FunctionName: fnName,
+      Payload: new TextEncoder().encode(JSON.stringify(spec)),
+    }),
+  );
+  if (res.FunctionError) throw new Error(`render template failed: ${res.FunctionError}`);
+  const parsed = JSON.parse(res.Payload ? new TextDecoder().decode(res.Payload) : "") as {
+    template?: string;
+  };
+  if (!parsed.template) throw new Error("render template returned empty");
+  return parsed.template;
+});
+
 function makeExecutor(): ReconcileExecutor {
   // renderTemplate は CDK synth を伴うため遅延ロード。
   let provisionerPromise: Promise<ReturnType<typeof createAwsMediaStackProvisioner>> | undefined;
@@ -660,6 +698,8 @@ function makeExecutor(): ReconcileExecutor {
         maxPolls: 1,
         // CFN にリソース作成権限を委譲する実行ロール (R5, ADR 0005 D-5)。
         roleArn: process.env.CFN_EXEC_ROLE_ARN,
+        // D18: 事前作成済みスタックの版ズレ検知用。同じ render を使うので追加の実装は要らない。
+        templateVersion: templateVersionOf,
         // ADR 0023 D-1: CloudFormation Express モードでスタック作成を短縮する。
         // 事故時の退避用に CFN_EXPRESS_MODE=false で従来の STANDARD に戻せる。
         expressMode,
@@ -829,7 +869,9 @@ export async function handler(
     });
   }
 
-  const plan = planReconcile(desired, actual);
+  // D18: 版が取れないときは undefined のまま渡す (版ズレ判定をしない)。
+  const templateVersion = await templateVersionOf();
+  const plan = planReconcile(desired, actual, templateVersion);
   // D16: 失敗理由をイベント単位で拾い、下の進捗書き戻しに載せる。ログに出して消えるだけだと
   // 管理画面は「未作成」としか出ず、障害が無言で進行する。
   const stepErrors = new Map<string, string>();

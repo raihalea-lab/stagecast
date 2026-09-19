@@ -39,6 +39,8 @@ export interface ActualStack {
   status?: string;
   /** スタック作成からの経過時間 (ms)。観測できないなら未設定。stale 検知に使う (L3)。 */
   ageMs?: number;
+  /** 作成時のテンプレート版 (D18)。タグから読む。付いていないスタックは undefined。 */
+  templateVersion?: string;
 }
 
 /** reconcile が出すアクション (副作用なし)。 */
@@ -54,7 +56,12 @@ export interface ReconcilePlan {
 /**
  * 純粋関数: 現在の desired / actual から次に取るべきアクションのリストを返す。
  */
-export function planReconcile(desired: DesiredEvent[], actual: ActualStack[]): ReconcilePlan {
+export function planReconcile(
+  desired: DesiredEvent[],
+  actual: ActualStack[],
+  /** 現在のテンプレート版 (D18)。未指定なら版ズレの判定をしない。 */
+  currentTemplateVersion?: string,
+): ReconcilePlan {
   const desiredById = new Map<string, DesiredEvent>(desired.map((d) => [d.eventId, d]));
   const actualById = new Map<string, ActualStack>(actual.map((a) => [a.eventId, a]));
   const seen = new Set<string>();
@@ -80,6 +87,20 @@ export function planReconcile(desired: DesiredEvent[], actual: ActualStack[]): R
         type: "wait",
         eventId: d.eventId,
         reason: `stack ${a.kind} — wait for terminal state`,
+      });
+      continue;
+    }
+    // D18: 事前作成済み (desiredCount=0) のスタックがテンプレートの版ズレを起こしていたら
+    // 作り直す。更新経路が無いので、消して次の tick で作らせるしかない。
+    //
+    // **`pending` のものだけを対象にする。** 配信中のスタックを消すと配信が切れる。
+    // 版が取れないとき (undefined) は比較しない — 古いまま残すほうが、誤って
+    // 作り直すより安全。
+    if (d.pending && currentTemplateVersion && a.templateVersion !== currentTemplateVersion) {
+      actions.push({
+        type: "destroy",
+        eventId: d.eventId,
+        reason: `stale template (${a.templateVersion ?? "untagged"} != ${currentTemplateVersion})`,
       });
       continue;
     }

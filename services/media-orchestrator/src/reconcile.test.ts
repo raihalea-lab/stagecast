@@ -201,3 +201,42 @@ describe("enforceMaxParallel (ADR 0008 D-6)", () => {
     expect(r.skipped).toEqual([]);
   });
 });
+
+describe("事前作成済みスタックの版ズレ (D18)", () => {
+  const pending = (id: string): DesiredEvent => ({
+    eventId: id,
+    captionEngine: "transcribe",
+    pending: true,
+  });
+  const live = (id: string): DesiredEvent => ({ eventId: id, captionEngine: "transcribe" });
+  const running = (id: string, templateVersion?: string): ActualStack => ({
+    eventId: id,
+    kind: "running",
+    ...(templateVersion ? { templateVersion } : {}),
+  });
+
+  it("scheduled のスタックが古い版なら作り直す", () => {
+    // createStack しか無く更新経路が無いので、消して次の tick で作らせる。
+    const plan = planReconcile([pending("e1")], [running("e1", "old")], "new");
+    expect(plan.actions).toEqual([expect.objectContaining({ type: "destroy", eventId: "e1" })]);
+  });
+
+  it("**配信中のスタックは版が古くても触らない** (消すと配信が切れる)", () => {
+    const plan = planReconcile([live("e1")], [running("e1", "old")], "new");
+    expect(plan.actions).toEqual([]);
+  });
+
+  it("版が一致していれば何もしない", () => {
+    expect(planReconcile([pending("e1")], [running("e1", "same")], "same").actions).toEqual([]);
+  });
+
+  it("現在の版が取れないときは判定しない (誤って作り直さない)", () => {
+    expect(planReconcile([pending("e1")], [running("e1", "old")], undefined).actions).toEqual([]);
+  });
+
+  it("タグが無い旧スタックは作り直す対象になる", () => {
+    const plan = planReconcile([pending("e1")], [running("e1")], "new");
+    expect(plan.actions[0]).toMatchObject({ type: "destroy" });
+    expect(plan.actions[0]?.reason).toContain("untagged");
+  });
+});

@@ -79,6 +79,8 @@ export interface AwsProvisionerConfig {
   maxPolls?: number;
   /** CFN サービスロール ARN (R5)。createStack の RoleARN に渡す。 */
   roleArn?: string | undefined;
+  /** 作成時のテンプレート版 (D18)。タグに残して版ズレ検知に使う。 */
+  templateVersion?: CfnProvisionerConfig["templateVersion"];
   /** CloudFormation Express モードで作成する (ADR 0023 D-1)。 */
   expressMode?: boolean | undefined;
   /** describeStacks の観測結果 (Express が実際に効いたかの確認に使う)。 */
@@ -99,6 +101,7 @@ export function createAwsMediaStackProvisioner(
     pollIntervalMs: config.pollIntervalMs,
     maxPolls: config.maxPolls,
     roleArn: config.roleArn,
+    templateVersion: config.templateVersion,
     expressMode: config.expressMode,
     onObserve: config.onObserve,
   });

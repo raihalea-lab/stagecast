@@ -38,6 +38,12 @@ LiveKit 公式デプロイリポジトリ (`livekit/deploy`) は Caddy リバー
 - `warmup` 遷移時に ECS `UpdateService` API で desiredCount 0→1 (CFn Update 不要)
 - `liveStatus` GSI: `"pending"` (scheduled), `"live"` (warmup/live)
 
+**制約 (2026-09-19 追記)**: provisioner は `createStack` しか呼ばない = 更新経路が無い。
+テンプレートを変えても、先に作られた `scheduled` のスタックには反映されず、開催時刻に
+古い構成で立ち上がる。そこで作成時にテンプレートの版をタグ (`stagecast:template-version`)
+で残し、reconcile が版ズレを見つけたら**破棄して作り直す**。対象は `pending` のスタックだけ
+(配信中を消すと配信が切れる)。
+
 ### D-5: CFn exec role から elasticloadbalancing 権限を削除
 
 - NLB 廃止に伴い不要
