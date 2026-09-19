@@ -305,6 +305,11 @@ R12-followup-1〜22 で **stage-web から SFU への WebRTC 接続** が完了 
   vp run --filter @stagecast/infra cdk bootstrap aws://<account>/us-east-1   # Bedrock 用
   ```
 - [ ] Bedrock のモデルアクセス申請 (`us.anthropic.claude-sonnet-4-5-...`) を us-east-1 で実施
+- [ ] **環境ごとに `mediaHostedZoneName` と `acmeEmail` を渡す。** `infra/user-config.ts` は
+      gitignore 済みなので CI や他環境には存在しない。repository variables
+      (`STAGECAST_MEDIA_HOSTED_ZONE_NAME` / `STAGECAST_ACME_EMAIL`) で渡す (ADR 0028 D-6)。
+      dev は設定済み。**渡し忘れると独自ドメイン無しの構成でデプロイされ、Cognito の
+      コールバックが変わって管理画面にログインできなくなる**
 - [x] **AWS Budgets でアカウント全体に月額アラート設定済み (2026-06-20)** — CDK で実装 (デフォルト 50 USD、80% で WARN・100% 予測で CRITICAL、専用 SNS Topic `CostAlarmTopic`)。`-c budgetEmail=foo@example.com -c budgetMonthlyUsd=50` で変更可能
 
 ### O2. GitHub OIDC IAM Role の作成 (deploy.yml が引き受ける)

@@ -1,3 +1,11 @@
+/**
+ * 環境ごとの設定。実体は `infra/user-config.ts` (gitignore 済み、雛形は `.example`)。
+ *
+ * **CI には実体が無い**ので、`mediaHostedZoneName` と `acmeEmail` は環境変数
+ * (`STAGECAST_MEDIA_HOSTED_ZONE_NAME` / `STAGECAST_ACME_EMAIL`) でも渡せる
+ * (ADR 0028 D-6、解決は `bin/app.ts`)。渡し忘れると独自ドメイン無しの構成で
+ * デプロイされ、管理画面にログインできなくなる。
+ */
 export interface UserConfig {
   mediaHostedZoneName?: string;
   initialAdmins?: string;
