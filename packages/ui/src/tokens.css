@@ -43,15 +43,15 @@
   --preview-glow: 0 0 0 1px rgba(22, 163, 74, 0.45), 0 0 10px 0 rgba(22, 163, 74, 0.3);
 
   /* brand — 主要アクション (Button default / focus ring / 選択状態)。 両テーマ共通 */
-  --brand-300: #9ae0ca;
-  --brand-500: #3a9a7c;
-  /* 白文字を載せる塗りは常に 600 (白との対比 4.65:1)。 500 は 3.45:1 で本文サイズに足りない */
-  --brand-600: #2f8268;
-  --brand-700: #256b56;
-  /* 文字色 (リンク・ラベル) はテーマで変わる: ダークは明るいミント (9.0:1)、ライトは濃い 700 */
-  --brand-text: #6ac9ab;
+  --brand-300: #99cade;
+  --brand-500: #509ab7;
+  /* 白文字を載せる塗りは常に 600 (白との対比 5.2:1)。 500 は 3.2:1 で本文サイズに足りない */
+  --brand-600: #35748f;
+  --brand-700: #2c637a;
+  /* 文字色 (リンク・ラベル) はテーマで変わる: ダークは明るい青 (6.9:1)、ライトは濃い 700 */
+  --brand-text: #6aa9c2;
   /* 薄い面 (選択行・注記) */
-  --brand-tint: rgba(58, 154, 124, 0.16);
+  --brand-tint: rgba(80, 154, 183, 0.16);
 
   /* 機能色 (alert / log 系のみ、 通常 UI には極力使わない) */
   --success: #10b981;
@@ -80,24 +80,24 @@
 }
 
 [data-theme="light"] {
-  /* 面は brand ミントを薄く帯びた灰。 純白は surface-1 (カード) だけ */
-  --surface-0: #f4faf8;
+  /* 面は brand 青を薄く帯びた灰。 純白は surface-1 (カード) だけ */
+  --surface-0: #f4f8fb;
   --surface-1: #ffffff;
-  --surface-2: #e3f2ec;
-  --surface-3: #d0ebe0;
-  --surface-4: #b4dccd;
+  --surface-2: #e6eff5;
+  --surface-3: #d3e4ee;
+  --surface-4: #b8d3e2;
 
-  --line-1: rgba(30, 90, 70, 0.08);
-  --line-2: rgba(30, 90, 70, 0.14);
-  --line-3: rgba(30, 90, 70, 0.22);
+  --line-1: rgba(40, 80, 110, 0.08);
+  --line-2: rgba(40, 80, 110, 0.14);
+  --line-3: rgba(40, 80, 110, 0.22);
 
-  --text-primary: rgba(20, 33, 28, 0.94);
-  --text-secondary: rgba(20, 33, 28, 0.68);
-  --text-tertiary: rgba(20, 33, 28, 0.46);
-  --text-disabled: rgba(20, 33, 28, 0.26);
+  --text-primary: rgba(20, 30, 38, 0.94);
+  --text-secondary: rgba(20, 30, 38, 0.68);
+  --text-tertiary: rgba(20, 30, 38, 0.46);
+  --text-disabled: rgba(20, 30, 38, 0.26);
 
-  --brand-text: #256b56;
-  --brand-tint: #d6f1e7;
+  --brand-text: #2c637a;
+  --brand-tint: #dbeaf2;
 
   /* 機能色を文字として白地に置くと 4.5:1 に届かないので、ライトだけ一段濃くする */
   --success: #047857;
@@ -105,7 +105,7 @@
   --error: #dc2626;
   --info: #0369a1;
 
-  --shadow-overlay: 0 12px 32px -8px rgba(20, 70, 55, 0.18), 0 0 0 1px var(--line-2);
+  --shadow-overlay: 0 12px 32px -8px rgba(30, 60, 80, 0.18), 0 0 0 1px var(--line-2);
   /* tally / preview / brand 塗り / radius / motion はダークと共通 */
 }
 
