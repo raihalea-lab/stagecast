@@ -22,8 +22,8 @@ import {
   DateTimeField,
   Alert,
   Badge,
+  FormField,
   Input,
-  Label,
   Toaster,
   type CalendarEventColors,
 } from "@stagecast/ui";
@@ -363,44 +363,65 @@ export function App(props: { controlApiUrl: string }) {
                       <Badge variant="secondary">管理者のみ</Badge>{" "}
                       の項目は管理者だけが確認できます。
                     </p>
-                    <div className="grid gap-1.5">
-                      <Label htmlFor="rw-name" className="flex items-center gap-2">
-                        お名前 *<Badge variant="secondary">管理者のみ</Badge>
-                      </Label>
+                    <FormField
+                      id="rw-name"
+                      label={
+                        <>
+                          お名前
+                          <Badge variant="secondary">管理者のみ</Badge>
+                        </>
+                      }
+                      required
+                    >
                       <Input
                         id="rw-name"
                         value={requesterName}
                         onChange={(e) => setRequesterName(e.target.value)}
                         placeholder="山田太郎"
                       />
-                    </div>
-                    <div className="grid gap-1.5">
-                      <Label htmlFor="rw-contact" className="flex items-center gap-2">
-                        連絡先（メール / Slack / X など）
-                        <Badge variant="secondary">管理者のみ</Badge>
-                      </Label>
+                    </FormField>
+                    <FormField
+                      id="rw-contact"
+                      label={
+                        <>
+                          連絡先（メール / Slack / X など）
+                          <Badge variant="secondary">管理者のみ</Badge>
+                        </>
+                      }
+                    >
                       <Input
                         id="rw-contact"
                         value={contactInfo}
                         onChange={(e) => setContactInfo(e.target.value)}
                         placeholder="例: user@example.com, @slack_id"
                       />
-                    </div>
-                    <div className="grid gap-1.5">
-                      <Label htmlFor="rw-title" className="flex items-center gap-2">
-                        イベントタイトル *<Badge variant="brand">カレンダーに公開</Badge>
-                      </Label>
+                    </FormField>
+                    <FormField
+                      id="rw-title"
+                      label={
+                        <>
+                          イベントタイトル
+                          <Badge variant="brand">カレンダーに公開</Badge>
+                        </>
+                      }
+                      required
+                    >
                       <Input
                         id="rw-title"
                         value={title}
                         onChange={(e) => setTitle(e.target.value)}
                       />
-                    </div>
-                    <div className="grid gap-1.5">
-                      <Label htmlFor="rw-starts" className="flex items-center gap-2">
-                        開始日時
-                        <Badge variant="brand">カレンダーに公開</Badge>
-                      </Label>
+                    </FormField>
+                    <FormField
+                      id="rw-starts"
+                      label={
+                        <>
+                          開始日時
+                          <Badge variant="brand">カレンダーに公開</Badge>
+                        </>
+                      }
+                      required
+                    >
                       <DateTimeField
                         id="rw-starts"
                         value={startsAt}
@@ -410,24 +431,33 @@ export function App(props: { controlApiUrl: string }) {
                           setEndsAt(computeDefaultEndsAt(v));
                         }}
                       />
-                    </div>
-                    <div className="grid gap-1.5">
-                      <Label htmlFor="rw-ends" className="flex items-center gap-2">
-                        終了日時
-                        <Badge variant="brand">カレンダーに公開</Badge>
-                      </Label>
+                    </FormField>
+                    <FormField
+                      id="rw-ends"
+                      label={
+                        <>
+                          終了日時
+                          <Badge variant="brand">カレンダーに公開</Badge>
+                        </>
+                      }
+                      required
+                    >
                       <DateTimeField
                         id="rw-ends"
                         value={endsAt}
                         stepMinutes={EVENT_TIME_STEP_MIN}
                         onChange={setEndsAt}
                       />
-                    </div>
-                    <div className="grid gap-1.5">
-                      <Label htmlFor="rw-desc" className="flex items-center gap-2">
-                        説明
-                        <Badge variant="secondary">管理者のみ</Badge>
-                      </Label>
+                    </FormField>
+                    <FormField
+                      id="rw-desc"
+                      label={
+                        <>
+                          説明
+                          <Badge variant="secondary">管理者のみ</Badge>
+                        </>
+                      }
+                    >
                       <textarea
                         id="rw-desc"
                         value={description}
@@ -436,7 +466,7 @@ export function App(props: { controlApiUrl: string }) {
                         rows={3}
                         maxLength={1000}
                       />
-                    </div>
+                    </FormField>
                     <Button type="submit" disabled={submitting}>
                       {submitting ? "送信中…" : "リクエストを送信"}
                     </Button>
