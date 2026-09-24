@@ -17,6 +17,9 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
+  Alert,
+  Badge,
+  Chip,
   DateTimeField,
   DialogTrigger,
   EgressControl,
@@ -228,6 +231,26 @@ function PreviewApp() {
             <div className="flex w-96 flex-col gap-2">
               <Label htmlFor="starts">開始日時 (10 分刻み)</Label>
               <DateTimeField id="starts" value="2026-07-01T09:10" onChange={() => {}} />
+            </div>
+            <div id="alerts" className="flex w-full flex-col gap-2">
+              <Alert onDismiss={() => {}}>保存に失敗しました: Network error</Alert>
+              <Alert variant="warning">モデレーターからミュート要請が届きました</Alert>
+              <Alert variant="info">
+                <p className="font-medium">見出しつき</p>
+                <code className="mt-1 block text-xs text-text-secondary">detail: 0x1234</code>
+              </Alert>
+            </div>
+            <div className="flex w-full flex-wrap items-center gap-2">
+              <Badge>JST (UTC+9)</Badge>
+              <Badge variant="secondary">管理者のみ</Badge>
+              <Badge variant="brand">カレンダーに公開</Badge>
+              <Badge variant="success">承認済み</Badge>
+              <Badge variant="warning">3</Badge>
+              <Badge variant="error">却下</Badge>
+              <span className="mx-2 text-text-tertiary">|</span>
+              <Chip selected>すべて</Chip>
+              <Chip>下書き</Chip>
+              <Chip>配信中</Chip>
             </div>
             <div className="flex w-72 flex-col gap-2">
               <Label>字幕言語</Label>
