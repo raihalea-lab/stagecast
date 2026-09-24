@@ -10,7 +10,7 @@ import {
   type EventFormValues,
 } from "../lib/event-form.js";
 import type { CreateEventInput } from "@stagecast/control-api";
-import { Alert, Button, DateTimeField, Input, Label } from "@stagecast/ui";
+import { Alert, Button, DateTimeField, FormField, Input } from "@stagecast/ui";
 
 export function EventForm(props: {
   onCreate: (input: CreateEventInput) => void;
@@ -73,31 +73,29 @@ export function EventForm(props: {
           </ul>
         </Alert>
       )}
-      <div className="grid gap-2">
-        <Label htmlFor="ef-title">タイトル</Label>
+      <FormField id="ef-title" label="タイトル" required>
         <Input id="ef-title" value={values.title} onChange={(e) => set("title", e.target.value)} />
-      </div>
-      <div className="grid gap-2">
-        <Label htmlFor="ef-starts">開始日時</Label>
+      </FormField>
+      <FormField id="ef-starts" label="開始日時" required>
         <DateTimeField
           id="ef-starts"
           value={values.startsAt}
           onChange={setStartsAt}
           stepMinutes={EVENT_TIME_STEP_MIN}
         />
-      </div>
-      <div className="grid gap-2">
-        <Label htmlFor="ef-ends">終了日時</Label>
+      </FormField>
+      <FormField
+        id="ef-ends"
+        label="終了日時"
+        hint="未入力の場合、開始から 2 時間が自動設定されます"
+      >
         <DateTimeField
           id="ef-ends"
           value={values.endsAt ?? ""}
           onChange={setEndsAt}
           stepMinutes={EVENT_TIME_STEP_MIN}
         />
-        <p className="text-xs text-text-tertiary">
-          未入力の場合、開始から 2 時間が自動設定されます
-        </p>
-      </div>
+      </FormField>
 
       <div className="grid gap-1 rounded-md border border-line-2 bg-surface-1 p-3">
         <label className="inline-flex items-center gap-2 text-sm text-text-primary">
@@ -135,8 +133,7 @@ export function EventForm(props: {
         </div>
       </fieldset>
 
-      <div className="grid gap-2">
-        <Label htmlFor="ef-yt-lang">YouTube 送出言語 (1 言語)</Label>
+      <FormField id="ef-yt-lang" label="YouTube 送出言語 (1 言語)">
         <select
           disabled={!values.captionEnabled}
           id="ef-yt-lang"
@@ -150,10 +147,9 @@ export function EventForm(props: {
             </option>
           ))}
         </select>
-      </div>
+      </FormField>
 
-      <div className="grid gap-2">
-        <Label htmlFor="ef-engine">字幕エンジン</Label>
+      <FormField id="ef-engine" label="字幕エンジン">
         <select
           disabled={!values.captionEnabled}
           id="ef-engine"
@@ -167,7 +163,7 @@ export function EventForm(props: {
             </option>
           ))}
         </select>
-      </div>
+      </FormField>
 
       <label className="inline-flex items-center gap-2 text-sm text-text-secondary">
         <input
@@ -180,22 +176,20 @@ export function EventForm(props: {
         独自字幕配信 API を有効化する
       </label>
 
-      <div className="grid gap-2">
-        <Label htmlFor="ef-rtmp">YouTube RTMP URL</Label>
+      <FormField id="ef-rtmp" label="YouTube RTMP URL">
         <Input
           id="ef-rtmp"
           value={values.rtmpUrl ?? ""}
           onChange={(e) => set("rtmpUrl", e.target.value)}
         />
-      </div>
-      <div className="grid gap-2">
-        <Label htmlFor="ef-skey">ストリームキー参照 (Secrets 名)</Label>
+      </FormField>
+      <FormField id="ef-skey" label="ストリームキー参照 (Secrets 名)">
         <Input
           id="ef-skey"
           value={values.streamKeyRef ?? ""}
           onChange={(e) => set("streamKeyRef", e.target.value)}
         />
-      </div>
+      </FormField>
 
       <Button type="submit" disabled={props.busy}>
         {props.busy ? "作成中…" : "イベントを作成"}

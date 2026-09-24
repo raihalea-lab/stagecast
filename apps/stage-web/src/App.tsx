@@ -40,7 +40,6 @@ import {
   ControlBar,
   EgressControl,
   Input,
-  Label,
   LayoutPicker,
   LiveStats,
   ParticipantList,
@@ -61,6 +60,7 @@ import {
   TabsList,
   TabsTrigger,
   Alert,
+  FormField,
   type ChatMessageDisplay,
   type EgressState,
   type LiveStatsData,
@@ -706,24 +706,22 @@ export function App(props: {
               <CardTitle className="text-base">接続情報</CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
-              <div className="grid gap-2">
-                <Label htmlFor="invite-token">招待トークン</Label>
+              <FormField id="invite-token" label="招待トークン" required>
                 <Input
                   id="invite-token"
                   value={token}
                   onChange={(e) => setToken(e.target.value)}
                   placeholder="招待URLから自動入力されます"
                 />
-              </div>
-              <div className="grid gap-2">
-                <Label htmlFor="display-name">表示名</Label>
+              </FormField>
+              <FormField id="display-name" label="表示名">
                 <Input
                   id="display-name"
                   value={name}
                   onChange={(e) => setName(e.target.value)}
                   placeholder="任意"
                 />
-              </div>
+              </FormField>
             </CardContent>
           </Card>
 

@@ -27,6 +27,7 @@ import {
   DeviceMeter,
   Label,
   Alert,
+  FormField,
   Tabs,
   TabsContent,
   TabsList,
@@ -173,8 +174,7 @@ export function DeviceCheck(props: {
           </TabsList>
 
           <TabsContent value="mic" className="space-y-4">
-            <div className="grid gap-2">
-              <Label htmlFor="mic-select">マイクを選択</Label>
+            <FormField id="mic-select" label="マイクを選択">
               <select
                 id="mic-select"
                 value={micId ?? ""}
@@ -187,7 +187,7 @@ export function DeviceCheck(props: {
                   </option>
                 ))}
               </select>
-            </div>
+            </FormField>
             <div className="space-y-1">
               <Label>音量レベル</Label>
               <DeviceMeter level={level / 100} size="lg" showDb />
@@ -195,8 +195,7 @@ export function DeviceCheck(props: {
           </TabsContent>
 
           <TabsContent value="camera" className="space-y-4">
-            <div className="grid gap-2">
-              <Label htmlFor="camera-select">カメラを選択</Label>
+            <FormField id="camera-select" label="カメラを選択">
               <select
                 id="camera-select"
                 value={camId ?? ""}
@@ -209,7 +208,7 @@ export function DeviceCheck(props: {
                   </option>
                 ))}
               </select>
-            </div>
+            </FormField>
             <div className="overflow-hidden rounded-lg border-2 border-preview-500 shadow-[0_0_8px_rgba(22,163,74,0.3)]">
               <video
                 ref={videoRef}

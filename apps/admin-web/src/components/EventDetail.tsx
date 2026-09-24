@@ -44,12 +44,12 @@ import {
   CardTitle,
   EmptyState,
   Input,
-  Label,
   OpenStageButton,
   StatusPill,
   Alert,
   Badge,
   Chip,
+  FormField,
   Tabs,
   TabsContent,
   TabsList,
@@ -381,8 +381,7 @@ function AssetManagerTab(props: { client: ControlApiClient; assets: AssetService
           </CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
-          <div className="grid gap-2">
-            <Label htmlFor="asset-tags">タグ (カンマ区切り)</Label>
+          <FormField id="asset-tags" label="タグ (カンマ区切り)">
             <Input
               id="asset-tags"
               placeholder="例: ロゴ, 背景, スポンサー"
@@ -390,9 +389,8 @@ function AssetManagerTab(props: { client: ControlApiClient; assets: AssetService
               onChange={(e) => setUploadTags(e.target.value)}
               disabled={busy}
             />
-          </div>
-          <div className="grid gap-2">
-            <Label htmlFor="asset-upload">ファイル選択</Label>
+          </FormField>
+          <FormField id="asset-upload" label="ファイル選択">
             <Input
               id="asset-upload"
               type="file"
@@ -403,7 +401,7 @@ function AssetManagerTab(props: { client: ControlApiClient; assets: AssetService
                 e.target.files && e.target.files.length > 0 && handleUpload(e.target.files)
               }
             />
-          </div>
+          </FormField>
         </CardContent>
       </Card>
 
@@ -785,8 +783,7 @@ export function EventDetail(props: {
               </CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
-              <div className="grid gap-2">
-                <Label htmlFor="qr-upload">QR コード画像</Label>
+              <FormField id="qr-upload" label="QR コード画像">
                 <Input
                   id="qr-upload"
                   type="file"
@@ -794,7 +791,7 @@ export function EventDetail(props: {
                   disabled={busy}
                   onChange={(e) => e.target.files?.[0] && uploadQr(e.target.files[0])}
                 />
-              </div>
+              </FormField>
               {event.qrAsset && (
                 <p className="text-sm text-text-secondary">登録済み QR: {event.qrAsset.key}</p>
               )}
@@ -813,8 +810,7 @@ export function EventDetail(props: {
                 登壇資料を登録すると、本文を字幕翻訳の文脈に使って用語の訳を揃えます。
                 投影しない発表原稿や話者ノートも登録できます。
               </p>
-              <div className="grid gap-2">
-                <Label htmlFor="material-upload">資料 (PDF / PPTX / Markdown / テキスト)</Label>
+              <FormField id="material-upload" label="資料 (PDF / PPTX / Markdown / テキスト)">
                 <Input
                   id="material-upload"
                   type="file"
@@ -827,7 +823,7 @@ export function EventDetail(props: {
                     e.target.value = "";
                   }}
                 />
-              </div>
+              </FormField>
               {materialList.length > 0 ? (
                 <ul className="space-y-2">
                   {materialList.map((m) => (

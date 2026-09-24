@@ -21,8 +21,8 @@ import {
   CardTitle,
   Chip,
   EmptyState,
+  FormField,
   Input,
-  Label,
 } from "@stagecast/ui";
 import { File, Image, Search, Tag, Trash2, Upload } from "@stagecast/ui/icons";
 
@@ -138,8 +138,7 @@ export function AssetLibrary(props: { client: ControlApiClient; assets: AssetSer
           </CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
-          <div className="grid gap-2">
-            <Label htmlFor="lib-asset-tags">タグ (カンマ区切り)</Label>
+          <FormField id="lib-asset-tags" label="タグ (カンマ区切り)">
             <Input
               id="lib-asset-tags"
               placeholder="例: ロゴ, 背景, スポンサー"
@@ -147,9 +146,8 @@ export function AssetLibrary(props: { client: ControlApiClient; assets: AssetSer
               onChange={(e) => setUploadTags(e.target.value)}
               disabled={busy}
             />
-          </div>
-          <div className="grid gap-2">
-            <Label htmlFor="lib-asset-desc">説明 (任意)</Label>
+          </FormField>
+          <FormField id="lib-asset-desc" label="説明 (任意)">
             <Input
               id="lib-asset-desc"
               placeholder="例: 2026年夏イベント用ロゴ"
@@ -157,9 +155,8 @@ export function AssetLibrary(props: { client: ControlApiClient; assets: AssetSer
               onChange={(e) => setUploadDescription(e.target.value)}
               disabled={busy}
             />
-          </div>
-          <div className="grid gap-2">
-            <Label htmlFor="lib-asset-upload">ファイル選択</Label>
+          </FormField>
+          <FormField id="lib-asset-upload" label="ファイル選択">
             <Input
               id="lib-asset-upload"
               type="file"
@@ -170,7 +167,7 @@ export function AssetLibrary(props: { client: ControlApiClient; assets: AssetSer
                 e.target.files && e.target.files.length > 0 && handleUpload(e.target.files)
               }
             />
-          </div>
+          </FormField>
         </CardContent>
       </Card>
 

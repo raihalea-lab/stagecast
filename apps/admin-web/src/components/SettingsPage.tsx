@@ -29,8 +29,8 @@ import {
   CardHeader,
   Alert,
   CardTitle,
+  FormField,
   Input,
-  Label,
   StatusPill,
 } from "@stagecast/ui";
 
@@ -203,8 +203,7 @@ function YouTubeForm(props: {
       </CardHeader>
       <CardContent>
         <form onSubmit={submit} className="space-y-4">
-          <div className="grid gap-2">
-            <Label htmlFor="yt-api-key">Data API Key</Label>
+          <FormField id="yt-api-key" label="Data API Key">
             <Input
               id="yt-api-key"
               type="password"
@@ -213,9 +212,8 @@ function YouTubeForm(props: {
               placeholder={props.status?.configured ? "再入力する場合のみ" : ""}
               autoComplete="off"
             />
-          </div>
-          <div className="grid gap-2">
-            <Label htmlFor="yt-client-id">OAuth Client ID</Label>
+          </FormField>
+          <FormField id="yt-client-id" label="OAuth Client ID">
             <Input
               id="yt-client-id"
               value={oauthClientId}
@@ -223,9 +221,8 @@ function YouTubeForm(props: {
               placeholder={props.status?.configured ? "再入力する場合のみ" : ""}
               autoComplete="off"
             />
-          </div>
-          <div className="grid gap-2">
-            <Label htmlFor="yt-client-secret">OAuth Client Secret</Label>
+          </FormField>
+          <FormField id="yt-client-secret" label="OAuth Client Secret">
             <Input
               id="yt-client-secret"
               type="password"
@@ -234,9 +231,8 @@ function YouTubeForm(props: {
               placeholder={props.status?.configured ? "再入力する場合のみ" : ""}
               autoComplete="off"
             />
-          </div>
-          <div className="grid gap-2">
-            <Label htmlFor="yt-stream-key">Stream Key</Label>
+          </FormField>
+          <FormField id="yt-stream-key" label="Stream Key">
             <Input
               id="yt-stream-key"
               type="password"
@@ -247,7 +243,7 @@ function YouTubeForm(props: {
               }
               autoComplete="off"
             />
-          </div>
+          </FormField>
           {submitError && <Alert>{submitError}</Alert>}
           <Button type="submit" disabled={busy}>
             {busy ? "保存中…" : "保存"}
