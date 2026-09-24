@@ -32,6 +32,8 @@ import {
   Toaster,
   TooltipProvider,
   Alert,
+  Badge,
+  Chip,
   type ThemeMode,
 } from "@stagecast/ui";
 import {
@@ -480,16 +482,7 @@ export function App(props: {
         </div>
         <div className="flex gap-1 px-3 pb-2">
           {(["all", "draft", "scheduled", "warmup", "live", "ended"] as const).map((s) => (
-            <button
-              key={s}
-              type="button"
-              onClick={() => setStatusFilter(s)}
-              className={`rounded-full px-2 py-0.5 text-[10px] font-medium transition-colors ${
-                statusFilter === s
-                  ? "bg-text-primary text-surface-0"
-                  : "bg-surface-2 text-text-secondary hover:bg-surface-3"
-              }`}
-            >
+            <Chip key={s} selected={statusFilter === s} onClick={() => setStatusFilter(s)}>
               {s === "all"
                 ? "すべて"
                 : s === "draft"
@@ -501,7 +494,7 @@ export function App(props: {
                       : s === "live"
                         ? "配信中"
                         : "終了"}
-            </button>
+            </Chip>
           ))}
         </div>
         {!eventsLoaded ? (
@@ -597,9 +590,9 @@ export function App(props: {
           <Inbox className="size-4" />
           リクエスト管理
           {pendingRequestCount > 0 && (
-            <span className="ml-auto rounded-full bg-warning px-1.5 py-0.5 text-[10px] font-bold text-white">
+            <Badge variant="warning" className="ml-auto">
               {pendingRequestCount}
-            </span>
+            </Badge>
           )}
         </Button>
         {props.config?.requestWebUrl && (

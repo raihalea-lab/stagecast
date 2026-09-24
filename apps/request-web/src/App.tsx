@@ -21,6 +21,7 @@ import {
   CardTitle,
   DateTimeField,
   Alert,
+  Badge,
   Input,
   Label,
   Toaster,
@@ -316,9 +317,7 @@ export function App(props: { controlApiUrl: string }) {
                 {item.label}
               </span>
             ))}
-            <span className="ml-auto rounded bg-surface-2 px-1.5 py-0.5 text-[10px] font-medium text-text-tertiary">
-              JST (UTC+9)
-            </span>
+            <Badge className="ml-auto">JST (UTC+9)</Badge>
           </div>
           {publicEvents === null ? (
             <div className="flex flex-1 items-center justify-center text-sm text-text-secondary">
@@ -359,21 +358,14 @@ export function App(props: { controlApiUrl: string }) {
                   <form onSubmit={submit} className="flex flex-col gap-3">
                     {error && <Alert>{error}</Alert>}
                     <p className="rounded-md border border-brand-500/40 bg-brand-tint px-3 py-2 text-xs text-brand-text">
-                      <span className="inline-block rounded bg-brand-600 px-1.5 py-0.5 text-[10px] font-semibold text-white">
-                        カレンダーに公開
-                      </span>{" "}
+                      <Badge variant="brand">カレンダーに公開</Badge>{" "}
                       の項目はカレンダー上に表示されます。
-                      <span className="inline-block rounded bg-surface-3 px-1.5 py-0.5 text-[10px] font-semibold text-text-secondary">
-                        管理者のみ
-                      </span>{" "}
+                      <Badge variant="secondary">管理者のみ</Badge>{" "}
                       の項目は管理者だけが確認できます。
                     </p>
                     <div className="grid gap-1.5">
                       <Label htmlFor="rw-name" className="flex items-center gap-2">
-                        お名前 *
-                        <span className="rounded bg-surface-3 px-1.5 py-0.5 text-[10px] font-semibold text-text-secondary">
-                          管理者のみ
-                        </span>
+                        お名前 *<Badge variant="secondary">管理者のみ</Badge>
                       </Label>
                       <Input
                         id="rw-name"
@@ -385,9 +377,7 @@ export function App(props: { controlApiUrl: string }) {
                     <div className="grid gap-1.5">
                       <Label htmlFor="rw-contact" className="flex items-center gap-2">
                         連絡先（メール / Slack / X など）
-                        <span className="rounded bg-surface-3 px-1.5 py-0.5 text-[10px] font-semibold text-text-secondary">
-                          管理者のみ
-                        </span>
+                        <Badge variant="secondary">管理者のみ</Badge>
                       </Label>
                       <Input
                         id="rw-contact"
@@ -398,10 +388,7 @@ export function App(props: { controlApiUrl: string }) {
                     </div>
                     <div className="grid gap-1.5">
                       <Label htmlFor="rw-title" className="flex items-center gap-2">
-                        イベントタイトル *
-                        <span className="rounded bg-brand-600 px-1.5 py-0.5 text-[10px] font-semibold text-white">
-                          カレンダーに公開
-                        </span>
+                        イベントタイトル *<Badge variant="brand">カレンダーに公開</Badge>
                       </Label>
                       <Input
                         id="rw-title"
@@ -412,9 +399,7 @@ export function App(props: { controlApiUrl: string }) {
                     <div className="grid gap-1.5">
                       <Label htmlFor="rw-starts" className="flex items-center gap-2">
                         開始日時
-                        <span className="rounded bg-brand-600 px-1.5 py-0.5 text-[10px] font-semibold text-white">
-                          カレンダーに公開
-                        </span>
+                        <Badge variant="brand">カレンダーに公開</Badge>
                       </Label>
                       <DateTimeField
                         id="rw-starts"
@@ -429,9 +414,7 @@ export function App(props: { controlApiUrl: string }) {
                     <div className="grid gap-1.5">
                       <Label htmlFor="rw-ends" className="flex items-center gap-2">
                         終了日時
-                        <span className="rounded bg-brand-600 px-1.5 py-0.5 text-[10px] font-semibold text-white">
-                          カレンダーに公開
-                        </span>
+                        <Badge variant="brand">カレンダーに公開</Badge>
                       </Label>
                       <DateTimeField
                         id="rw-ends"
@@ -443,9 +426,7 @@ export function App(props: { controlApiUrl: string }) {
                     <div className="grid gap-1.5">
                       <Label htmlFor="rw-desc" className="flex items-center gap-2">
                         説明
-                        <span className="rounded bg-surface-3 px-1.5 py-0.5 text-[10px] font-semibold text-text-secondary">
-                          管理者のみ
-                        </span>
+                        <Badge variant="secondary">管理者のみ</Badge>
                       </Label>
                       <textarea
                         id="rw-desc"

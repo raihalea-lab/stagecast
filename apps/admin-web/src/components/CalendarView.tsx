@@ -13,7 +13,7 @@ import {
   type EventDefinition,
   type EventRequest,
 } from "@stagecast/shared";
-import { CALENDAR_EVENT_COLORS, type CalendarEventColors } from "@stagecast/ui";
+import { Badge, CALENDAR_EVENT_COLORS, type CalendarEventColors } from "@stagecast/ui";
 
 const VIEW_STORAGE_KEY = "stagecast-admin-cal-view";
 
@@ -94,15 +94,13 @@ export function CalendarView(props: {
             {item.label}
           </span>
         ))}
-        <span
-          className="ml-auto rounded bg-surface-2 px-1.5 py-0.5 text-[10px] font-medium text-text-tertiary"
+        <Badge
+          className="ml-auto"
           title={`終了済みイベントは ${MAX_EVENTS} 件まで保持し、超えた分は開始日時の古い順に削除されます (録画・字幕・資料も一緒に消えます)。下書き・予定・配信中のイベントは削除されず、この件数にも入りません。`}
         >
           終了 {endedCount}/{MAX_EVENTS} 件
-        </span>
-        <span className="rounded bg-surface-2 px-1.5 py-0.5 text-[10px] font-medium text-text-tertiary">
-          JST (UTC+9)
-        </span>
+        </Badge>
+        <Badge>JST (UTC+9)</Badge>
       </div>
       <div className="relative min-h-0 flex-1 [&_.fc-timegrid-slots]:!absolute [&_.fc-timegrid-slots]:!inset-0 [&_.fc-timegrid-slots_table]:!h-full">
         <FullCalendar

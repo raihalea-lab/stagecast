@@ -18,6 +18,8 @@ export * from "./primitives/card.js";
 export * from "./primitives/separator.js";
 export * from "./primitives/skeleton.js";
 export * from "./primitives/alert.js";
+export * from "./primitives/badge.js";
+export * from "./primitives/chip.js";
 export * from "./primitives/tabs.js";
 export * from "./primitives/tooltip.js";
 export * from "./primitives/dialog.js";
