@@ -4,15 +4,14 @@ import {
   shiftEndsAt,
   defaultFormValues,
   ENGINE_OPTIONS,
-  EVENT_TIME_STEP_BASE,
-  EVENT_TIME_STEP_SEC,
+  EVENT_TIME_STEP_MIN,
   LANGUAGE_OPTIONS,
   toCreateEventInput,
   validateForm,
   type EventFormValues,
 } from "../lib/event-form.js";
 import type { CreateEventInput } from "@stagecast/control-api";
-import { Button, Input, Label } from "@stagecast/ui";
+import { Button, DateTimeField, Input, Label } from "@stagecast/ui";
 
 export function EventForm(props: {
   onCreate: (input: CreateEventInput) => void;
@@ -79,24 +78,20 @@ export function EventForm(props: {
       </div>
       <div className="grid gap-2">
         <Label htmlFor="ef-starts">開始日時</Label>
-        <Input
+        <DateTimeField
           id="ef-starts"
-          type="datetime-local"
-          step={EVENT_TIME_STEP_SEC}
-          min={EVENT_TIME_STEP_BASE}
           value={values.startsAt}
-          onChange={(e) => setStartsAt(e.target.value)}
+          onChange={setStartsAt}
+          stepMinutes={EVENT_TIME_STEP_MIN}
         />
       </div>
       <div className="grid gap-2">
         <Label htmlFor="ef-ends">終了日時</Label>
-        <Input
+        <DateTimeField
           id="ef-ends"
-          type="datetime-local"
-          step={EVENT_TIME_STEP_SEC}
-          min={EVENT_TIME_STEP_BASE}
           value={values.endsAt ?? ""}
-          onChange={(e) => setEndsAt(e.target.value)}
+          onChange={setEndsAt}
+          stepMinutes={EVENT_TIME_STEP_MIN}
         />
         <p className="text-xs text-text-tertiary">
           未入力の場合、開始から 2 時間が自動設定されます

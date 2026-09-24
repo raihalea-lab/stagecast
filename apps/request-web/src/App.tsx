@@ -13,6 +13,7 @@ import {
   CardContent,
   CardHeader,
   CardTitle,
+  DateTimeField,
   Input,
   Label,
   Toaster,
@@ -39,10 +40,8 @@ function formatEventTime(d: Date): string {
   });
 }
 
-/** 開始・終了日時の刻み (秒)。管理画面の EventForm と同じ 10 分。 */
-const EVENT_TIME_STEP_SEC = 10 * 60;
-// Chrome は min が無いと step の基準点がずれて 09:00 を無効と判定する。00 分始まりを明示。
-const EVENT_TIME_STEP_BASE = "2000-01-01T00:00";
+/** 開始・終了日時の刻み (分)。管理画面の EventForm と同じ。 */
+const EVENT_TIME_STEP_MIN = 10;
 
 function computeDefaultEndsAt(startsAt: string): string {
   if (!startsAt) return "";
@@ -441,15 +440,13 @@ export function App(props: { controlApiUrl: string }) {
                           カレンダーに公開
                         </span>
                       </Label>
-                      <Input
+                      <DateTimeField
                         id="rw-starts"
-                        type="datetime-local"
-                        step={EVENT_TIME_STEP_SEC}
-                        min={EVENT_TIME_STEP_BASE}
                         value={startsAt}
-                        onChange={(e) => {
-                          setStartsAt(e.target.value);
-                          setEndsAt(computeDefaultEndsAt(e.target.value));
+                        stepMinutes={EVENT_TIME_STEP_MIN}
+                        onChange={(v) => {
+                          setStartsAt(v);
+                          setEndsAt(computeDefaultEndsAt(v));
                         }}
                       />
                     </div>
@@ -460,13 +457,11 @@ export function App(props: { controlApiUrl: string }) {
                           カレンダーに公開
                         </span>
                       </Label>
-                      <Input
+                      <DateTimeField
                         id="rw-ends"
-                        type="datetime-local"
-                        step={EVENT_TIME_STEP_SEC}
-                        min={EVENT_TIME_STEP_BASE}
                         value={endsAt}
-                        onChange={(e) => setEndsAt(e.target.value)}
+                        stepMinutes={EVENT_TIME_STEP_MIN}
+                        onChange={setEndsAt}
                       />
                     </div>
                     <div className="grid gap-1.5">
