@@ -22,7 +22,7 @@
     "constructs": "^10.8.1"
   },
   "devDependencies": {
-    "@types/node": "^24.13.5",
+    "@types/node": "^26.5.1",
     "aws-cdk": "^2.1140.0",
     "esbuild": "^0.28.1",
     "tsx": "^4.23.13",
