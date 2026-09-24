@@ -16,7 +16,7 @@
   },
   "devDependencies": {
     "@types/node": "^24.13.5",
-    "livekit-server-sdk": "^2.15.4",
+    "livekit-server-sdk": "^2.19.0",
     "typescript": "^6.0.3",
     "vitest": "^4.1.0"
   }
