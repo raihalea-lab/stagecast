@@ -64,6 +64,18 @@ describe("event form", () => {
     expect(r.errors).toContain("終了日時は開始日時より後にしてください");
   });
 
+  it("開始・終了は 10 分刻みでないと弾く", () => {
+    const r = validateForm({
+      ...defaultFormValues(),
+      title: "x",
+      startsAt: "2026-07-01T09:05",
+      endsAt: "2026-07-01T11:07",
+    });
+    expect(r.ok).toBe(false);
+    expect(r.errors).toContain("開始日時は 10 分刻みで入力してください");
+    expect(r.errors).toContain("終了日時は 10 分刻みで入力してください");
+  });
+
   it("passes when endsAt >= startsAt", () => {
     const r = validateForm({
       ...defaultFormValues(),

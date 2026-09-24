@@ -123,6 +123,18 @@ export interface FormValidation {
   errors: string[];
 }
 
+/** 開始・終了日時の刻み。`<input type="datetime-local" step>` は秒単位。 */
+export const EVENT_TIME_STEP_MIN = 10;
+export const EVENT_TIME_STEP_SEC = EVENT_TIME_STEP_MIN * 60;
+
+/** 空や壊れた値は他のチェックに任せ、ここでは「刻みに合わない」だけを見る。 */
+function offTimeStep(value: string | undefined): boolean {
+  if (!value) return false;
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return false;
+  return d.getMinutes() % EVENT_TIME_STEP_MIN !== 0 || d.getSeconds() !== 0;
+}
+
 export function validateForm(values: EventFormValues): FormValidation {
   const errors: string[] = [];
   if (!values.title.trim()) errors.push("タイトルは必須です");
@@ -132,6 +144,14 @@ export function validateForm(values: EventFormValues): FormValidation {
     errors.push(`タイトルは ${MAX_TITLE_LENGTH} 文字以内にしてください`);
   }
   if (!values.startsAt) errors.push("開催日時は必須です");
+  // ブラウザの step 検証はブラウザ言語のメッセージで submit 時にしか出ない。
+  // 複製やカレンダー経由で刻みに合わない値が入ることがあるので、他の項目と同じ形で出す。
+  if (offTimeStep(values.startsAt)) {
+    errors.push(`開始日時は ${EVENT_TIME_STEP_MIN} 分刻みで入力してください`);
+  }
+  if (offTimeStep(values.endsAt)) {
+    errors.push(`終了日時は ${EVENT_TIME_STEP_MIN} 分刻みで入力してください`);
+  }
   // 字幕オフなら言語は使われないので問わない。設定は残しておき、オンに戻せば効く。
   if (values.captionEnabled) {
     if (values.languages.length === 0) errors.push("対応言語を 1 つ以上選択してください");

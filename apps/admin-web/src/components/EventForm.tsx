@@ -4,6 +4,7 @@ import {
   shiftEndsAt,
   defaultFormValues,
   ENGINE_OPTIONS,
+  EVENT_TIME_STEP_SEC,
   LANGUAGE_OPTIONS,
   toCreateEventInput,
   validateForm,
@@ -80,6 +81,7 @@ export function EventForm(props: {
         <Input
           id="ef-starts"
           type="datetime-local"
+          step={EVENT_TIME_STEP_SEC}
           value={values.startsAt}
           onChange={(e) => setStartsAt(e.target.value)}
         />
@@ -89,6 +91,7 @@ export function EventForm(props: {
         <Input
           id="ef-ends"
           type="datetime-local"
+          step={EVENT_TIME_STEP_SEC}
           value={values.endsAt ?? ""}
           onChange={(e) => setEndsAt(e.target.value)}
         />
