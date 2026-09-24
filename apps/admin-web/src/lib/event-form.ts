@@ -126,6 +126,12 @@ export interface FormValidation {
 /** 開始・終了日時の刻み。`<input type="datetime-local" step>` は秒単位。 */
 export const EVENT_TIME_STEP_MIN = 10;
 export const EVENT_TIME_STEP_SEC = EVENT_TIME_STEP_MIN * 60;
+/**
+ * step の基準点。Chrome は `min` が無いと datetime-local の刻みの基準がずれ、
+ * 09:00 を無効・09:03 を有効と判定した (2026-09-24 本番で確認)。`min` があれば
+ * そこからの差で判定するので、00 分始まりの基準を明示する。
+ */
+export const EVENT_TIME_STEP_BASE = "2000-01-01T00:00";
 
 /** 空や壊れた値は他のチェックに任せ、ここでは「刻みに合わない」だけを見る。 */
 function offTimeStep(value: string | undefined): boolean {
