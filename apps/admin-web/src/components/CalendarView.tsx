@@ -7,30 +7,15 @@ import type { EventClickArg } from "@fullcalendar/core";
 import type { DateClickArg } from "@fullcalendar/interaction";
 import {
   DEFAULT_EVENT_DURATION_MS,
+  formatEventTime,
   MAX_EVENTS,
+  toDatetimeLocal,
   type EventDefinition,
   type EventRequest,
 } from "@stagecast/shared";
 import { CALENDAR_EVENT_COLORS, type CalendarEventColors } from "@stagecast/ui";
 
 const VIEW_STORAGE_KEY = "stagecast-admin-cal-view";
-
-function toDatetimeLocal(d: Date, hour?: number, minute?: number): string {
-  const pad = (n: number) => String(n).padStart(2, "0");
-  const h = hour ?? d.getHours();
-  const m = minute ?? d.getMinutes();
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(h)}:${pad(m)}`;
-}
-
-function formatEventTime(d: Date): string {
-  return d.toLocaleString("en-US", {
-    month: "short",
-    day: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-    hour12: false,
-  });
-}
 
 const STATUS_COLORS: Record<string, CalendarEventColors> = CALENDAR_EVENT_COLORS;
 

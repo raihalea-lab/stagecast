@@ -1,5 +1,5 @@
 import * as React from "react";
-import type { EventStatus } from "@stagecast/shared";
+import { pad2, type EventStatus } from "@stagecast/shared";
 import { cn } from "../lib/cn.js";
 import { TallyIndicator } from "./tally-indicator.js";
 import { MonoNumber } from "./mono-number.js";
@@ -17,11 +17,7 @@ function formatStartsAt(iso: string): string {
   try {
     const d = new Date(iso);
     if (Number.isNaN(d.getTime())) return iso;
-    const m = (d.getMonth() + 1).toString().padStart(2, "0");
-    const day = d.getDate().toString().padStart(2, "0");
-    const h = d.getHours().toString().padStart(2, "0");
-    const mm = d.getMinutes().toString().padStart(2, "0");
-    return `${m}/${day} ${h}:${mm}`;
+    return `${pad2(d.getMonth() + 1)}/${pad2(d.getDate())} ${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
   } catch {
     return iso;
   }

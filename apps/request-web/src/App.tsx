@@ -5,7 +5,13 @@ import timeGridPlugin from "@fullcalendar/timegrid";
 import interactionPlugin from "@fullcalendar/interaction";
 import type { DateSelectArg, EventClickArg, EventDropArg } from "@fullcalendar/core";
 import type { EventResizeDoneArg } from "@fullcalendar/interaction";
-import { DEFAULT_EVENT_DURATION_MS } from "@stagecast/shared";
+import {
+  computeDefaultEndsAt,
+  DEFAULT_EVENT_DURATION_MS,
+  EVENT_TIME_STEP_MIN,
+  formatEventTime,
+  toDatetimeLocal,
+} from "@stagecast/shared";
 import {
   Button,
   CALENDAR_EVENT_COLORS,
@@ -22,33 +28,6 @@ import {
 
 const SELECTION_ID = "_selection_";
 const VIEW_STORAGE_KEY = "stagecast-request-cal-view";
-
-function toDatetimeLocal(d: Date, hour?: number, minute?: number): string {
-  const pad = (n: number) => String(n).padStart(2, "0");
-  const h = hour ?? d.getHours();
-  const m = minute ?? d.getMinutes();
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(h)}:${pad(m)}`;
-}
-
-function formatEventTime(d: Date): string {
-  return d.toLocaleString("en-US", {
-    month: "short",
-    day: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-    hour12: false,
-  });
-}
-
-/** 開始・終了日時の刻み (分)。管理画面の EventForm と同じ。 */
-const EVENT_TIME_STEP_MIN = 10;
-
-function computeDefaultEndsAt(startsAt: string): string {
-  if (!startsAt) return "";
-  const ms = Date.parse(startsAt);
-  if (Number.isNaN(ms)) return "";
-  return toDatetimeLocal(new Date(ms + DEFAULT_EVENT_DURATION_MS));
-}
 
 const STATUS_COLORS: Record<string, CalendarEventColors> = CALENDAR_EVENT_COLORS;
 const SELECTION_COLORS = CALENDAR_EVENT_COLORS.selection;

@@ -1,10 +1,9 @@
 import { useState } from "react";
-import type { LanguageCode } from "@stagecast/shared";
+import { EVENT_TIME_STEP_MIN, type LanguageCode } from "@stagecast/shared";
 import {
   shiftEndsAt,
   defaultFormValues,
   ENGINE_OPTIONS,
-  EVENT_TIME_STEP_MIN,
   LANGUAGE_OPTIONS,
   toCreateEventInput,
   validateForm,
