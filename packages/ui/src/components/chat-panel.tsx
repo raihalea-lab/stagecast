@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { Send } from "lucide-react";
+import { pad2 } from "@stagecast/shared";
 import { cn } from "../lib/cn.js";
 import { Button } from "../primitives/button.js";
 import { Input } from "../primitives/input.js";
@@ -40,7 +41,7 @@ const ROLE_BADGE_COLORS: Record<string, string> = {
 
 function formatTime(ms: number): string {
   const d = new Date(ms);
-  return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+  return `${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
 }
 
 export function ChatPanel({ messages, onSend, currentIdentity, className }: ChatPanelProps) {

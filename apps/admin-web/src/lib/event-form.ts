@@ -2,7 +2,9 @@
  * イベント設定フォームのドメインロジック (DESIGN.md 8 章)。純粋関数でテスト可能にする。
  */
 import {
-  DEFAULT_EVENT_DURATION_MS,
+  computeDefaultEndsAt,
+  EVENT_TIME_STEP_MIN,
+  toDatetimeLocal,
   isCaptionEnabled,
   isValidCaptionSettings,
   SUPPORTED_LANGUAGES,
@@ -57,26 +59,6 @@ export function defaultFormValues(startsAt?: string): EventFormValues {
 }
 
 /**
- * ISO 文字列 → `<input type="datetime-local">` が読む `YYYY-MM-DDTHH:mm`。
- * 保存済みの startsAt は `Z` 付き ISO のこともあるので、フォームに戻すときは必ず通す。
- */
-export function toDateTimeLocal(iso: string | undefined): string {
-  if (!iso) return "";
-  const ms = Date.parse(iso);
-  if (Number.isNaN(ms)) return "";
-  const d = new Date(ms);
-  const pad = (n: number) => String(n).padStart(2, "0");
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
-}
-
-export function computeDefaultEndsAt(startsAt: string): string {
-  if (!startsAt) return "";
-  const ms = Date.parse(startsAt);
-  if (Number.isNaN(ms)) return "";
-  return toDateTimeLocal(new Date(ms + DEFAULT_EVENT_DURATION_MS).toISOString());
-}
-
-/**
  * 開始日時を変えたときの終了日時。**所要時間を保って平行移動する。**
  *
  * 一律で開始+2h にすると、3 時間のイベントを複製して日付だけ直した瞬間に
@@ -89,7 +71,7 @@ export function shiftEndsAt(prev: EventFormValues, nextStartsAt: string): string
   if (Number.isNaN(prevStart) || Number.isNaN(prevEnd) || Number.isNaN(nextStart)) {
     return computeDefaultEndsAt(nextStartsAt);
   }
-  return toDateTimeLocal(new Date(nextStart + (prevEnd - prevStart)).toISOString());
+  return toDatetimeLocal(new Date(nextStart + (prevEnd - prevStart)).toISOString());
 }
 
 /**
@@ -104,8 +86,8 @@ export function toFormValues(event: EventDefinition): EventFormValues {
   const c = event.caption;
   return {
     title: `${event.title} のコピー`,
-    startsAt: toDateTimeLocal(event.startsAt),
-    endsAt: toDateTimeLocal(event.endsAt),
+    startsAt: toDatetimeLocal(event.startsAt),
+    endsAt: toDatetimeLocal(event.endsAt),
     // 生の enabled を見ると、未指定 (= 有効) の既存イベントが複製で黙って字幕オフになる。
     captionEnabled: isCaptionEnabled(c),
     languages: [...c.languages],
@@ -122,9 +104,6 @@ export interface FormValidation {
   ok: boolean;
   errors: string[];
 }
-
-/** 開始・終了日時の刻み (分)。DateTimeField の選択肢と、複製時の検証の両方で使う。 */
-export const EVENT_TIME_STEP_MIN = 10;
 
 /** 空や壊れた値は他のチェックに任せ、ここでは「刻みに合わない」だけを見る。 */
 function offTimeStep(value: string | undefined): boolean {

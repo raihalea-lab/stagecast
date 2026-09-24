@@ -1,13 +1,12 @@
 import { describe, expect, it } from "vitest";
 import {
-  computeDefaultEndsAt,
   defaultFormValues,
   shiftEndsAt,
   toCreateEventInput,
   toFormValues,
   validateForm,
 } from "./event-form.js";
-import type { EventDefinition } from "@stagecast/shared";
+import { computeDefaultEndsAt, type EventDefinition } from "@stagecast/shared";
 
 describe("event form", () => {
   it("accepts valid defaults plus required fields", () => {
@@ -41,16 +40,6 @@ describe("event form", () => {
     expect(input.title).toBe("Conf");
     expect(input.caption.youtubeLanguage).toBe("ja");
     expect(input.youtube).toEqual({ rtmpUrl: "rtmp://a/live", streamKeyRef: "secret/yt-key" });
-  });
-
-  it("computeDefaultEndsAt adds 2 hours", () => {
-    expect(computeDefaultEndsAt("2026-07-01T09:00")).toBe("2026-07-01T11:00");
-    expect(computeDefaultEndsAt("2026-07-01T23:00")).toBe("2026-07-02T01:00");
-  });
-
-  it("computeDefaultEndsAt returns empty for invalid input", () => {
-    expect(computeDefaultEndsAt("")).toBe("");
-    expect(computeDefaultEndsAt("not-a-date")).toBe("");
   });
 
   it("validates endsAt < startsAt", () => {

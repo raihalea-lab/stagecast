@@ -28,3 +28,15 @@ export function isInvitedRole(value: string): value is InvitedRole {
 export function isStageRole(value: string): value is StageRole {
   return (STAGE_ROLES as readonly string[]).includes(value);
 }
+
+/**
+ * LiveKit identity の接頭辞からロールを引く (ADR 0020 D-4)。
+ * 発行側は control-api の `speaker-*` / `moderator-*` / `admin-*`。
+ * 該当しない identity (preview viewer など) は undefined。既定値は呼び出し側で決める。
+ */
+export function roleFromIdentity(identity: string): StageRole | undefined {
+  for (const role of STAGE_ROLES) {
+    if (identity.startsWith(`${role}-`)) return role;
+  }
+  return undefined;
+}

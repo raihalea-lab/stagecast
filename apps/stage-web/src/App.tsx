@@ -22,6 +22,7 @@ import {
   decodeStageMessage,
   isSameDeck,
   materialKey,
+  roleFromIdentity,
   type AssetMetadata,
   type DeckRef,
   type EffectConfig,
@@ -98,14 +99,7 @@ function toParticipantInfo(
   s: ParticipantSnapshot,
   visibilityMap: Map<string, "live" | "standby">,
 ): ParticipantInfo {
-  const role = s.identity.startsWith("speaker-")
-    ? ("speaker" as const)
-    : s.identity.startsWith("moderator-")
-      ? ("moderator" as const)
-      : s.identity.startsWith("admin-")
-        ? ("admin" as const)
-        : undefined;
-  return { ...s, role, visibility: visibilityMap.get(s.identity) };
+  return { ...s, role: roleFromIdentity(s.identity), visibility: visibilityMap.get(s.identity) };
 }
 
 const ROLE_LABELS: Record<StageRole, string> = {
@@ -308,11 +302,8 @@ export function App(props: {
       } else if (msg.type === "chat") {
         setChatMessages((prev) => {
           if (prev.some((m) => m.id === msg.id)) return prev;
-          const role = msg.senderIdentity.startsWith("admin-")
-            ? ("admin" as const)
-            : msg.senderIdentity.startsWith("moderator-")
-              ? ("moderator" as const)
-              : ("speaker" as const);
+          // ADR 0020 D-4: 送信者ロールは identity の接頭辞から推定。不明なら speaker 扱い。
+          const role = roleFromIdentity(msg.senderIdentity) ?? "speaker";
           return [
             ...prev,
             {
@@ -614,11 +605,8 @@ export function App(props: {
       void controller.sendChat(text, name || undefined).then((msg) => {
         setChatMessages((prev) => {
           if (prev.some((m) => m.id === msg.id)) return prev;
-          const role = msg.senderIdentity.startsWith("admin-")
-            ? ("admin" as const)
-            : msg.senderIdentity.startsWith("moderator-")
-              ? ("moderator" as const)
-              : ("speaker" as const);
+          // ADR 0020 D-4: 送信者ロールは identity の接頭辞から推定。不明なら speaker 扱い。
+          const role = roleFromIdentity(msg.senderIdentity) ?? "speaker";
           return [
             ...prev,
             {

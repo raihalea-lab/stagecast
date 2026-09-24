@@ -597,7 +597,7 @@ export function EventDetail(props: {
   // undefined = 未取得 (読み込み中 or 失敗)。 失敗は inviteError で見せる。
   const [invites, setInvites] = useState<IssuedInvite[] | undefined>();
   const [inviteError, setInviteError] = useState<string | undefined>();
-  // コピー直後だけボタンの文言を変える (Toaster は admin-web に置いていない)。
+  // コピー直後だけボタンの文言を変える (toast を出すほどの出来事ではない)。
   const [copiedJti, setCopiedJti] = useState<string | undefined>();
   const copyInvite = (inv: IssuedInvite) => {
     navigator.clipboard
