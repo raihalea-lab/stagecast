@@ -47,6 +47,7 @@ import {
   Label,
   OpenStageButton,
   StatusPill,
+  Alert,
   Tabs,
   TabsContent,
   TabsList,
@@ -174,13 +175,13 @@ function ProvisioningCard(props: {
           「未作成」としか出ず、配信を始められない障害が無言で進行する。
         */}
         {info?.error && (
-          <div className="rounded-md border border-error/40 bg-error/10 p-3">
-            <p className="text-xs font-medium text-error">起動に失敗しています</p>
+          <Alert>
+            <p className="text-xs font-medium">起動に失敗しています</p>
             <code className="mt-1 block break-words text-xs text-text-secondary">{info.error}</code>
             <p className="mt-2 text-xs text-text-tertiary">
               次の調整ループで自動的に再試行されます。繰り返す場合は設定かデプロイを確認してください。
             </p>
-          </div>
+          </Alert>
         )}
 
         {info && info.services.length > 0 && (
@@ -205,14 +206,14 @@ function ProvisioningCard(props: {
           状態が管理画面からは正常に見える (2026-09-17 に実際に踏んだ)。
         */}
         {info?.signalingReady === false && (
-          <div className="rounded-md border border-error/40 bg-error/5 px-3 py-2">
-            <p className="text-sm font-medium text-error">
+          <Alert>
+            <p className="font-medium">
               シグナリングに到達できません（配信・入室ともにできない状態です）
             </p>
             {info.signalingError && (
               <p className="mt-1 break-all text-xs text-text-secondary">{info.signalingError}</p>
             )}
-          </div>
+          </Alert>
         )}
 
         {info && (
@@ -404,22 +405,7 @@ function AssetManagerTab(props: { client: ControlApiClient; assets: AssetService
         </CardContent>
       </Card>
 
-      {error && (
-        <div
-          role="alert"
-          className="flex items-start gap-3 rounded-md border border-error/40 bg-error/10 px-4 py-3 text-sm text-error"
-        >
-          <span className="flex-1">{error}</span>
-          <Button
-            variant="ghost"
-            size="icon-sm"
-            aria-label="閉じる"
-            onClick={() => setError(undefined)}
-          >
-            ×
-          </Button>
-        </div>
-      )}
+      {error && <Alert onDismiss={() => setError(undefined)}>{error}</Alert>}
 
       <Card>
         <CardHeader>
@@ -783,22 +769,7 @@ export function EventDetail(props: {
         }
       />
 
-      {error && (
-        <div
-          role="alert"
-          className="flex items-start gap-3 rounded-md border border-error/40 bg-error/10 px-4 py-3 text-sm text-error"
-        >
-          <span className="flex-1">{error}</span>
-          <Button
-            variant="ghost"
-            size="icon-sm"
-            aria-label="閉じる"
-            onClick={() => setError(undefined)}
-          >
-            ×
-          </Button>
-        </div>
-      )}
+      {error && <Alert onDismiss={() => setError(undefined)}>{error}</Alert>}
 
       <Tabs
         defaultValue="setup"

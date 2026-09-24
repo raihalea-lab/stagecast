@@ -10,7 +10,7 @@ import {
   type EventFormValues,
 } from "../lib/event-form.js";
 import type { CreateEventInput } from "@stagecast/control-api";
-import { Button, DateTimeField, Input, Label } from "@stagecast/ui";
+import { Alert, Button, DateTimeField, Input, Label } from "@stagecast/ui";
 
 export function EventForm(props: {
   onCreate: (input: CreateEventInput) => void;
@@ -65,11 +65,13 @@ export function EventForm(props: {
   return (
     <form onSubmit={submit} className="flex flex-col gap-4">
       {errors.length > 0 && (
-        <ul className="space-y-1 rounded-md border border-error/40 bg-error/10 px-3 py-2 text-xs text-error">
-          {errors.map((err) => (
-            <li key={err}>{err}</li>
-          ))}
-        </ul>
+        <Alert>
+          <ul className="space-y-1">
+            {errors.map((err) => (
+              <li key={err}>{err}</li>
+            ))}
+          </ul>
+        </Alert>
       )}
       <div className="grid gap-2">
         <Label htmlFor="ef-title">タイトル</Label>

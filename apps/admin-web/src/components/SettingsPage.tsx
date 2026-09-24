@@ -27,6 +27,7 @@ import {
   CardContent,
   CardDescription,
   CardHeader,
+  Alert,
   CardTitle,
   Input,
   Label,
@@ -70,14 +71,7 @@ export function SettingsPage(props: Props) {
           に保存され、画面に読み戻すことはありません。
         </p>
       </div>
-      {loadError && (
-        <div
-          role="alert"
-          className="rounded-md border border-error/40 bg-error/10 px-4 py-3 text-sm text-error"
-        >
-          設定の取得に失敗しました: {loadError}
-        </div>
-      )}
+      {loadError && <Alert>設定の取得に失敗しました: {loadError}</Alert>}
       <LiveKitForm
         status={livekitStatus}
         onRegenerateKeys={async () => {
@@ -133,14 +127,7 @@ function LiveKitForm(props: {
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
-        {keyError && (
-          <div
-            role="alert"
-            className="rounded-md border border-error/40 bg-error/10 px-3 py-2 text-sm text-error"
-          >
-            {keyError}
-          </div>
-        )}
+        {keyError && <Alert>{keyError}</Alert>}
         <AlertDialog>
           <AlertDialogTrigger asChild>
             <Button variant="outline" disabled={keyBusy}>
@@ -261,14 +248,7 @@ function YouTubeForm(props: {
               autoComplete="off"
             />
           </div>
-          {submitError && (
-            <div
-              role="alert"
-              className="rounded-md border border-error/40 bg-error/10 px-3 py-2 text-sm text-error"
-            >
-              {submitError}
-            </div>
-          )}
+          {submitError && <Alert>{submitError}</Alert>}
           <Button type="submit" disabled={busy}>
             {busy ? "保存中…" : "保存"}
           </Button>
