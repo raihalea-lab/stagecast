@@ -39,6 +39,9 @@ function formatEventTime(d: Date): string {
   });
 }
 
+/** 開始・終了日時の刻み (秒)。管理画面の EventForm と同じ 10 分。 */
+const EVENT_TIME_STEP_SEC = 10 * 60;
+
 function computeDefaultEndsAt(startsAt: string): string {
   if (!startsAt) return "";
   const ms = Date.parse(startsAt);
@@ -439,6 +442,7 @@ export function App(props: { controlApiUrl: string }) {
                       <Input
                         id="rw-starts"
                         type="datetime-local"
+                        step={EVENT_TIME_STEP_SEC}
                         value={startsAt}
                         onChange={(e) => {
                           setStartsAt(e.target.value);
@@ -456,6 +460,7 @@ export function App(props: { controlApiUrl: string }) {
                       <Input
                         id="rw-ends"
                         type="datetime-local"
+                        step={EVENT_TIME_STEP_SEC}
                         value={endsAt}
                         onChange={(e) => setEndsAt(e.target.value)}
                       />
