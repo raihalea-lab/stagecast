@@ -44,6 +44,7 @@ export * from "./components/event-list-item.js";
 export * from "./components/participant-list.js";
 export * from "./components/egress-control.js";
 export * from "./components/live-stats.js";
+export * from "./components/date-time-field.js";
 export * from "./components/role-switcher.js";
 export * from "./components/open-stage-button.js";
 export * from "./components/participant-tile.js";

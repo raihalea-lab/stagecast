@@ -17,6 +17,7 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
+  DateTimeField,
   DialogTrigger,
   EgressControl,
   EmptyState,
@@ -223,6 +224,10 @@ function PreviewApp() {
             <div className="flex w-72 flex-col gap-2">
               <Label htmlFor="title">イベント名</Label>
               <Input id="title" placeholder="Tech Conf 2026" />
+            </div>
+            <div className="flex w-96 flex-col gap-2">
+              <Label htmlFor="starts">開始日時 (10 分刻み)</Label>
+              <DateTimeField id="starts" value="2026-07-01T09:10" onChange={() => {}} />
             </div>
             <div className="flex w-72 flex-col gap-2">
               <Label>字幕言語</Label>
