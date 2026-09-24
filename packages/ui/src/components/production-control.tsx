@@ -14,6 +14,7 @@ import {
 } from "lucide-react";
 import { cn } from "../lib/cn.js";
 import { Button } from "../primitives/button.js";
+import { Checkbox } from "../primitives/checkbox.js";
 import { Input } from "../primitives/input.js";
 import { Label } from "../primitives/label.js";
 import {
@@ -149,11 +150,10 @@ function AutoHideInput({
 }) {
   return (
     <div className="flex items-center gap-1">
-      <input
-        type="checkbox"
+      <Checkbox
         checked={enabled}
         onChange={(e) => onEnabledChange(e.target.checked)}
-        className="size-3.5 rounded border-line-1"
+        className="size-3.5"
         disabled={disabled}
       />
       <span className="text-xs text-text-secondary">自動非表示</span>

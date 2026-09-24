@@ -10,7 +10,20 @@ import {
   type EventFormValues,
 } from "../lib/event-form.js";
 import type { CreateEventInput } from "@stagecast/control-api";
-import { Alert, Button, DateTimeField, FormField, Input } from "@stagecast/ui";
+import {
+  Alert,
+  Button,
+  Checkbox,
+  DateTimeField,
+  FormField,
+  Input,
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+  Switch,
+} from "@stagecast/ui";
 
 export function EventForm(props: {
   onCreate: (input: CreateEventInput) => void;
@@ -99,11 +112,9 @@ export function EventForm(props: {
 
       <div className="grid gap-1 rounded-md border border-line-2 bg-surface-1 p-3">
         <label className="inline-flex items-center gap-2 text-sm text-text-primary">
-          <input
-            type="checkbox"
+          <Switch
             checked={values.captionEnabled}
             onChange={(e) => set("captionEnabled", e.target.checked)}
-            className="accent-brand-600"
           />
           字幕を出す
         </label>
@@ -121,11 +132,9 @@ export function EventForm(props: {
               key={lang}
               className="inline-flex items-center gap-1.5 text-sm text-text-secondary"
             >
-              <input
-                type="checkbox"
+              <Checkbox
                 checked={values.languages.includes(lang)}
                 onChange={() => toggleLanguage(lang)}
-                className="accent-brand-600"
               />
               {lang}
             </label>
@@ -134,44 +143,48 @@ export function EventForm(props: {
       </fieldset>
 
       <FormField id="ef-yt-lang" label="YouTube 送出言語 (1 言語)">
-        <select
+        <Select
           disabled={!values.captionEnabled}
-          id="ef-yt-lang"
           value={values.youtubeLanguage}
-          onChange={(e) => set("youtubeLanguage", e.target.value as LanguageCode)}
-          className="rounded-md border border-line-2 bg-surface-1 px-3 py-2 text-sm text-text-primary"
+          onValueChange={(v) => set("youtubeLanguage", v as LanguageCode)}
         >
-          {values.languages.map((lang) => (
-            <option key={lang} value={lang}>
-              {lang}
-            </option>
-          ))}
-        </select>
+          <SelectTrigger id="ef-yt-lang">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {values.languages.map((lang) => (
+              <SelectItem key={lang} value={lang}>
+                {lang}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
       </FormField>
 
       <FormField id="ef-engine" label="字幕エンジン">
-        <select
+        <Select
           disabled={!values.captionEnabled}
-          id="ef-engine"
           value={values.engine}
-          onChange={(e) => set("engine", e.target.value as EventFormValues["engine"])}
-          className="rounded-md border border-line-2 bg-surface-1 px-3 py-2 text-sm text-text-primary"
+          onValueChange={(v) => set("engine", v as EventFormValues["engine"])}
         >
-          {ENGINE_OPTIONS.map((opt) => (
-            <option key={opt.value} value={opt.value}>
-              {opt.label}
-            </option>
-          ))}
-        </select>
+          <SelectTrigger id="ef-engine">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {ENGINE_OPTIONS.map((opt) => (
+              <SelectItem key={opt.value} value={opt.value}>
+                {opt.label}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
       </FormField>
 
       <label className="inline-flex items-center gap-2 text-sm text-text-secondary">
-        <input
-          type="checkbox"
+        <Switch
           disabled={!values.captionEnabled}
           checked={values.captionEnabled && values.customApiEnabled}
           onChange={(e) => set("customApiEnabled", e.target.checked)}
-          className="accent-brand-600"
         />
         独自字幕配信 API を有効化する
       </label>
