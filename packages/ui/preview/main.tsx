@@ -19,8 +19,12 @@ import {
   DialogTitle,
   Alert,
   Badge,
+  Checkbox,
   Chip,
   DateTimeField,
+  FormField,
+  Switch,
+  Textarea,
   DialogTrigger,
   EgressControl,
   EmptyState,
@@ -239,6 +243,24 @@ function PreviewApp() {
                 <p className="font-medium">見出しつき</p>
                 <code className="mt-1 block text-xs text-text-secondary">detail: 0x1234</code>
               </Alert>
+            </div>
+            <div id="inputs" className="flex w-full flex-wrap items-start gap-6">
+              <FormField id="ff-title" label="タイトル" required hint="20 文字以内">
+                <Input id="ff-title" className="w-64" />
+              </FormField>
+              <FormField id="ff-err" label="終了日時" error="開始日時より後にしてください">
+                <Input id="ff-err" className="w-64" defaultValue="2026-07-01T08:00" />
+              </FormField>
+              <label className="flex items-center gap-2 text-sm">
+                <Switch defaultChecked /> 字幕を出す
+              </label>
+              <label className="flex items-center gap-2 text-sm">
+                <Switch disabled /> 無効
+              </label>
+              <label className="flex items-center gap-2 text-sm">
+                <Checkbox defaultChecked /> ja
+              </label>
+              <Textarea aria-label="説明" rows={2} className="w-64" placeholder="説明" />
             </div>
             <div className="flex w-full flex-wrap items-center gap-2">
               <Badge>JST (UTC+9)</Badge>

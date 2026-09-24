@@ -28,6 +28,11 @@ import {
   Label,
   Alert,
   FormField,
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
   Tabs,
   TabsContent,
   TabsList,
@@ -175,18 +180,21 @@ export function DeviceCheck(props: {
 
           <TabsContent value="mic" className="space-y-4">
             <FormField id="mic-select" label="マイクを選択">
-              <select
-                id="mic-select"
-                value={micId ?? ""}
-                onChange={(e) => onMic(e.target.value)}
-                className="w-full rounded-md border border-line-2 bg-surface-2 px-3 py-2 text-sm text-text-primary focus:outline-none focus:ring-2 focus:ring-tally-500"
-              >
-                {microphones.map((d) => (
-                  <option key={d.deviceId} value={d.deviceId}>
-                    {d.label}
-                  </option>
-                ))}
-              </select>
+              <Select value={micId ?? ""} onValueChange={onMic}>
+                <SelectTrigger id="mic-select">
+                  <SelectValue placeholder="マイクを選択" />
+                </SelectTrigger>
+                <SelectContent>
+                  {microphones
+                    // 権限付与前は deviceId が "" で来る。Radix は空文字の item を許さない。
+                    .filter((d) => d.deviceId)
+                    .map((d) => (
+                      <SelectItem key={d.deviceId} value={d.deviceId}>
+                        {d.label}
+                      </SelectItem>
+                    ))}
+                </SelectContent>
+              </Select>
             </FormField>
             <div className="space-y-1">
               <Label>音量レベル</Label>
@@ -196,18 +204,20 @@ export function DeviceCheck(props: {
 
           <TabsContent value="camera" className="space-y-4">
             <FormField id="camera-select" label="カメラを選択">
-              <select
-                id="camera-select"
-                value={camId ?? ""}
-                onChange={(e) => onCam(e.target.value)}
-                className="w-full rounded-md border border-line-2 bg-surface-2 px-3 py-2 text-sm text-text-primary focus:outline-none focus:ring-2 focus:ring-tally-500"
-              >
-                {cameras.map((d) => (
-                  <option key={d.deviceId} value={d.deviceId}>
-                    {d.label}
-                  </option>
-                ))}
-              </select>
+              <Select value={camId ?? ""} onValueChange={onCam}>
+                <SelectTrigger id="camera-select">
+                  <SelectValue placeholder="カメラを選択" />
+                </SelectTrigger>
+                <SelectContent>
+                  {cameras
+                    .filter((d) => d.deviceId)
+                    .map((d) => (
+                      <SelectItem key={d.deviceId} value={d.deviceId}>
+                        {d.label}
+                      </SelectItem>
+                    ))}
+                </SelectContent>
+              </Select>
             </FormField>
             <div className="overflow-hidden rounded-lg border-2 border-preview-500 shadow-[0_0_8px_rgba(22,163,74,0.3)]">
               <video

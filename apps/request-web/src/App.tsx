@@ -24,6 +24,7 @@ import {
   Badge,
   FormField,
   Input,
+  Textarea,
   Toaster,
   type CalendarEventColors,
 } from "@stagecast/ui";
@@ -458,11 +459,10 @@ export function App(props: { controlApiUrl: string }) {
                         </>
                       }
                     >
-                      <textarea
+                      <Textarea
                         id="rw-desc"
                         value={description}
                         onChange={(e) => setDescription(e.target.value)}
-                        className="rounded-md border border-line-2 bg-surface-1 px-3 py-2 text-sm text-text-primary"
                         rows={3}
                         maxLength={1000}
                       />
