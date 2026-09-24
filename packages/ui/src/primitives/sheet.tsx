@@ -24,8 +24,10 @@ const SheetOverlay = React.forwardRef<
 ));
 SheetOverlay.displayName = DialogPrimitive.Overlay.displayName;
 
+// overflow-y-auto: fixed + h-full で画面の高さに固定され、Radix が背面の body スクロールも
+// 止めるので、中身が画面より長いとき (新規イベントフォーム) は自分でスクロールするしかない。
 const sheetVariants = cva(
-  "fixed z-50 gap-4 bg-surface-1 border border-line-2 shadow-overlay transition ease-standard data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:duration-base data-[state=open]:duration-base",
+  "fixed z-50 gap-4 overflow-y-auto bg-surface-1 border border-line-2 shadow-overlay transition ease-standard data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:duration-base data-[state=open]:duration-base",
   {
     variants: {
       side: {
