@@ -308,10 +308,7 @@ export function AssetLibrary(props: { client: ControlApiClient; assets: AssetSer
                       </AlertDialogHeader>
                       <AlertDialogFooter>
                         <AlertDialogCancel>キャンセル</AlertDialogCancel>
-                        <AlertDialogAction
-                          className="bg-error text-white hover:bg-error/90"
-                          onClick={() => handleDelete(asset)}
-                        >
+                        <AlertDialogAction onClick={() => handleDelete(asset)}>
                           削除
                         </AlertDialogAction>
                       </AlertDialogFooter>

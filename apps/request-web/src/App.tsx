@@ -15,6 +15,8 @@ import {
 import {
   Button,
   CALENDAR_EVENT_COLORS,
+  CalendarEventPopover,
+  CalendarLegend,
   Card,
   CardContent,
   CardHeader,
@@ -194,27 +196,14 @@ function CalendarDisplay(props: {
         datesSet={(info) => localStorage.setItem(VIEW_STORAGE_KEY, info.view.type)}
       />
       {popover && (
-        <>
-          <div className="fixed inset-0 z-40" onClick={() => setPopover(null)} />
-          <div
-            className="fixed z-50 w-64 rounded-lg border border-line-1 bg-surface-0 p-3 shadow-lg"
-            style={{ top: popover.top, left: popover.left }}
-          >
-            <div className="flex items-start justify-between">
-              <h3 className="text-sm font-medium text-text-primary">{popover.title}</h3>
-              <button
-                type="button"
-                onClick={() => setPopover(null)}
-                className="ml-2 text-text-tertiary hover:text-text-primary"
-              >
-                &times;
-              </button>
-            </div>
-            <p className="mt-1 text-xs text-text-secondary">
-              {popover.startStr} &ndash; {popover.endStr} JST
-            </p>
-          </div>
-        </>
+        <CalendarEventPopover
+          title={popover.title}
+          startStr={popover.startStr}
+          endStr={popover.endStr}
+          top={popover.top}
+          left={popover.left}
+          onClose={() => setPopover(null)}
+        />
       )}
     </div>
   );
@@ -308,18 +297,9 @@ export function App(props: { controlApiUrl: string }) {
       </header>
       <div className="flex min-h-0 flex-1 flex-col gap-6 p-6 lg:flex-row">
         <div className="flex min-h-0 flex-1 flex-col">
-          <div className="flex shrink-0 flex-wrap items-center gap-3 pb-2 text-xs text-text-secondary">
-            {LEGEND_ITEMS.map((item) => (
-              <span key={item.label} className="flex items-center gap-1.5">
-                <span
-                  className="inline-block size-3 rounded-full"
-                  style={{ backgroundColor: item.color }}
-                />
-                {item.label}
-              </span>
-            ))}
+          <CalendarLegend items={LEGEND_ITEMS}>
             <Badge className="ml-auto">JST (UTC+9)</Badge>
-          </div>
+          </CalendarLegend>
           {publicEvents === null ? (
             <div className="flex flex-1 items-center justify-center text-sm text-text-secondary">
               読み込み中…
