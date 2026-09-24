@@ -48,6 +48,8 @@ import {
   OpenStageButton,
   StatusPill,
   Alert,
+  Badge,
+  Chip,
   Tabs,
   TabsContent,
   TabsList,
@@ -421,30 +423,17 @@ function AssetManagerTab(props: { client: ControlApiClient; assets: AssetService
           {allTags.length > 0 && (
             <div className="flex flex-wrap items-center gap-1.5">
               <span className="text-xs text-text-secondary">タグ:</span>
-              <button
-                type="button"
-                onClick={() => setTagFilter(undefined)}
-                className={`rounded-full px-2.5 py-0.5 text-xs font-medium transition-colors ${
-                  !tagFilter
-                    ? "bg-text-primary text-surface-0"
-                    : "bg-surface-2 text-text-secondary hover:bg-surface-3"
-                }`}
-              >
+              <Chip selected={!tagFilter} onClick={() => setTagFilter(undefined)}>
                 すべて
-              </button>
+              </Chip>
               {allTags.map((tag) => (
-                <button
+                <Chip
                   key={tag}
-                  type="button"
+                  selected={tagFilter === tag}
                   onClick={() => setTagFilter(tagFilter === tag ? undefined : tag)}
-                  className={`rounded-full px-2.5 py-0.5 text-xs font-medium transition-colors ${
-                    tagFilter === tag
-                      ? "bg-brand-600 text-white"
-                      : "bg-surface-2 text-text-secondary hover:bg-surface-3"
-                  }`}
                 >
                   {tag}
-                </button>
+                </Chip>
               ))}
             </div>
           )}
@@ -519,12 +508,7 @@ function AssetManagerTab(props: { client: ControlApiClient; assets: AssetService
                   {asset.tags.length > 0 && editingAssetId !== asset.assetId && (
                     <div className="mt-1.5 flex flex-wrap gap-1">
                       {asset.tags.map((tag) => (
-                        <span
-                          key={tag}
-                          className="rounded-full bg-surface-2 px-2 py-0.5 text-[10px] font-medium text-text-secondary"
-                        >
-                          {tag}
-                        </span>
+                        <Badge key={tag}>{tag}</Badge>
                       ))}
                     </div>
                   )}

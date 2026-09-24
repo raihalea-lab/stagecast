@@ -1,6 +1,15 @@
 import { useCallback, useEffect, useState } from "react";
 import type { EventRequest } from "@stagecast/shared";
-import { Alert, Button, Card, CardContent, CardHeader, CardTitle, EmptyState } from "@stagecast/ui";
+import {
+  Alert,
+  Badge,
+  Button,
+  Card,
+  CardContent,
+  CardHeader,
+  CardTitle,
+  EmptyState,
+} from "@stagecast/ui";
 import { Check, X } from "@stagecast/ui/icons";
 import type { ControlApiClient } from "../api/types.js";
 import { toErrorMessage } from "../lib/errors.js";
@@ -129,13 +138,9 @@ export function EventRequestList(props: {
                   {r.requesterName} ・ {new Date(r.startsAt).toLocaleDateString("ja-JP")}
                 </span>
               </div>
-              <span
-                className={`rounded-full px-2 py-0.5 text-[10px] font-medium ${
-                  r.status === "approved" ? "bg-success/15 text-success" : "bg-error/15 text-error"
-                }`}
-              >
+              <Badge variant={r.status === "approved" ? "success" : "error"}>
                 {r.status === "approved" ? "承認済み" : "却下"}
-              </span>
+              </Badge>
             </div>
           ))}
         </div>

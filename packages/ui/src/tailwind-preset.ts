@@ -54,6 +54,10 @@ export const stagecastPreset = {
         error: "var(--error)",
         info: "var(--info)",
       },
+      fontSize: {
+        // Badge 用。text-[10px] の直書きが 30 件あったので名前を付けた。
+        "2xs": ["0.625rem", { lineHeight: "1rem" }],
+      },
       fontFamily: {
         sans: ['"InterVariable"', "system-ui", "-apple-system", '"Segoe UI"', "sans-serif"],
         mono: ['"JetBrains MonoVariable"', "ui-monospace", '"SF Mono"', "Menlo", "monospace"],
