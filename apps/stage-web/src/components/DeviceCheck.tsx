@@ -219,7 +219,7 @@ export function DeviceCheck(props: {
                 </SelectContent>
               </Select>
             </FormField>
-            <div className="overflow-hidden rounded-lg border-2 border-preview-500 shadow-[0_0_8px_rgba(22,163,74,0.3)]">
+            <div className="overflow-hidden rounded-lg border-2 border-preview-500 shadow-preview">
               <video
                 ref={videoRef}
                 className="block w-full max-w-sm bg-black"

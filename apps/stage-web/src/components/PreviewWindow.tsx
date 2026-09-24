@@ -82,7 +82,7 @@ export function PreviewWindow(props: Props) {
             <div
               className={
                 onAir
-                  ? "overflow-hidden rounded-lg border-2 border-tally-500 shadow-[0_0_12px_rgba(220,38,38,0.25)]"
+                  ? "overflow-hidden rounded-lg border-2 border-tally-500 shadow-tally"
                   : "overflow-hidden rounded-lg border-2 border-preview-500 shadow-preview"
               }
             >

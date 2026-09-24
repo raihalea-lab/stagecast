@@ -13,19 +13,17 @@ import {
   type EventDefinition,
   type EventRequest,
 } from "@stagecast/shared";
-import { Badge, CALENDAR_EVENT_COLORS, type CalendarEventColors } from "@stagecast/ui";
+import {
+  Badge,
+  CALENDAR_EVENT_COLORS,
+  CalendarEventPopover,
+  CalendarLegend,
+  type CalendarEventColors,
+} from "@stagecast/ui";
 
 const VIEW_STORAGE_KEY = "stagecast-admin-cal-view";
 
 const STATUS_COLORS: Record<string, CalendarEventColors> = CALENDAR_EVENT_COLORS;
-
-const LEGEND_ITEMS = [
-  { label: "下書き", color: CALENDAR_EVENT_COLORS.draft.borderColor },
-  { label: "予定", color: CALENDAR_EVENT_COLORS.scheduled.borderColor },
-  { label: "配信中", color: CALENDAR_EVENT_COLORS.live.borderColor },
-  { label: "終了", color: CALENDAR_EVENT_COLORS.ended.borderColor },
-  { label: "リクエスト", color: CALENDAR_EVENT_COLORS.request.borderColor },
-];
 
 interface EventPopover {
   title: string;
@@ -84,16 +82,7 @@ export function CalendarView(props: {
 
   return (
     <div className="flex h-[calc(100dvh-6rem)] w-full flex-col">
-      <div className="flex shrink-0 flex-wrap items-center gap-3 pb-2 text-xs text-text-secondary">
-        {LEGEND_ITEMS.map((item) => (
-          <span key={item.label} className="flex items-center gap-1.5">
-            <span
-              className="inline-block size-3 rounded-full"
-              style={{ backgroundColor: item.color }}
-            />
-            {item.label}
-          </span>
-        ))}
+      <CalendarLegend>
         <Badge
           className="ml-auto"
           title={`終了済みイベントは ${MAX_EVENTS} 件まで保持し、超えた分は開始日時の古い順に削除されます (録画・字幕・資料も一緒に消えます)。下書き・予定・配信中のイベントは削除されず、この件数にも入りません。`}
@@ -101,7 +90,7 @@ export function CalendarView(props: {
           終了 {endedCount}/{MAX_EVENTS} 件
         </Badge>
         <Badge>JST (UTC+9)</Badge>
-      </div>
+      </CalendarLegend>
       <div className="relative min-h-0 flex-1 [&_.fc-timegrid-slots]:!absolute [&_.fc-timegrid-slots]:!inset-0 [&_.fc-timegrid-slots_table]:!h-full">
         <FullCalendar
           plugins={[dayGridPlugin, timeGridPlugin, interactionPlugin]}
@@ -135,40 +124,26 @@ export function CalendarView(props: {
           }}
         />
         {popover && (
-          <>
-            <div className="fixed inset-0 z-40" onClick={() => setPopover(null)} />
-            <div
-              className="fixed z-50 w-64 rounded-lg border border-line-1 bg-surface-0 p-3 shadow-lg"
-              style={{ top: popover.top, left: popover.left }}
-            >
-              <div className="flex items-start justify-between">
-                <h3 className="text-sm font-medium text-text-primary">{popover.title}</h3>
-                <button
-                  type="button"
-                  onClick={() => setPopover(null)}
-                  className="ml-2 text-text-tertiary hover:text-text-primary"
-                >
-                  &times;
-                </button>
-              </div>
-              <p className="mt-1 text-xs text-text-secondary">
-                {popover.startStr} &ndash; {popover.endStr} JST
-              </p>
-              {popover.eventId && (
-                <button
-                  type="button"
-                  className="mt-2 text-xs font-medium text-brand-text hover:underline"
-                  onClick={() => {
-                    const id = popover.eventId!;
-                    setPopover(null);
-                    props.onEventClick(id);
-                  }}
-                >
-                  詳細を見る &rarr;
-                </button>
-              )}
-            </div>
-          </>
+          <CalendarEventPopover
+            title={popover.title}
+            startStr={popover.startStr}
+            endStr={popover.endStr}
+            top={popover.top}
+            left={popover.left}
+            onClose={() => setPopover(null)}
+            action={
+              popover.eventId
+                ? {
+                    label: "詳細を見る",
+                    onClick: () => {
+                      const id = popover.eventId!;
+                      setPopover(null);
+                      props.onEventClick(id);
+                    },
+                  }
+                : undefined
+            }
+          />
         )}
       </div>
     </div>
