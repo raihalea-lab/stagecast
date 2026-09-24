@@ -13,10 +13,12 @@ interface Props {
   client: StageClient;
   inviteToken: string;
   composerTemplateUrl: string | undefined;
+  /** YouTube へ送出中か (room metadata の egressActive、ADR 0026 D-2)。赤枠と ON AIR はこれにだけ連動する。 */
+  onAir: boolean;
 }
 
 export function PreviewWindow(props: Props) {
-  const { client, inviteToken, composerTemplateUrl } = props;
+  const { client, inviteToken, composerTemplateUrl, onAir } = props;
   const [open, setOpen] = useState(true);
   const [token, setToken] = useState<PreviewTokenResponse | undefined>();
   const [error, setError] = useState<string | undefined>();
@@ -52,8 +54,8 @@ export function PreviewWindow(props: Props) {
       <CardHeader className="flex-row items-center justify-between space-y-0">
         <div className="flex items-center gap-2">
           <CardTitle className="text-base">配信プレビュー</CardTitle>
-          <StatusPill variant="live" className="text-xs">
-            ON AIR
+          <StatusPill variant={onAir ? "live" : "ok"} className="text-xs">
+            {onAir ? "ON AIR" : "PREVIEW"}
           </StatusPill>
         </div>
         <Button variant="ghost" size="sm" onClick={() => setOpen((p) => !p)}>
@@ -84,7 +86,13 @@ export function PreviewWindow(props: Props) {
             <p className="py-4 text-center text-sm text-text-secondary">接続中…</p>
           )}
           {iframeSrc && (
-            <div className="overflow-hidden rounded-lg border-2 border-tally-500 shadow-[0_0_12px_rgba(220,38,38,0.25)]">
+            <div
+              className={
+                onAir
+                  ? "overflow-hidden rounded-lg border-2 border-tally-500 shadow-[0_0_12px_rgba(220,38,38,0.25)]"
+                  : "overflow-hidden rounded-lg border-2 border-preview-500 shadow-preview"
+              }
+            >
               <iframe
                 title="配信プレビュー (composer-template)"
                 src={iframeSrc}

@@ -42,7 +42,6 @@ export * from "./components/stage-shell.js";
 export * from "./components/theme-toggle.js";
 export * from "./components/event-list-item.js";
 export * from "./components/participant-list.js";
-export * from "./components/lifecycle-control.js";
 export * from "./components/egress-control.js";
 export * from "./components/live-stats.js";
 export * from "./components/role-switcher.js";

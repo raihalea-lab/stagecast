@@ -1,7 +1,8 @@
 import * as React from "react";
 import { cn } from "../lib/cn.js";
 
-export type TensionState = "offline" | "connecting" | "live" | "reconnecting" | "ended";
+// standby: room には繋がっているが YouTube へは送出していない (STAGE_UX_PLAN U-3)。
+export type TensionState = "offline" | "connecting" | "standby" | "live" | "reconnecting" | "ended";
 
 export interface LiveTensionBarProps extends Omit<React.HTMLAttributes<HTMLDivElement>, "role"> {
   state: TensionState;
@@ -14,6 +15,7 @@ export interface LiveTensionBarProps extends Omit<React.HTMLAttributes<HTMLDivEl
 const stateClass: Record<TensionState, string> = {
   offline: "bg-surface-3",
   connecting: "bg-info/80 animate-pulse",
+  standby: "bg-preview-500",
   live: "bg-tally-500 animate-tally-pulse",
   reconnecting: "bg-warning/80 animate-pulse",
   ended: "bg-text-tertiary",
@@ -22,6 +24,7 @@ const stateClass: Record<TensionState, string> = {
 const stateLabel: Record<TensionState, string> = {
   offline: "オフライン",
   connecting: "接続中",
+  standby: "待機中",
   live: "配信中",
   reconnecting: "再接続中",
   ended: "終了",
