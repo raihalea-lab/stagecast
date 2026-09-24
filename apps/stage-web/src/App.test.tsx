@@ -43,8 +43,17 @@ function renderApp(props: Omit<ComponentProps<typeof App>, "devices">) {
   );
 }
 
-async function enterAs(role: "speaker" | "moderator", room = new FakeRoomConnector()) {
-  renderApp({ client: new FakeStageClient(join(role)), room, search: "?token=invite-token" });
+async function enterAs(
+  role: "speaker" | "moderator",
+  room = new FakeRoomConnector(),
+  config?: ComponentProps<typeof App>["config"],
+) {
+  renderApp({
+    client: new FakeStageClient(join(role)),
+    room,
+    search: "?token=invite-token",
+    config,
+  });
   fireEvent.click(await screen.findByRole("button", { name: "入室する" }));
   await screen.findByText("evt-1");
   return room;
@@ -63,11 +72,18 @@ describe("App (Tier 0)", () => {
   it("U-3: ON AIR は egressActive のときだけ出る", async () => {
     const room = new FakeRoomConnector();
     room.roomMetadata = encodeRoomMetadata({ egressActive: false });
-    await enterAs("speaker", room);
+    // composerTemplateUrl があると PreviewWindow (登壇者が見る ON AIR の本体) も描画される。
+    await enterAs("speaker", room, {
+      controlApiUrl: "https://api.test",
+      composerTemplateUrl: "https://composer.test",
+    });
+    // ヘッダ pill と PreviewWindow の 2 箇所とも、送出前は PREVIEW。
+    expect(screen.getAllByText("PREVIEW")).toHaveLength(2);
     expect(screen.queryByText("ON AIR")).toBeNull();
 
     act(() => room.emitRoomMetadata(encodeRoomMetadata({ egressActive: true })));
-    expect(await screen.findByText("ON AIR")).toBeTruthy();
+    expect(await screen.findAllByText("ON AIR")).toHaveLength(2);
+    expect(screen.queryByText("PREVIEW")).toBeNull();
   });
 
   it("U-4: admin の再試行でも room metadata を反映する", async () => {

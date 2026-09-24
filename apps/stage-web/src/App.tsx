@@ -186,7 +186,9 @@ export function App(props: {
   // ウィンドウを開いた時刻ではない。オペレーターが知りたいのは「送出してから何分か」。
   const [elapsedSec, setElapsedSec] = useState(0);
   useEffect(() => {
-    if (egressState !== "active") {
+    // stopping 中も数え続ける。停止に失敗すると active に戻るので、そこで 0 から
+    // やり直すと「送出してから何分か」が嘘になる。
+    if (egressState !== "active" && egressState !== "stopping") {
       setElapsedSec(0);
       return;
     }
