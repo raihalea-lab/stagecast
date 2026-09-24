@@ -53,7 +53,7 @@ ADR 0023 と 0027 がこの情報を `provisioning` に書き戻しているが�
 できないこと:
 
 - **グローバルなキーボードショートカットが無い。** `apps/stage-web/src` に `keydown` の処理は 1 件も無い。矢印キーでのレイアウト循環は `LayoutPicker` にフォーカスがある時だけ効く。ページ送りもミュートもマウスでボタンを探す必要がある。
-- **デッキ投影中はレイアウト選択が効かないのに、画面がそれを示さない。** composer は `slideUrl` があれば無条件に `SlideLayout` を描く (`Composer.tsx:303-306`)。stage-web の `LayoutPicker` はその間も普通に押せる。
+- **デッキ投影中はレイアウト選択が効かないのに、画面がそれを示さない。** composer は `slideUrl` があれば無条件に `SlideLayout` を描く (`Composer.tsx:311-317`)。stage-web の `LayoutPicker` はその間も普通に押せる。
 - **管理者にデッキ操作とページ送りが無い。** Admin サブビューの ControlBar (`App.tsx:1052-1056`) はメディア制御と退室だけで、モデレーター向けの `deckControls` と `slidePageControls` を出していない。ADR 0025 D-3 で管理者はモデレーター相当の招待トークンを持っているので、API 側の制約は無い。
 - **任意ページへ飛べない。** `slideGoTo` (`stage-controller.ts:214`) に UI が無い。モデレーターと登壇者に見えるのは `n / total` の数字だけで、今どのページが映っているかはプレビュー iframe 越しにしか分からない。
 - **取り消せない操作に確認が無い。** 強制ミュート、プリセット削除、スライド投影の解除、登壇者をステージから下ろす、の 4 つは即時実行される。配信終了と Egress 停止には `AlertDialog` があるので、部品はある。
@@ -163,7 +163,7 @@ ADR 0026 の「影響」節が書いた「登壇者にも『ON AIR』を出せ�
 
 - フォーカスが `input` / `textarea` / `contentEditable` にある (チャット入力中)
 - `e.isComposing` が真 (日本語 IME の変換中。ここを見落とすと変換確定の Enter や Space が誤爆する)
-- 修飾キー付き (ブラウザのショートカットと衝突させない)
+- Ctrl / Alt / Meta 付き (ブラウザのショートカットと衝突させない)。Shift は `?` の入力に要るので許す
 
 割り当ては最小限にする。
 
@@ -195,7 +195,7 @@ ADR 0026 の「影響」節が書いた「登壇者にも『ON AIR』を出せ�
 #### U-8. デッキ投影中のレイアウトロックを表示する (S)
 
 `slideState.deckUrl` があるとき `LayoutPicker` を `disabled` にし、Card のヘッダに「スライド投影中はレイアウトが固定されます。解除すると戻ります」を出す。
-composer の動作 (`Composer.tsx:303-306`) は変えない。
+composer の動作 (`Composer.tsx:311-317`) は変えない。
 composer 側を変えて「スライドと登壇者を並べる」レイアウトを増やすのは、別の機能要望として扱う。
 
 触る場所: `App.tsx` の `layoutPicker`。
