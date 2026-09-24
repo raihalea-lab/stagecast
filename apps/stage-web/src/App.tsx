@@ -60,6 +60,7 @@ import {
   TabsContent,
   TabsList,
   TabsTrigger,
+  Alert,
   type ChatMessageDisplay,
   type EgressState,
   type LiveStatsData,
@@ -636,12 +637,7 @@ export function App(props: {
             </h1>
             {error && (
               <>
-                <div
-                  role="alert"
-                  className="flex items-start gap-3 rounded-md border border-error/40 bg-error/10 px-4 py-3 text-sm text-error"
-                >
-                  <span className="flex-1">{error}</span>
-                </div>
+                <Alert>{error}</Alert>
                 <div className="flex justify-center gap-3">
                   <Button
                     onClick={() => {
@@ -693,22 +689,7 @@ export function App(props: {
             <p className="text-sm text-text-secondary">招待トークンを入力してステージに参加</p>
           </div>
 
-          {error && (
-            <div
-              role="alert"
-              className="flex items-start gap-3 rounded-md border border-error/40 bg-error/10 px-4 py-3 text-sm text-error"
-            >
-              <span className="flex-1">{error}</span>
-              <Button
-                variant="ghost"
-                size="icon-sm"
-                aria-label="閉じる"
-                onClick={() => setError(undefined)}
-              >
-                ×
-              </Button>
-            </div>
-          )}
+          {error && <Alert onDismiss={() => setError(undefined)}>{error}</Alert>}
 
           {retryInfo && (
             <ReconnectingBanner
@@ -937,36 +918,14 @@ export function App(props: {
     <>
       {reconnecting && <ReconnectingBanner kind="reconnecting" className="mb-4" />}
       {muteNotice && (
-        <div
-          role="alert"
-          className="mb-4 flex items-start gap-3 rounded-md border border-warning/40 bg-warning/10 px-4 py-3 text-sm text-warning"
-        >
-          <span className="flex-1">{muteNotice}</span>
-          <Button
-            variant="ghost"
-            size="icon-sm"
-            aria-label="閉じる"
-            onClick={() => setMuteNotice(undefined)}
-          >
-            ×
-          </Button>
-        </div>
+        <Alert variant="warning" className="mb-4" onDismiss={() => setMuteNotice(undefined)}>
+          {muteNotice}
+        </Alert>
       )}
       {error && (
-        <div
-          role="alert"
-          className="mb-4 flex items-start gap-3 rounded-md border border-error/40 bg-error/10 px-4 py-3 text-sm text-error"
-        >
-          <span className="flex-1">{error}</span>
-          <Button
-            variant="ghost"
-            size="icon-sm"
-            aria-label="閉じる"
-            onClick={() => setError(undefined)}
-          >
-            ×
-          </Button>
-        </div>
+        <Alert className="mb-4" onDismiss={() => setError(undefined)}>
+          {error}
+        </Alert>
       )}
     </>
   );

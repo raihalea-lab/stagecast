@@ -16,6 +16,7 @@ import {
   Card,
   CardContent,
   CardHeader,
+  Alert,
   CardTitle,
   EmptyState,
   Input,
@@ -171,22 +172,7 @@ export function AssetLibrary(props: { client: ControlApiClient; assets: AssetSer
         </CardContent>
       </Card>
 
-      {error && (
-        <div
-          role="alert"
-          className="flex items-start gap-3 rounded-md border border-error/40 bg-error/10 px-4 py-3 text-sm text-error"
-        >
-          <span className="flex-1">{error}</span>
-          <Button
-            variant="ghost"
-            size="icon-sm"
-            aria-label="閉じる"
-            onClick={() => setError(undefined)}
-          >
-            ×
-          </Button>
-        </div>
-      )}
+      {error && <Alert onDismiss={() => setError(undefined)}>{error}</Alert>}
 
       <Card>
         <CardHeader>

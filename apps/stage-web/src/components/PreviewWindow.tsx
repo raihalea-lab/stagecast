@@ -6,7 +6,7 @@
  */
 import { useEffect, useState } from "react";
 import type { PreviewTokenResponse, StageClient } from "../api/stage-client.js";
-import { Button, Card, CardContent, CardHeader, CardTitle, StatusPill } from "@stagecast/ui";
+import { Alert, Button, Card, CardContent, CardHeader, CardTitle, StatusPill } from "@stagecast/ui";
 import { Eye, EyeOff } from "@stagecast/ui/icons";
 
 interface Props {
@@ -74,14 +74,7 @@ export function PreviewWindow(props: Props) {
       </CardHeader>
       {open && (
         <CardContent className="space-y-3 pt-0">
-          {error && (
-            <div
-              role="alert"
-              className="rounded-md border border-error/40 bg-error/10 px-3 py-2 text-sm text-error"
-            >
-              エラー: {error}
-            </div>
-          )}
+          {error && <Alert>エラー: {error}</Alert>}
           {!error && !iframeSrc && (
             <p className="py-4 text-center text-sm text-text-secondary">接続中…</p>
           )}

@@ -31,6 +31,7 @@ import {
   ThemeToggle,
   Toaster,
   TooltipProvider,
+  Alert,
   type ThemeMode,
 } from "@stagecast/ui";
 import {
@@ -347,14 +348,7 @@ export function App(props: {
             <p className="text-sm text-text-secondary">
               ログインが必要です。 Cognito でサインインしてください。
             </p>
-            {auth.error && (
-              <p
-                role="alert"
-                className="rounded-md border border-error/40 bg-error/10 px-3 py-2 text-xs text-error"
-              >
-                {auth.error}
-              </p>
-            )}
+            {auth.error && <Alert>{auth.error}</Alert>}
             <Button onClick={login}>Cognito でログイン</Button>
           </CardContent>
         </Card>
@@ -691,20 +685,9 @@ export function App(props: {
       <AppShell sidebar={sidebar} topBar={topBar}>
         <div className="mx-auto max-w-5xl px-6 py-6">
           {apiError && (
-            <div
-              role="alert"
-              className="mb-4 flex items-start gap-3 rounded-md border border-error/40 bg-error/10 px-4 py-3 text-sm text-error"
-            >
-              <span className="flex-1">{apiError}</span>
-              <Button
-                variant="ghost"
-                size="icon-sm"
-                aria-label="エラーを閉じる"
-                onClick={() => setApiError(undefined)}
-              >
-                ×
-              </Button>
-            </div>
+            <Alert className="mb-4" onDismiss={() => setApiError(undefined)}>
+              {apiError}
+            </Alert>
           )}
           <Routes>
             <Route path="/" element={<Navigate to="/events" replace />} />

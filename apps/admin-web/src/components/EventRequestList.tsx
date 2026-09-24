@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import type { EventRequest } from "@stagecast/shared";
-import { Button, Card, CardContent, CardHeader, CardTitle, EmptyState } from "@stagecast/ui";
+import { Alert, Button, Card, CardContent, CardHeader, CardTitle, EmptyState } from "@stagecast/ui";
 import { Check, X } from "@stagecast/ui/icons";
 import type { ControlApiClient } from "../api/types.js";
 import { toErrorMessage } from "../lib/errors.js";
@@ -67,11 +67,7 @@ export function EventRequestList(props: {
   return (
     <div className="flex flex-col gap-6">
       <h2 className="text-lg font-semibold text-text-primary">イベントリクエスト</h2>
-      {error && (
-        <div className="rounded-md border border-error/40 bg-error/10 px-3 py-2 text-sm text-error">
-          {error}
-        </div>
-      )}
+      {error && <Alert>{error}</Alert>}
       {pending.length === 0 && resolved.length === 0 && (
         <EmptyState title="リクエストなし" description="まだリクエストはありません" />
       )}

@@ -26,6 +26,7 @@ import {
   CardTitle,
   DeviceMeter,
   Label,
+  Alert,
   Tabs,
   TabsContent,
   TabsList,
@@ -158,14 +159,7 @@ export function DeviceCheck(props: {
         <CardTitle className="text-base">デバイステスト</CardTitle>
       </CardHeader>
       <CardContent>
-        {err && (
-          <div
-            role="alert"
-            className="mb-4 rounded-md border border-error/40 bg-error/10 px-3 py-2 text-sm text-error"
-          >
-            {err}
-          </div>
-        )}
+        {err && <Alert className="mb-4">{err}</Alert>}
         <Tabs defaultValue="mic">
           <TabsList className="mb-4">
             <TabsTrigger value="mic" className="gap-1.5">

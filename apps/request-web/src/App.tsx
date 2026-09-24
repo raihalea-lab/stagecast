@@ -20,6 +20,7 @@ import {
   CardHeader,
   CardTitle,
   DateTimeField,
+  Alert,
   Input,
   Label,
   Toaster,
@@ -356,11 +357,7 @@ export function App(props: { controlApiUrl: string }) {
                   </div>
                 ) : (
                   <form onSubmit={submit} className="flex flex-col gap-3">
-                    {error && (
-                      <p className="rounded-md border border-error/40 bg-error/10 px-3 py-2 text-xs text-error">
-                        {error}
-                      </p>
-                    )}
+                    {error && <Alert>{error}</Alert>}
                     <p className="rounded-md border border-brand-500/40 bg-brand-tint px-3 py-2 text-xs text-brand-text">
                       <span className="inline-block rounded bg-brand-600 px-1.5 py-0.5 text-[10px] font-semibold text-white">
                         カレンダーに公開
