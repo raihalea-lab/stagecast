@@ -134,7 +134,7 @@ R12-followup-1〜22 で **stage-web から SFU への WebRTC 接続** が完了 
 10. **N4: 配信前リハーサル機能** (status=draft で 5 分起動 → 自動破棄)
 
 11. **D21: 配信画面 (stage-web) の文言と実装のずれ** → 計画は [`STAGE_UX_PLAN.md`](./STAGE_UX_PLAN.md)。
-    Tier 0 (5 件、`App.tsx` 中心) を 1 PR で。「配信終了」ボタンが API を呼ばない件が最優先
+    ~~Tier 0 (5 件、`App.tsx` 中心) を 1 PR で~~ ✅ 2026-09-24 実装済み。残りは Tier 1 (U-6〜U-12)
 
 ### 🌱 将来 (3 ヶ月以降)
 
@@ -399,6 +399,10 @@ presentation / materials など招待認証つきの約 10 経路) も直後に 
 
 ### D21. 配信画面 (stage-web) の文言と実装がずれている (2026-09-20 調査)
 
+> ✅ **Tier 0 の 5 件は 2026-09-24 に実装済み**。「配信終了」ボタンは消して管理画面への案内に置き換え、
+> `LifecycleControl` は削除。本来の形 (配信画面からの終了) は U-14 として ADR 待ち。
+> 残りは [`STAGE_UX_PLAN.md`](./STAGE_UX_PLAN.md) の Tier 1 / Tier 2。
+
 配信オペレーターの動線で stage-web を見直したところ、「機能が無い」より
 「ADR や画面の文言どおりに動いていない」が目立った。X 節と同じ失敗クラス。
 計画と各項目の触る場所は [`STAGE_UX_PLAN.md`](./STAGE_UX_PLAN.md) にまとめた。
@@ -558,8 +562,8 @@ FilterExpression に置き換えれば転送量は消える (RCU は変わらな
 
 1. **D8 残 1**: control-api の LiveKit 呼び出しの再試行。ADR 0026 で `egressId` が
    サーバに乗ったので、二重 Egress を避けつつ包める
-2. **D21 Tier 0**: 配信画面の「配信終了」が API を呼ばない件と、送出状態と無関係に点く
-   「ON AIR」。どちらも本番のオペレーターを誤らせるので D8 と同じ優先度で
+2. ~~**D21 Tier 0**: 配信画面の「配信終了」が API を呼ばない件と、送出状態と無関係に点く
+   「ON AIR」~~ ✅ 2026-09-24 実装済み。次は Tier 1 の U-6 (ショートカット) と U-11 (起動段階の表示)
    ([`STAGE_UX_PLAN.md`](./STAGE_UX_PLAN.md))
 3. **R7**: 統合テスト CI workflow。異常系が実機でしか分からない状態が ADR 0027 / 0028 の
    周辺と全部同じ失敗クラスなので、ここが一番効く

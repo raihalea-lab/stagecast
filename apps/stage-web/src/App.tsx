@@ -3,7 +3,8 @@
  *
  * D7: StageShell + ControlBar ベースの Speaker サブビュー。
  * D8: Moderator サブビュー (2 カラム: PreviewWindow + ParticipantList + LayoutPicker)。
- * D9: Admin サブビュー (LivePreview + LifecycleControl + EgressControl + LiveStats + RoleSwitcher)。
+ * D9: Admin サブビュー (LivePreview + EgressControl + LiveStats + RoleSwitcher)。
+ *     イベントの終了 (スタック破棄) は admin-web だけが持つ (STAGE_UX_PLAN U-1 / U-14)。
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { HttpStageClient, type StageClient } from "./api/stage-client.js";
@@ -40,7 +41,6 @@ import {
   Input,
   Label,
   LayoutPicker,
-  LifecycleControl,
   LiveStats,
   ParticipantList,
   ProductionControl,
@@ -63,7 +63,6 @@ import {
   type EgressState,
   type LiveStatsData,
   type ParticipantInfo,
-  type RoomState,
   type TensionState,
 } from "@stagecast/ui";
 import {
@@ -182,10 +181,21 @@ export function App(props: {
   // ADR 0022 D-1: 投影中のデッキ参照。ページ送りのたびにサーバーへ添えて送る。
   const deckAssetRef = useRef<DeckRef | undefined>(undefined);
   const [muteNotice, setMuteNotice] = useState<string | undefined>();
-  const [roomState, setRoomState] = useState<RoomState>("stopped");
   const [egressState, setEgressState] = useState<EgressState>("idle");
+  // 送出中の経過秒 (U-5)。基点は「送出が active になった時刻」であって、
+  // ウィンドウを開いた時刻ではない。オペレーターが知りたいのは「送出してから何分か」。
   const [elapsedSec, setElapsedSec] = useState(0);
-  const elapsedRef = useRef<ReturnType<typeof setInterval>>(undefined);
+  useEffect(() => {
+    if (egressState !== "active") {
+      setElapsedSec(0);
+      return;
+    }
+    const id = setInterval(() => setElapsedSec((s) => s + 1), 1000);
+    return () => clearInterval(id);
+  }, [egressState]);
+  // 送出中かどうかの正は room metadata の egressActive (ADR 0026 D-2)。
+  // 「ON AIR」表示はこれにだけ連動させる (U-3)。room に繋がっただけでは点けない。
+  const onAir = egressState === "active";
   const previewIframeRef = useRef<HTMLIFrameElement>(null);
 
   /**
@@ -216,12 +226,21 @@ export function App(props: {
     applyRoomMetadataRef.current = applyRoomMetadata;
   }, [applyRoomMetadata]);
 
+  /**
+   * admin 直接接続の後処理。初回と「再試行」の両方から呼ぶ (U-4)。
+   * 接続時点の metadata に現在のレイアウトと送出状態が入っている (ADR 0025 D-2 / 0026 D-2)。
+   * 再試行経路だけここを飛ばしていて、grid / idle の初期表示で始まっていた。
+   */
+  const finishAdminConnect = useCallback(() => {
+    setSession(controller.currentSession);
+    setMyIdentity(controller.localIdentity ?? "");
+    applyRoomMetadata(controller.roomMetadata);
+  }, [controller, applyRoomMetadata]);
+
   useEffect(() => {
     controller.onDisconnected((reason) => {
       setSession(undefined);
       setReconnecting(false);
-      setRoomState("stopped");
-      clearInterval(elapsedRef.current);
       // 自分で押した退室を「接続に失敗しました」と出さない。
       if (reason === "CLIENT_INITIATED") return;
       // reason を出さないと「なぜ切れたか」が誰にも分からない (DUPLICATE_IDENTITY の切り分けに要る)。
@@ -316,20 +335,12 @@ export function App(props: {
     setBusy(true);
     controller
       .connectAdmin(adminDirect.livekitUrl, adminDirect.livekitToken, adminDirect.eventId)
-      .then(() => {
-        setSession(controller.currentSession);
-        setMyIdentity(controller.localIdentity ?? "");
-        // 接続時点の metadata に現在のレイアウトと送出状態が入っている (ADR 0025 D-2 / 0026 D-2)。
-        // 後から開いたウィンドウが初期値から始まらないために要る。
-        applyRoomMetadata(controller.roomMetadata);
-        setRoomState("running");
-        elapsedRef.current = setInterval(() => setElapsedSec((s) => s + 1), 1000);
-      })
+      .then(finishAdminConnect)
       .catch((e: unknown) => {
         setError(e instanceof Error ? e.message : String(e));
       })
       .finally(() => setBusy(false));
-  }, [adminDirect, controller]);
+  }, [adminDirect, controller, finishAdminConnect]);
 
   const join = async () => {
     setError(undefined);
@@ -588,7 +599,13 @@ export function App(props: {
     [],
   );
 
-  const tension: TensionState = !session ? "offline" : reconnecting ? "reconnecting" : "live";
+  const tension: TensionState = !session
+    ? "offline"
+    : reconnecting
+      ? "reconnecting"
+      : onAir
+        ? "live"
+        : "standby";
 
   const handleSendChat = useCallback(
     (text: string) => {
@@ -647,12 +664,7 @@ export function App(props: {
                           adminDirect.livekitToken,
                           adminDirect.eventId,
                         )
-                        .then(() => {
-                          setSession(controller.currentSession);
-                          setMyIdentity(controller.localIdentity ?? "");
-                          setRoomState("running");
-                          elapsedRef.current = setInterval(() => setElapsedSec((s) => s + 1), 1000);
-                        })
+                        .then(finishAdminConnect)
                         .catch((e: unknown) => {
                           setError(e instanceof Error ? e.message : String(e));
                         })
@@ -904,7 +916,6 @@ export function App(props: {
       onClick={wrap(() =>
         controller.leave().then(() => {
           setSession(undefined);
-          clearInterval(elapsedRef.current);
         }),
       )}
     >
@@ -917,8 +928,8 @@ export function App(props: {
     <div className="flex w-full items-center justify-between">
       <div className="flex items-center gap-3">
         <h1 className="text-sm font-semibold text-text-primary">{session.eventId}</h1>
-        <StatusPill variant={reconnecting ? "warn" : "live"} className="text-xs">
-          {reconnecting ? "再接続中" : "LIVE"}
+        <StatusPill variant={reconnecting ? "warn" : onAir ? "live" : "ok"} className="text-xs">
+          {reconnecting ? "再接続中" : onAir ? "ON AIR" : "PREVIEW"}
         </StatusPill>
       </div>
       <div className="flex items-center gap-2">
@@ -1015,6 +1026,45 @@ export function App(props: {
     </Card>
   );
 
+  // ADR 0026 D-3: 開始・停止はモデレーターも操作できる (API もクライアントも通している)。
+  // 描画が Admin だけだったので、Moderator サブビューにも同じものを出す (U-2)。
+  const egressControl = (
+    <EgressControl
+      state={egressState}
+      targets={[
+        { kind: "youtube", label: "YouTube Live" },
+        { kind: "s3", label: "S3 録画" },
+      ]}
+      // サーバに送出を指示する。ここが空だったので、押しても自分の画面の表示が
+      // 変わるだけで、実際には何も起きていなかった (ADR 0026)。
+      // 状態は metadata で返ってくるので、成功時に自分で active にはしない。
+      onStart={wrap(async () => {
+        if (!inviteToken) throw new Error("配信操作の資格情報がありません");
+        setEgressState("starting");
+        // 失敗したら "starting" のまま固まる (EgressControl は idle/error でしか
+        // 開始ボタンを押せない)。error に落としてやり直せるようにする。
+        try {
+          await client.startEgress(inviteToken);
+        } catch (e) {
+          setEgressState("error");
+          throw e;
+        }
+      })}
+      onStop={wrap(async () => {
+        if (!inviteToken) throw new Error("配信操作の資格情報がありません");
+        setEgressState("stopping");
+        try {
+          await client.stopEgress(inviteToken);
+        } catch (e) {
+          // **停止に失敗した = まだ送出中**。error に落とすと画面に「開始」ボタンが
+          // 出てしまい、押すと二重送出になる。active に戻して停止を再試行させる。
+          setEgressState("active");
+          throw e;
+        }
+      })}
+    />
+  );
+
   const participantList = (
     <ParticipantList
       participants={participants.map((p) => toParticipantInfo(p, speakerVisibility))}
@@ -1065,14 +1115,20 @@ export function App(props: {
                 <CardHeader className="flex-row items-center justify-between space-y-0">
                   <div className="flex items-center gap-2">
                     <CardTitle className="text-base">配信プレビュー</CardTitle>
-                    <StatusPill variant="live" className="text-xs">
-                      ON AIR
+                    <StatusPill variant={onAir ? "live" : "ok"} className="text-xs">
+                      {onAir ? "ON AIR" : "PREVIEW"}
                     </StatusPill>
                   </div>
                 </CardHeader>
                 <CardContent className="pt-0">
                   {props.config?.composerTemplateUrl && adminDirect?.previewToken ? (
-                    <div className="overflow-hidden rounded-lg border-2 border-tally-500 shadow-[0_0_12px_rgba(220,38,38,0.25)]">
+                    <div
+                      className={
+                        onAir
+                          ? "overflow-hidden rounded-lg border-2 border-tally-500 shadow-[0_0_12px_rgba(220,38,38,0.25)]"
+                          : "overflow-hidden rounded-lg border-2 border-preview-500 shadow-preview"
+                      }
+                    >
                       <iframe
                         ref={previewIframeRef}
                         title="配信プレビュー (composer-template)"
@@ -1097,51 +1153,13 @@ export function App(props: {
           <ResizableHandle withHandle />
           <ResizablePanel defaultSize={35} minSize={20}>
             <aside className="space-y-4 pl-4">
-              <LifecycleControl
-                state={roomState}
-                elapsedSec={elapsedSec}
-                participantCount={participants.length}
-                onEnd={wrap(async () => {
-                  await controller.leave();
-                  setSession(undefined);
-                  setRoomState("stopped");
-                  clearInterval(elapsedRef.current);
-                })}
-              />
-              <EgressControl
-                state={egressState}
-                targets={[
-                  { kind: "youtube", label: "YouTube Live" },
-                  { kind: "s3", label: "S3 録画" },
-                ]}
-                // ADR 0026 D-3: サーバに送出を指示する。ここが空だったので、押しても
-                // 自分の画面の表示が変わるだけで、実際には何も起きていなかった。
-                // 状態は metadata で返ってくるので、成功時に自分で active にはしない。
-                onStart={wrap(async () => {
-                  if (!inviteToken) throw new Error("配信操作の資格情報がありません");
-                  setEgressState("starting");
-                  // 失敗したら "starting" のまま固まる (EgressControl は idle/error でしか
-                  // 開始ボタンを押せない)。error に落としてやり直せるようにする。
-                  try {
-                    await client.startEgress(inviteToken);
-                  } catch (e) {
-                    setEgressState("error");
-                    throw e;
-                  }
-                })}
-                onStop={wrap(async () => {
-                  if (!inviteToken) throw new Error("配信操作の資格情報がありません");
-                  setEgressState("stopping");
-                  try {
-                    await client.stopEgress(inviteToken);
-                  } catch (e) {
-                    // **停止に失敗した = まだ送出中**。error に落とすと画面に「開始」ボタンが
-                    // 出てしまい、押すと二重送出になる。active に戻して停止を再試行させる。
-                    setEgressState("active");
-                    throw e;
-                  }
-                })}
-              />
+              {egressControl}
+              {/* U-1: 「配信終了」ボタンは room から抜けるだけで API を呼んでいなかった。
+                  stage-web の資格情報はモデレーター相当の招待トークンだけなので、
+                  スタック破棄を許すと権限表 (DESIGN.md 4 章) を破る。本来の形は U-14 (ADR)。 */}
+              <p className="text-xs text-text-tertiary">
+                イベントの終了は管理画面から行ってください。ここでの「退室」は自分の接続を切るだけです。
+              </p>
               <Tabs defaultValue="control" className="w-full">
                 <TabsList className="w-full">
                   <TabsTrigger value="control" className="flex-1">
@@ -1251,12 +1269,14 @@ export function App(props: {
                 client={client}
                 inviteToken={inviteToken}
                 composerTemplateUrl={props.config?.composerTemplateUrl}
+                onAir={onAir}
               />
             </div>
           </ResizablePanel>
           <ResizableHandle withHandle />
           <ResizablePanel defaultSize={35} minSize={20}>
             <aside className="space-y-4 pl-4">
+              {egressControl}
               <Tabs defaultValue="control" className="w-full">
                 <TabsList className="w-full">
                   <TabsTrigger value="control" className="flex-1">
@@ -1346,6 +1366,7 @@ export function App(props: {
         client={client}
         inviteToken={inviteToken}
         composerTemplateUrl={props.config?.composerTemplateUrl}
+        onAir={onAir}
       />
     </StageShell>
   );

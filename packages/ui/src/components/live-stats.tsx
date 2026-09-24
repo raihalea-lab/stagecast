@@ -21,67 +21,58 @@ export interface LiveStatsProps {
 }
 
 /**
- * 配信統計を 5 指標 mono numerics で表示。 計測機器感の中核。
+ * 配信統計を mono numerics で表示。 計測機器感の中核。
+ *
+ * 値の無い指標は出さない (STAGE_UX_PLAN U-5)。「-」が並ぶと「壊れている」と読まれる。
+ * 字幕遅延などは届く経路ができたら (U-13) 値を渡すだけで戻る。
  */
 export function LiveStats({ stats, className }: LiveStatsProps) {
-  const items: { label: string; value: React.ReactNode }[] = [
-    {
+  const items: { label: string; value: React.ReactNode }[] = [];
+  if (stats.bitrateKbps !== undefined) {
+    items.push({
       label: "ビットレート",
-      value:
-        stats.bitrateKbps !== undefined ? (
-          <MonoNumber value={stats.bitrateKbps} unit="kbps" width={5} align="left" />
-        ) : (
-          <MonoNumber value="-" tone="tertiary" align="left" />
-        ),
-    },
-    {
+      value: <MonoNumber value={stats.bitrateKbps} unit="kbps" width={5} align="left" />,
+    });
+  }
+  if (stats.droppedFrames !== undefined) {
+    items.push({
       label: "ドロップ",
-      value:
-        stats.droppedFrames !== undefined ? (
-          <MonoNumber
-            value={stats.droppedFrames}
-            width={4}
-            tone={stats.droppedFrames > 0 ? "warn" : "primary"}
-            align="left"
-          />
-        ) : (
-          <MonoNumber value="-" tone="tertiary" align="left" />
-        ),
-    },
-    {
+      value: (
+        <MonoNumber
+          value={stats.droppedFrames}
+          width={4}
+          tone={stats.droppedFrames > 0 ? "warn" : "primary"}
+          align="left"
+        />
+      ),
+    });
+  }
+  if (stats.captionLagMs !== undefined) {
+    items.push({
       label: "字幕遅延",
-      value:
-        stats.captionLagMs !== undefined ? (
-          <MonoNumber
-            value={stats.captionLagMs}
-            unit="ms"
-            width={4}
-            tone={stats.captionLagMs > 3000 ? "warn" : "primary"}
-            align="left"
-          />
-        ) : (
-          <MonoNumber value="-" tone="tertiary" align="left" />
-        ),
-    },
-    {
+      value: (
+        <MonoNumber
+          value={stats.captionLagMs}
+          unit="ms"
+          width={4}
+          tone={stats.captionLagMs > 3000 ? "warn" : "primary"}
+          align="left"
+        />
+      ),
+    });
+  }
+  if (stats.participantCount !== undefined) {
+    items.push({
       label: "参加者",
-      value:
-        stats.participantCount !== undefined ? (
-          <MonoNumber value={stats.participantCount} width={2} align="left" />
-        ) : (
-          <MonoNumber value="-" tone="tertiary" align="left" />
-        ),
-    },
-    {
+      value: <MonoNumber value={stats.participantCount} width={2} align="left" />,
+    });
+  }
+  if (stats.elapsedSec !== undefined) {
+    items.push({
       label: "経過",
-      value:
-        stats.elapsedSec !== undefined ? (
-          <MonoNumber value={stats.elapsedSec} unit="s" width={5} align="left" />
-        ) : (
-          <MonoNumber value="-" tone="tertiary" align="left" />
-        ),
-    },
-  ];
+      value: <MonoNumber value={stats.elapsedSec} unit="s" width={5} align="left" />,
+    });
+  }
   return (
     <section
       aria-label="配信統計"

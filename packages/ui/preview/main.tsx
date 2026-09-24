@@ -24,7 +24,6 @@ import {
   Input,
   Label,
   LayoutPicker,
-  LifecycleControl,
   LiveStats,
   LiveTensionBar,
   MonoNumber,
@@ -327,16 +326,7 @@ function PreviewApp() {
             />
           </Section>
 
-          <Section title="LifecycleControl / EgressControl / LiveStats">
-            <LifecycleControl
-              className="w-80"
-              state="running"
-              elapsedSec={1842}
-              participantCount={9}
-              onEnd={() => {
-                toast("配信終了");
-              }}
-            />
+          <Section title="EgressControl / LiveStats">
             <EgressControl
               className="w-80"
               state="active"
