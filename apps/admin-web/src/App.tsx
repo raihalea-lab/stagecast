@@ -64,7 +64,7 @@ import { SettingsPage } from "./components/SettingsPage.js";
 import { CognitoAuthClient, cognitoConfig } from "./auth/cognito.js";
 import type { RuntimeConfig } from "./config.js";
 import { HttpMaterialsService, type MaterialsService } from "./api/materials-service.js";
-import { toErrorMessage } from "./lib/errors.js";
+import { toErrorMessage } from "@stagecast/shared";
 
 interface AuthState {
   status: "loading" | "anonymous" | "authenticated";
@@ -738,7 +738,7 @@ export function App(props: {
           </Routes>
         </div>
       </AppShell>
-      <Toaster />
+      <Toaster theme={theme} />
     </TooltipProvider>
   );
 }

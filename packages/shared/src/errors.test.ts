@@ -1,7 +1,12 @@
 import { describe, expect, it } from "vitest";
 import { toErrorMessage } from "./errors.js";
 
-describe("toErrorMessage (admin-web)", () => {
+describe("toErrorMessage", () => {
+  it("Error でも文字列でもないときの文言を呼び出し側で決められる", () => {
+    expect(toErrorMessage(undefined, "送信に失敗しました")).toBe("送信に失敗しました");
+    expect(toErrorMessage(new Error("x"), "送信に失敗しました")).toBe("x");
+  });
+
   it("末尾 JSON ボディの error フィールドを抽出する", () => {
     const err = new Error('POST /events failed (400): {"error":"title is required"}');
     expect(toErrorMessage(err)).toBe("title is required");

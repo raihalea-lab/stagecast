@@ -5,6 +5,7 @@
  * D7: tally 枠 (赤=on-air / 緑=preview) で囲み、Card + Button で再構成。
  */
 import { useEffect, useState } from "react";
+import { toErrorMessage } from "@stagecast/shared";
 import type { PreviewTokenResponse, StageClient } from "../api/stage-client.js";
 import { Alert, Button, Card, CardContent, CardHeader, CardTitle, StatusPill } from "@stagecast/ui";
 import { Eye, EyeOff } from "@stagecast/ui/icons";
@@ -33,7 +34,7 @@ export function PreviewWindow(props: Props) {
         if (!cancelled) setToken(t);
       })
       .catch((err: unknown) => {
-        if (!cancelled) setError(err instanceof Error ? err.message : String(err));
+        if (!cancelled) setError(toErrorMessage(err));
       });
     return () => {
       cancelled = true;

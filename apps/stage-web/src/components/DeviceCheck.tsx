@@ -6,6 +6,7 @@
  * D7: Tabs[マイク|カメラ] + DeviceMeter + Card で再構成。
  */
 import { useEffect, useRef, useState } from "react";
+import { toErrorMessage } from "@stagecast/shared";
 import {
   loadPreferredDevices,
   resolveSelected,
@@ -80,7 +81,7 @@ export function DeviceCheck(props: {
         setCamId(c);
         onChange(toPrefs(m, c));
       } catch (e) {
-        setErr(e instanceof Error ? e.message : "デバイスにアクセスできません");
+        setErr(toErrorMessage(e, "デバイスにアクセスできません"));
       }
     })();
     return () => {

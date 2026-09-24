@@ -21,7 +21,7 @@ import type {
   ControlApiClient,
   IssuedInvite,
 } from "../api/types.js";
-import { toErrorMessage } from "../lib/errors.js";
+import { toErrorMessage } from "@stagecast/shared";
 import {
   MATERIAL_ACCEPT,
   type MaterialItem,

@@ -11,7 +11,7 @@ import type {
   YouTubeSettingsStatus,
 } from "@stagecast/shared";
 import type { ControlApiClient } from "../api/types.js";
-import { toErrorMessage } from "../lib/errors.js";
+import { toErrorMessage } from "@stagecast/shared";
 import {
   AlertDialog,
   AlertDialogAction,
