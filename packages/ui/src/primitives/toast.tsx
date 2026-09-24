@@ -12,7 +12,9 @@ export type ToasterProps = React.ComponentProps<typeof SonnerToaster>;
 export function Toaster(props: ToasterProps) {
   return (
     <SonnerToaster
-      theme="dark"
+      // 色はトークン (bg-surface-2 等) で追従するが、sonner 内蔵のアイコン色は theme で決まる。
+      // ダーク固定だとライトテーマの画面で浮くので、アプリが自分のテーマを渡す。
+      theme="system"
       position="bottom-right"
       toastOptions={{
         classNames: {

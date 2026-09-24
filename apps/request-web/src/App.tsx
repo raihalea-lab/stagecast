@@ -11,6 +11,7 @@ import {
   EVENT_TIME_STEP_MIN,
   formatEventTime,
   toDatetimeLocal,
+  toErrorMessage,
 } from "@stagecast/shared";
 import {
   Button,
@@ -281,7 +282,7 @@ export function App(props: { controlApiUrl: string }) {
       setDescription("");
       void fetchPublicData();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "送信に失敗しました");
+      setError(toErrorMessage(err, "送信に失敗しました"));
     } finally {
       setSubmitting(false);
     }
@@ -457,7 +458,7 @@ export function App(props: { controlApiUrl: string }) {
           </div>
         )}
       </div>
-      <Toaster />
+      <Toaster theme="light" />
     </div>
   );
 }

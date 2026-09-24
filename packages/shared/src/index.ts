@@ -18,3 +18,4 @@ export * from "./layout-protocol.js";
 export * from "./event-request.js";
 export * from "./materials.js";
 export * from "./datetime.js";
+export * from "./errors.js";

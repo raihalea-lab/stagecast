@@ -23,6 +23,7 @@ import {
   isSameDeck,
   materialKey,
   roleFromIdentity,
+  toErrorMessage,
   type AssetMetadata,
   type DeckRef,
   type EffectConfig,
@@ -331,7 +332,7 @@ export function App(props: {
       .connectAdmin(adminDirect.livekitUrl, adminDirect.livekitToken, adminDirect.eventId)
       .then(finishAdminConnect)
       .catch((e: unknown) => {
-        setError(e instanceof Error ? e.message : String(e));
+        setError(toErrorMessage(e));
       })
       .finally(() => setBusy(false));
   }, [adminDirect, controller, finishAdminConnect]);
@@ -585,7 +586,7 @@ export function App(props: {
       try {
         await fn();
       } catch (e) {
-        setError(e instanceof Error ? e.message : String(e));
+        setError(toErrorMessage(e));
       } finally {
         setBusy(false);
       }
@@ -652,7 +653,7 @@ export function App(props: {
                         )
                         .then(finishAdminConnect)
                         .catch((e: unknown) => {
-                          setError(e instanceof Error ? e.message : String(e));
+                          setError(toErrorMessage(e));
                         })
                         .finally(() => setBusy(false));
                     }}
@@ -955,7 +956,7 @@ export function App(props: {
     }
     void client
       .setLayoutState(inviteToken, nextLayout, nextFocus)
-      .catch((err: unknown) => setError(err instanceof Error ? err.message : String(err)));
+      .catch((err: unknown) => setError(toErrorMessage(err)));
   };
 
   const layoutPicker = (

@@ -12,7 +12,7 @@ import {
 } from "@stagecast/ui";
 import { Check, X } from "@stagecast/ui/icons";
 import type { ControlApiClient } from "../api/types.js";
-import { toErrorMessage } from "../lib/errors.js";
+import { toErrorMessage } from "@stagecast/shared";
 
 export function EventRequestList(props: {
   client: ControlApiClient;

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import type { AssetMetadata } from "@stagecast/shared";
 import type { AssetService, ControlApiClient } from "../api/types.js";
-import { toErrorMessage } from "../lib/errors.js";
+import { toErrorMessage } from "@stagecast/shared";
 import {
   AlertDialog,
   AlertDialogAction,
