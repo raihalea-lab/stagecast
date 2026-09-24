@@ -44,10 +44,15 @@ interface Parts {
   minute: string;
 }
 
-function splitValue(value: string): Parts {
+/**
+ * 刻みに合わない分 (複製元が 09:05 など) はここで捨てる。抱えたままにすると、日付だけ
+ * 変えたときに 09:05 を返してしまい、画面からは直せない検証エラーが残る。
+ */
+function splitValue(value: string, minutes: readonly string[]): Parts {
   const m = /^(\d{4}-\d{2}-\d{2})T(\d{2}):(\d{2})/.exec(value);
   if (!m) return { date: "", hour: "", minute: "" };
-  return { date: m[1] ?? "", hour: m[2] ?? "", minute: m[3] ?? "" };
+  const minute = m[3] ?? "";
+  return { date: m[1] ?? "", hour: m[2] ?? "", minute: minutes.includes(minute) ? minute : "" };
 }
 
 function joinValue(p: Parts): string {
@@ -62,16 +67,17 @@ export function DateTimeField({
   disabled,
   className,
 }: DateTimeFieldProps) {
+  const minutes = React.useMemo(() => minuteOptions(stepMinutes), [stepMinutes]);
   // 日付だけ・時だけが決まった途中の状態は親には "" で見えるので、部品側で覚えておく。
-  const [parts, setParts] = React.useState<Parts>(() => splitValue(value));
+  const [parts, setParts] = React.useState<Parts>(() => splitValue(value, minutes));
   const emitted = React.useRef(value);
   React.useEffect(() => {
     // 親が別の値を流し込んだとき (複製・リセット) だけ追従する。自分が返した値なら何もしない。
     if (value !== emitted.current) {
       emitted.current = value;
-      setParts(splitValue(value));
+      setParts(splitValue(value, minutes));
     }
-  }, [value]);
+  }, [value, minutes]);
 
   const update = (patch: Partial<Parts>) => {
     const next = { ...parts, ...patch };
@@ -80,8 +86,6 @@ export function DateTimeField({
     emitted.current = joined;
     onChange(joined);
   };
-
-  const minutes = React.useMemo(() => minuteOptions(stepMinutes), [stepMinutes]);
 
   return (
     <div className={cn("flex items-center gap-2", className)}>
@@ -107,8 +111,7 @@ export function DateTimeField({
       </Select>
       <span className="text-text-tertiary">:</span>
       <Select
-        // 刻みに合わない分 (複製元が 09:05 など) は選択肢に無いので placeholder に落ちる。
-        value={minutes.includes(parts.minute) ? parts.minute : ""}
+        value={parts.minute}
         onValueChange={(minute) => update({ minute })}
         disabled={disabled}
       >

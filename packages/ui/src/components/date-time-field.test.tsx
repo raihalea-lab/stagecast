@@ -37,4 +37,11 @@ describe("DateTimeField", () => {
     render(<DateTimeField id="starts" value="2026-07-01T09:05" onChange={() => {}} />);
     expect(screen.getByRole("combobox", { name: "分" }).textContent).not.toContain("05");
   });
+
+  it("刻みに合わない分を抱えたまま日付だけ変えても、その分は返さない", () => {
+    const onChange = vi.fn();
+    render(<DateTimeField id="starts" value="2026-07-01T09:05" onChange={onChange} />);
+    fireEvent.change(document.getElementById("starts")!, { target: { value: "2026-07-15" } });
+    expect(onChange).toHaveBeenLastCalledWith("");
+  });
 });
