@@ -21,8 +21,8 @@
     "pdfjs-dist": "^6.3.289"
   },
   "devDependencies": {
-    "@types/aws-lambda": "^8.10.163",
-    "@types/node": "^24.13.5",
+    "@types/aws-lambda": "^8.10.164",
+    "@types/node": "^26.6.3",
     "typescript": "^6.0.3",
     "vitest": "^4.1.0"
   }
